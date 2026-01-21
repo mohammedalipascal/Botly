@@ -90,28 +90,43 @@ async function startBot() {
         });
 
         // معالجة الرسائل - رد ترحيبي بسيط فقط
-        sock.ev.on('messages.upsert', async ({ messages }) => {
+        sock.ev.on('messages.upsert', async ({ messages, type }) => {
+            // تجاهل الرسائل من نوع "notify" فقط
+            if (type !== 'notify') return;
+            
             const msg = messages[0];
+            if (!msg || !msg.message) return;
             
-            // تجاهل الرسائل القديمة والرسائل من البوت نفسه
-            if (!msg.message || msg.key.fromMe) return;
+            // تجاهل الرسائل من البوت نفسه
+            if (msg.key.fromMe) {
+                console.log('⏭️ تجاهل رسالة من البوت نفسه');
+                return;
+            }
             
+            // تجاهل رسائل البرودكاست والحالات
             const sender = msg.key.remoteJid;
+            if (sender === 'status@broadcast') {
+                console.log('⏭️ تجاهل رسالة حالة');
+                return;
+            }
+            
             const messageText = 
                 msg.message.conversation ||
                 msg.message.extendedTextMessage?.text ||
                 msg.message.imageMessage?.caption ||
                 '';
 
-            console.log(`📩 رسالة جديدة من ${sender}`);
+            console.log(`\n📩 رسالة جديدة من ${sender}`);
             console.log(`📝 النص: ${messageText}`);
+            console.log(`🔍 fromMe: ${msg.key.fromMe}`);
 
-            // الرد الترحيبي التلقائي
+            // الرد الترحيبي التلقائي مرة واحدة فقط
             try {
                 await sock.sendMessage(sender, { 
                     text: `👋 *مرحباً بك!*
 
-أنا بوت واتساب 🤖
+أنا Botly مساعدك الذكي 
+من تصميم مقداد
 
 شكراً لرسالتك:
 "${messageText}"
@@ -119,7 +134,7 @@ async function startBot() {
 البوت يعمل بنجاح! ✅` 
                 });
                 
-                console.log('✅ تم الرد على الرسالة');
+                console.log('✅ تم الرد على الرسالة\n');
             } catch (error) {
                 console.error('❌ خطأ في إرسال الرد:', error);
             }
