@@ -273,15 +273,13 @@ async function startBot() {
                 // الرد مرة واحدة فقط
                 try {
                     await sock.sendMessage(sender, { 
-                        text: `👋 *مرحباً بك!*
+                        text: `Welcome! I'm Botly, the smartest tool, by Miqdad.
 
-أنا Botly مساعدك الذكي 
-من تصميم مقداد
-
+You will receive a reply soon!
 شكراً لرسالتك:
 "${messageText}"
 
-البوت يعمل بنجاح! ✅` 
+` 
                     }, {
                         quoted: msg // الرد على الرسالة نفسها
                     });
