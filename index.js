@@ -19,6 +19,27 @@ server.listen(PORT, () => {
     console.log(`🌐 HTTP Server running on port ${PORT}`);
 });
 
+// دالة عرض QR Code في اللوجات
+function displayQR(qr) {
+    console.log('\n\n');
+    console.log('█████████████████████████████████████████████████████');
+    console.log('█                                                   █');
+    console.log('█          QR CODE - امسحه بواتساب الآن!           █');
+    console.log('█                                                   █');
+    console.log('█████████████████████████████████████████████████████');
+    console.log('\nQR Code Data:');
+    console.log(qr);
+    console.log('\n');
+    console.log('🔗 استخدم هذا الرابط لتوليد QR Code:');
+    console.log(`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qr)}`);
+    console.log('\n');
+    console.log('📱 الخطوات:');
+    console.log('1. انسخ الرابط أعلاه');
+    console.log('2. افتحه في المتصفح');
+    console.log('3. امسح الكود بواتساب');
+    console.log('\n█████████████████████████████████████████████████████\n\n');
+}
+
 // دالة بدء البوت
 async function startBot() {
     try {
@@ -28,7 +49,7 @@ async function startBot() {
         
         const sock = makeWASocket({
             auth: state,
-            printQRInTerminal: true,
+            printQRInTerminal: false, // تم تعطيله
             logger: P({ level: 'silent' }),
             browser: ['WhatsApp Bot', 'Chrome', '1.0.0']
         });
@@ -40,11 +61,9 @@ async function startBot() {
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect, qr } = update;
             
+            // عرض QR Code يدوياً
             if (qr) {
-                console.log('\n📱 ════════════════════════════════════');
-                console.log('   QR CODE جاهز للمسح!');
-                console.log('   افتح واتساب > الأجهزة المرتبطة');
-                console.log('════════════════════════════════════\n');
+                displayQR(qr);
             }
             
             if (connection === 'close') {
