@@ -1,5 +1,6 @@
 const { default: makeWASocket, DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } = require('@whiskeysockets/baileys');
 const pino = require('pino');
+const qrcode = require('qrcode-terminal');
 const fs = require('fs');
 const path = require('path');
 
@@ -18,7 +19,7 @@ async function createSession() {
             console.log('🗑️  حذف الجلسة القديمة\n');
         }
 
-        // ✅ جلب أحدث إصدار من Baileys (مهم جداً!)
+        // ✅ جلب أحدث إصدار من Baileys
         console.log('📦 جاري التحقق من أحدث إصدار Baileys...');
         const { version, isLatest } = await fetchLatestBaileysVersion();
         console.log(`✅ إصدار Baileys: ${version.join('.')}`);
@@ -27,12 +28,12 @@ async function createSession() {
         const { state, saveCreds } = await useMultiFileAuthState('auth_info');
 
         const sock = makeWASocket({
-            version, // ✅ استخدام الإصدار الصحيح
+            version,
             auth: {
                 creds: state.creds,
                 keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' }))
             },
-            printQRInTerminal: true,
+            printQRInTerminal: false, // ✅ تعطيل الطريقة القديمة
             logger: pino({ level: 'silent' }),
             browser: ['WhatsApp Bot', 'Chrome', '4.0.0'],
             defaultQueryTimeoutMs: undefined,
@@ -48,12 +49,16 @@ async function createSession() {
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect, qr } = update;
 
+            // ✅ عرض QR يدوياً باستخدام qrcode-terminal
             if (qr) {
                 console.log('\n📱 ═══════════════════════════════════');
-                console.log('   QR Code ظهر في الأعلى ↑↑↑');
-                console.log('   افتح واتساب → الأجهزة المرتبطة');
-                console.log('   امسح الكود خلال 30 ثانية');
+                console.log('   امسح QR Code من الأسفل 👇');
+                console.log('   واتساب → إعدادات → الأجهزة المرتبطة');
                 console.log('═══════════════════════════════════\n');
+                
+                qrcode.generate(qr, { small: true });
+                
+                console.log('\n⏰ عندك 30 ثانية لمسح الكود!\n');
             }
 
             if (connection === 'open') {
@@ -87,9 +92,9 @@ async function createSession() {
                         console.log(`SESSION_DATA=${sessionString}\n`);
                         console.log('═'.repeat(70));
                         console.log('\n📋 الخطوات التالية:');
-                        console.log('1. انسخ السطر أعلاه');
+                        console.log('1. انسخ السطر أعلاه (SESSION_DATA=...)');
                         console.log('2. افتح ملف .env');
-                        console.log('3. الصق SESSION_DATA=...');
+                        console.log('3. الصق السطر في ملف .env');
                         console.log('4. شغّل البوت: node index.js\n');
 
                         // حفظ في ملف نصي
@@ -130,7 +135,6 @@ async function createSession() {
                     console.log('2. إعادة تثبيت المكتبات:');
                     console.log('   rm -rf node_modules package-lock.json');
                     console.log('   npm install\n');
-                    console.log('3. تحديث Node.js لأحدث إصدار LTS\n');
 
                 } else if (statusCode === 515) {
                     console.log('⚠️  خطأ 515 - مشكلة في الشبكة:\n');
