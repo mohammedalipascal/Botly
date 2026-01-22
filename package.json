@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node index.js",
     "session": "node generate-session.js",
+    "pairing": "node generate-pairing.js",
     "dev": "nodemon index.js"
   },
   "keywords": [
