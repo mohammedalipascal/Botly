@@ -1,11 +1,21 @@
 require('dotenv').config();
 const makeWASocket = require('@whiskeysockets/baileys').default;
-const { useMultiFileAuthState, DisconnectReason, delay } = require('@whiskeysockets/baileys');
+const { 
+    useMultiFileAuthState, 
+    DisconnectReason, 
+    fetchLatestBaileysVersion,
+    makeCacheableSignalKeyStore
+} = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const P = require('pino');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+
+// ═══════════════════════════════════════════════════════════
+// 🔧 دالة Delay مخصصة
+// ═══════════════════════════════════════════════════════════
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // ═══════════════════════════════════════════════════════════
 // 🔧 الإعدادات من ملف .env
@@ -20,7 +30,7 @@ const CONFIG = {
     ownerNumber: process.env.OWNER_NUMBER ? process.env.OWNER_NUMBER + '@s.whatsapp.net' : null,
     sessionData: process.env.SESSION_DATA || null,
     showIgnoredMessages: process.env.SHOW_IGNORED_MESSAGES === 'true',
-    logLevel: process.env.LOG_LEVEL || 'info'
+    logLevel: process.env.LOG_LEVEL || 'silent'
 };
 
 console.log('\n⚙️ ═══════ إعدادات البوت ═══════');
@@ -55,11 +65,27 @@ server.listen(CONFIG.port, () => {
 // ═══════════════════════════════════════════════════════════
 
 async function loadSessionFromEnv() {
-    if (!CONFIG.sessionData) return null;
+    if (!CONFIG.sessionData || CONFIG.sessionData.trim() === '') {
+        console.log('⚠️ لا توجد بيانات جلسة في ENV');
+        return null;
+    }
     
     try {
         console.log('🔐 تحميل الجلسة من ENV...');
-        const session = JSON.parse(Buffer.from(CONFIG.sessionData, 'base64').toString());
+        
+        // التحقق من صحة البيانات
+        const sessionStr = CONFIG.sessionData.trim();
+        if (sessionStr.length < 50) {
+            throw new Error('بيانات الجلسة قصيرة جداً');
+        }
+        
+        const decoded = Buffer.from(sessionStr, 'base64').toString('utf-8');
+        const session = JSON.parse(decoded);
+        
+        // التحقق من وجود المفاتيح الأساسية
+        if (!session.creds || !session.creds.noiseKey) {
+            throw new Error('بيانات الجلسة غير كاملة');
+        }
         
         // إنشاء مجلد auth_info
         const authPath = path.join(__dirname, 'auth_info');
@@ -70,7 +96,7 @@ async function loadSessionFromEnv() {
         // حفظ creds.json
         fs.writeFileSync(
             path.join(authPath, 'creds.json'),
-            JSON.stringify(session, null, 2)
+            JSON.stringify(session.creds, null, 2)
         );
         
         console.log('✅ تم تحميل الجلسة بنجاح من ENV');
@@ -78,6 +104,14 @@ async function loadSessionFromEnv() {
     } catch (error) {
         console.error('❌ فشل تحميل الجلسة من ENV:', error.message);
         console.log('📱 سيتم طلب مسح QR Code...');
+        
+        // حذف ملفات الجلسة التالفة
+        const authPath = path.join(__dirname, 'auth_info');
+        if (fs.existsSync(authPath)) {
+            fs.rmSync(authPath, { recursive: true, force: true });
+            console.log('🗑️ تم حذف بيانات الجلسة التالفة');
+        }
+        
         return null;
     }
 }
@@ -88,11 +122,17 @@ async function saveSessionToEnv(state) {
         
         if (!fs.existsSync(credsPath)) {
             console.log('⏳ انتظار حفظ بيانات الاعتماد...');
-            return;
+            return null;
         }
         
         const creds = JSON.parse(fs.readFileSync(credsPath, 'utf-8'));
-        const sessionString = Buffer.from(JSON.stringify(creds)).toString('base64');
+        
+        // إنشاء كائن الجلسة
+        const sessionObj = {
+            creds: creds
+        };
+        
+        const sessionString = Buffer.from(JSON.stringify(sessionObj)).toString('base64');
         
         console.log('\n\n');
         console.log('═'.repeat(70));
@@ -108,11 +148,11 @@ async function saveSessionToEnv(state) {
         console.log('4. بعد إضافته، لن تحتاج لمسح QR Code مرة أخرى');
         console.log('═'.repeat(70) + '\n\n');
         
-        // إرسال للمالك إذا كان الرقم موجود
         return sessionString;
         
     } catch (error) {
         console.error('❌ خطأ في حفظ الجلسة:', error.message);
+        return null;
     }
 }
 
@@ -127,6 +167,7 @@ let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 10;
 let botStartTime = Date.now();
 let sessionString = null;
+let globalSock = null;
 
 function cleanProcessedMessages() {
     if (processedMessages.size > MAX_PROCESSED_CACHE) {
@@ -149,11 +190,8 @@ function displayQR(qr) {
     console.log('█          QR CODE - امسحه بواتساب الآن!           █');
     console.log('█                                                   █');
     console.log('█████████████████████████████████████████████████████');
-    console.log('\nQR Code Data:');
-    console.log(qr);
-    console.log('\n');
-    console.log('🔗 استخدم هذا الرابط لتوليد QR Code:');
-    console.log(`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qr)}`);
+    console.log('\n🔗 استخدم هذا الرابط لتوليد QR Code:');
+    console.log(`https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(qr)}`);
     console.log('\n');
     console.log('📱 الخطوات:');
     console.log('1. انسخ الرابط أعلاه');
@@ -170,9 +208,14 @@ function displayQR(qr) {
 function deleteAuthFolder() {
     const authPath = path.join(__dirname, 'auth_info');
     if (fs.existsSync(authPath)) {
-        fs.rmSync(authPath, { recursive: true, force: true });
-        console.log('🗑️ تم حذف مجلد auth_info');
-        return true;
+        try {
+            fs.rmSync(authPath, { recursive: true, force: true });
+            console.log('🗑️ تم حذف مجلد auth_info');
+            return true;
+        } catch (error) {
+            console.error('❌ فشل حذف مجلد auth_info:', error.message);
+            return false;
+        }
     }
     return false;
 }
@@ -188,18 +231,31 @@ async function startBot() {
         // تحميل الجلسة من ENV إذا وجدت
         await loadSessionFromEnv();
         
+        // الحصول على أحدث إصدار من Baileys
+        const { version, isLatest } = await fetchLatestBaileysVersion();
+        console.log(`📦 استخدام Baileys v${version.join('.')}, أحدث: ${isLatest}`);
+        
         const { state, saveCreds } = await useMultiFileAuthState('auth_info');
         
         const sock = makeWASocket({
-            auth: state,
+            version,
+            auth: {
+                creds: state.creds,
+                keys: makeCacheableSignalKeyStore(state.keys, P({ level: 'silent' }))
+            },
             printQRInTerminal: false,
-            logger: P({ level: 'silent' }),
-            browser: [CONFIG.botName, 'Chrome', '1.0.0'],
+            logger: P({ level: CONFIG.logLevel }),
+            browser: ['Ubuntu', 'Chrome', '20.0.04'],
             defaultQueryTimeoutMs: undefined,
+            syncFullHistory: false,
+            markOnlineOnConnect: true,
+            generateHighQualityLinkPreview: true,
             getMessage: async (key) => {
                 return { conversation: '' };
             }
         });
+
+        globalSock = sock;
 
         // حفظ بيانات المصادقة
         sock.ev.on('creds.update', async () => {
@@ -207,10 +263,11 @@ async function startBot() {
             
             // حفظ الجلسة في ENV بعد الاتصال الأول
             if (!sessionString) {
+                await delay(3000); // انتظار حفظ كامل البيانات
                 sessionString = await saveSessionToEnv(state);
                 
                 // إرسال للمالك
-                if (sessionString && CONFIG.ownerNumber) {
+                if (sessionString && CONFIG.ownerNumber && sock.user) {
                     try {
                         await delay(2000);
                         await sock.sendMessage(CONFIG.ownerNumber, {
@@ -220,7 +277,7 @@ async function startBot() {
                                   `⚠️ *مهم:* لا تشارك هذا الكود مع أي شخص!`
                         });
                     } catch (err) {
-                        console.log('⚠️ لم يتم إرسال الجلسة للمالك');
+                        console.log('⚠️ لم يتم إرسال الجلسة للمالك:', err.message);
                     }
                 }
             }
@@ -235,70 +292,51 @@ async function startBot() {
             }
             
             if (connection === 'close') {
+                const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
                 const reason = lastDisconnect?.error?.output?.payload?.error || 'Unknown';
                 
                 console.log(`❌ الاتصال مغلق. الكود: ${statusCode}, السبب: ${reason}`);
                 
-                switch (statusCode) {
-                    case DisconnectReason.badSession:
-                        console.log('📱 جلسة سيئة - حذف وإعادة المحاولة');
-                        deleteAuthFolder();
-                        setTimeout(startBot, 3000);
-                        break;
-                        
-                    case DisconnectReason.connectionClosed:
-                        console.log('🔌 الاتصال مغلق - إعادة المحاولة');
-                        reconnectWithDelay();
-                        break;
-                        
-                    case DisconnectReason.connectionLost:
-                        console.log('📡 فقدان الاتصال - إعادة المحاولة');
-                        reconnectWithDelay();
-                        break;
-                        
-                    case DisconnectReason.connectionReplaced:
-                        console.log('🔄 تم استبدال الاتصال - جلسة جديدة نشطة');
-                        console.log('⚠️ أغلق الجلسة الأخرى أولاً');
-                        break;
-                        
-                    case DisconnectReason.loggedOut:
-                        console.log('🚪 تم تسجيل الخروج');
-                        deleteAuthFolder();
-                        setTimeout(startBot, 3000);
-                        break;
-                        
-                    case DisconnectReason.restartRequired:
-                        console.log('🔄 إعادة التشغيل مطلوبة');
-                        setTimeout(startBot, 2000);
-                        break;
-                        
-                    case DisconnectReason.timedOut:
-                        console.log('⏱️ انتهت المهلة - إعادة المحاولة');
-                        reconnectWithDelay();
-                        break;
-                        
-                    case 401:
-                        console.log('🔑 خطأ في المصادقة (401)');
-                        deleteAuthFolder();
-                        setTimeout(startBot, 5000);
-                        break;
-                        
-                    case 515:
-                        console.log('🚫 الاتصال مرفوض (515)');
-                        console.log('💡 تأكد من عدم وجود جلسة أخرى نشطة');
-                        reconnectWithDelay(true);
-                        break;
-                        
-                    default:
-                        console.log('❓ خطأ غير معروف - إعادة المحاولة');
-                        reconnectWithDelay();
+                // معالجة الأخطاء المختلفة
+                if (statusCode === DisconnectReason.badSession) {
+                    console.log('📱 جلسة سيئة - حذف وإعادة المحاولة');
+                    deleteAuthFolder();
+                    setTimeout(startBot, 3000);
+                } 
+                else if (statusCode === DisconnectReason.loggedOut) {
+                    console.log('🚪 تم تسجيل الخروج - حذف الجلسة');
+                    deleteAuthFolder();
+                    setTimeout(startBot, 3000);
+                }
+                else if (statusCode === DisconnectReason.connectionReplaced) {
+                    console.log('🔄 تم استبدال الاتصال');
+                    console.log('⚠️ أغلق الجلسة الأخرى أولاً');
+                }
+                else if (statusCode === 401 || statusCode === 403) {
+                    console.log('🔑 خطأ في المصادقة - حذف الجلسة');
+                    deleteAuthFolder();
+                    setTimeout(startBot, 5000);
+                }
+                else if (statusCode === 405) {
+                    console.log('🚫 خطأ 405 - ربما تحتاج تحديث Baileys');
+                    console.log('💡 جرب: npm update @whiskeysockets/baileys');
+                    deleteAuthFolder();
+                    reconnectWithDelay(true);
+                }
+                else if (statusCode === 500 || statusCode === 503) {
+                    console.log('⚠️ خطأ في السيرفر - إعادة المحاولة');
+                    reconnectWithDelay(true);
+                }
+                else if (shouldReconnect) {
+                    reconnectWithDelay();
                 }
                 
             } else if (connection === 'open') {
                 console.log('\n✅ ════════════════════════════════════');
                 console.log(`   متصل بواتساب بنجاح! 🎉`);
                 console.log(`   البوت: ${CONFIG.botName}`);
+                console.log(`   الرقم: ${sock.user?.id?.split(':')[0] || 'غير معروف'}`);
                 console.log(`   المالك: ${CONFIG.botOwner}`);
                 console.log(`   الرد في المجموعات: ${CONFIG.replyInGroups ? 'نعم' : 'لا'}`);
                 console.log('════════════════════════════════════\n');
@@ -313,6 +351,7 @@ async function startBot() {
                         await delay(2000);
                         await sock.sendMessage(CONFIG.ownerNumber, {
                             text: `✅ *${CONFIG.botName} متصل الآن!*\n\n` +
+                                  `📱 الرقم: ${sock.user.id.split(':')[0]}\n` +
                                   `⏰ الوقت: ${new Date().toLocaleString('ar-EG')}\n` +
                                   `👥 الرد في المجموعات: ${CONFIG.replyInGroups ? 'نعم ✅' : 'لا ❌'}`
                         });
@@ -417,11 +456,11 @@ async function startBot() {
                 try {
                     const replyText = `👋 *مرحباً بك!*
 
-أنا ${CONFIG.botName} مساعدك الذكي 
-من تصميم ${CONFIG.botOwner}
+أنا *${CONFIG.botName}* مساعدك الذكي 🤖
+من تصميم *${CONFIG.botOwner}* 👨‍💻
 
 شكراً لرسالتك:
-"${messageText}"
+_"${messageText}"_
 
 ${isGroup ? '👥 رسالة من مجموعة' : '👤 رسالة خاصة'}
 البوت يعمل بنجاح! ✅`;
@@ -447,8 +486,8 @@ ${isGroup ? '👥 رسالة من مجموعة' : '👤 رسالة خاصة'}
         
     } catch (error) {
         console.error('❌ خطأ في بدء البوت:', error);
-        console.log('🔄 إعادة المحاولة بعد 5 ثواني...');
-        setTimeout(startBot, 5000);
+        console.log('🔄 إعادة المحاولة بعد 10 ثواني...');
+        setTimeout(startBot, 10000);
     }
 }
 
@@ -459,23 +498,42 @@ ${isGroup ? '👥 رسالة من مجموعة' : '👤 رسالة خاصة'}
 function reconnectWithDelay(longDelay = false) {
     if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
         console.error('❌ فشل الاتصال بعد عدة محاولات');
-        console.log('💡 جرب حذف مجلد auth_info وإعادة المحاولة');
-        return;
+        console.log('💡 جرب:');
+        console.log('1. حذف مجلد auth_info');
+        console.log('2. تحديث Baileys: npm update @whiskeysockets/baileys');
+        console.log('3. التحقق من اتصال الإنترنت');
+        process.exit(1);
     }
     
     reconnectAttempts++;
-    const delay = longDelay ? 10000 : (3000 * reconnectAttempts);
+    const delayTime = longDelay ? 15000 : (5000 * reconnectAttempts);
     
-    console.log(`🔄 إعادة الاتصال بعد ${delay / 1000}ث... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
-    setTimeout(startBot, delay);
+    console.log(`🔄 إعادة الاتصال بعد ${delayTime / 1000}ث... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
+    setTimeout(startBot, delayTime);
 }
 
 // ═══════════════════════════════════════════════════════════
 // 🛑 معالجة الإيقاف
 // ═══════════════════════════════════════════════════════════
 
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
     console.log('\n👋 إيقاف البوت...');
+    if (globalSock) {
+        try {
+            await globalSock.logout();
+        } catch (e) {}
+    }
+    server.close();
+    process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+    console.log('\n👋 إيقاف البوت (SIGTERM)...');
+    if (globalSock) {
+        try {
+            await globalSock.logout();
+        } catch (e) {}
+    }
     server.close();
     process.exit(0);
 });
@@ -486,6 +544,7 @@ process.on('unhandledRejection', (reason, promise) => {
 
 process.on('uncaughtException', (error) => {
     console.error('❌ Uncaught Exception:', error);
+    // لا نوقف البوت في حالة الأخطاء غير المتوقعة
 });
 
 // ═══════════════════════════════════════════════════════════
