@@ -5,27 +5,25 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "nodemon index.js",
-    "clear-session": "rm -rf auth_info && echo 'Session cleared!'",
-    "test": "node index.js",
-    "deploy": "git push clever master"
+    "session": "node generate-session.js",
+    "dev": "nodemon index.js"
   },
   "keywords": [
     "whatsapp",
     "bot",
-    "baileys",
-    "automation"
+    "baileys"
   ],
   "author": "مقداد",
   "license": "MIT",
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.8",
+    "@whiskeysockets/baileys": "^6.7.9",
     "@hapi/boom": "^10.0.1",
-    "pino": "^9.5.0",
-    "dotenv": "^16.4.7"
+    "dotenv": "^16.4.5",
+    "pino": "^8.19.0",
+    "qrcode-terminal": "^0.12.0"
   },
   "devDependencies": {
-    "nodemon": "^3.1.9"
+    "nodemon": "^3.0.3"
   },
   "engines": {
     "node": ">=18.0.0"
