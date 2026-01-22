@@ -1,65 +1,159 @@
+require('dotenv').config();
 const makeWASocket = require('@whiskeysockets/baileys').default;
 const { 
     useMultiFileAuthState, 
     DisconnectReason,
-    fetchLatestBaileysVersion 
+    fetchLatestBaileysVersion,
+    makeCacheableSignalKeyStore,
+    Browsers
 } = require('@whiskeysockets/baileys');
-const { Boom } = require('@hapi/boom');
 const P = require('pino');
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
 
 // ═══════════════════════════════════════════════════════════
-// 🌐 HTTP Server - ضروري لـ Render!
+// ⚙️ الإعدادات - ضع رقم هاتفك هنا!
+// ═══════════════════════════════════════════════════════════
+
+// ⭐ غيّر هذا الرقم لرقمك (بدون + أو 00)
+const PHONE_NUMBER = process.env.PHONE_NUMBER || '201234567890';
+
+console.log(`\n📱 رقم الهاتف المستخدم: ${PHONE_NUMBER}`);
+console.log('⚠️ تأكد أن الرقم صحيح!\n');
+
+// ═══════════════════════════════════════════════════════════
+// 🔧 Helper
+// ═══════════════════════════════════════════════════════════
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+// ═══════════════════════════════════════════════════════════
+// 🌐 HTTP Server
 // ═══════════════════════════════════════════════════════════
 
 const PORT = process.env.PORT || 3000;
+let globalSessionData = null;
+let pairingCode = null;
+let connectionStatus = 'waiting';
 
 const server = http.createServer((req, res) => {
-    const url = req.url;
-    
-    if (url === '/') {
+    if (req.url === '/') {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(`
 <!DOCTYPE html>
 <html dir="rtl">
 <head>
     <meta charset="utf-8">
-    <title>توليد جلسة واتساب</title>
+    <meta http-equiv="refresh" content="5">
+    <title>Pairing Code - توليد جلسة</title>
     <style>
-        body { font-family: Arial; text-align: center; padding: 50px; }
-        .box { background: #f0f0f0; padding: 20px; border-radius: 10px; max-width: 600px; margin: 0 auto; }
-        pre { background: #fff; padding: 15px; overflow-x: auto; text-align: left; }
-        .session { word-break: break-all; }
+        body { 
+            font-family: Arial; 
+            text-align: center; 
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .box { 
+            background: white; 
+            color: #333;
+            padding: 30px; 
+            border-radius: 20px; 
+            max-width: 600px;
+            margin: 20px auto;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+        }
+        .code {
+            font-size: 48px;
+            font-weight: bold;
+            letter-spacing: 10px;
+            color: #667eea;
+            background: #f0f0f0;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        .status {
+            font-size: 24px;
+            margin: 20px 0;
+        }
+        .success { color: #10b981; }
+        .waiting { color: #f59e0b; }
     </style>
 </head>
 <body>
+    <h1>🔑 Pairing Code</h1>
     <div class="box">
-        <h1>🔐 توليد جلسة واتساب</h1>
-        <p>⏳ جاري توليد QR Code...</p>
-        <p>راجع اللوجات في Render Dashboard</p>
+        <div class="status ${connectionStatus === 'connected' ? 'success' : 'waiting'}">
+            ${connectionStatus === 'connected' ? '✅ متصل بنجاح!' : '⏳ في انتظار الإدخال...'}
+        </div>
+        
+        ${pairingCode ? `
+            <h2>أدخل هذا الكود في واتساب:</h2>
+            <div class="code">${pairingCode}</div>
+            <p>📱 الخطوات:</p>
+            <ol style="text-align: right;">
+                <li>افتح واتساب</li>
+                <li>الإعدادات > الأجهزة المرتبطة</li>
+                <li>ربط جهاز</li>
+                <li>ربط باستخدام رقم الهاتف</li>
+                <li>أدخل الكود: <strong>${pairingCode}</strong></li>
+            </ol>
+        ` : '<p>⏳ جاري توليد الكود...</p>'}
+        
+        ${globalSessionData ? `
+            <div style="background: #10b981; color: white; padding: 15px; border-radius: 10px; margin: 20px 0;">
+                <h2>✅ SESSION_DATA جاهز!</h2>
+                <a href="/session" style="color: white; text-decoration: underline;">عرض SESSION_DATA</a>
+            </div>
+        ` : ''}
+        
         <hr>
-        <p>بعد مسح QR Code، ستظهر SESSION_DATA هنا تلقائياً</p>
-        <p>⚠️ لا تغلق هذه الصفحة حتى تحصل على SESSION_DATA</p>
+        <p>🔄 تحديث تلقائي كل 5 ثواني</p>
     </div>
 </body>
 </html>
         `);
-    } else if (url === '/session') {
+    } else if (req.url === '/session') {
         if (globalSessionData) {
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: true,
-                session: globalSessionData,
-                message: 'انسخ SESSION_DATA أدناه'
-            }));
+            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+            res.end(`
+<!DOCTYPE html>
+<html dir="rtl">
+<head>
+    <meta charset="utf-8">
+    <title>SESSION_DATA</title>
+    <style>
+        body { font-family: Arial; padding: 20px; background: #1e293b; color: white; }
+        pre { 
+            background: #0f172a; 
+            padding: 20px; 
+            border-radius: 10px; 
+            overflow-x: auto;
+            word-break: break-all;
+            color: #10b981;
+        }
+        .btn {
+            background: #10b981;
+            color: white;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            margin: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>✅ SESSION_DATA</h1>
+    <button class="btn" onclick="navigator.clipboard.writeText(document.getElementById('s').textContent); alert('تم النسخ!')">📋 نسخ</button>
+    <pre id="s">${globalSessionData}</pre>
+</body>
+</html>
+            `);
         } else {
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: false,
-                message: 'الجلسة لم تُنشأ بعد. امسح QR Code أولاً'
-            }));
+            res.writeHead(200, { 'Content-Type': 'text/plain' });
+            res.end('الجلسة لم تُنشأ بعد');
         }
     } else {
         res.writeHead(404);
@@ -68,203 +162,141 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, () => {
-    console.log(`\n🌐 Server running on port ${PORT}`);
-    console.log(`🔗 URL: https://your-app.onrender.com`);
-    console.log('⚠️ هذا السيرفر ضروري لمنع Render من إيقاف التطبيق\n');
+    console.log(`🌐 Server: http://localhost:${PORT}\n`);
 });
 
 // ═══════════════════════════════════════════════════════════
-// 📊 متغيرات عامة
-// ═══════════════════════════════════════════════════════════
-
-let globalSessionData = null;
-let isConnected = false;
-let qrAttempts = 0;
-const MAX_QR_ATTEMPTS = 5;
-
-// ═══════════════════════════════════════════════════════════
-// 🔐 توليد الجلسة
+// 🔐 توليد الجلسة باستخدام Pairing Code
 // ═══════════════════════════════════════════════════════════
 
 async function generateSession() {
     try {
-        console.log('🚀 بدء توليد الجلسة...\n');
+        console.log('🚀 بدء التوليد بـ Pairing Code...\n');
         
-        const { version, isLatest } = await fetchLatestBaileysVersion();
-        console.log(`📦 Baileys v${version.join('.')}, أحدث: ${isLatest ? '✅' : '⚠️'}\n`);
-        
-        // حذف الجلسة القديمة
         const authPath = path.join(__dirname, 'auth_info');
         if (fs.existsSync(authPath)) {
             fs.rmSync(authPath, { recursive: true, force: true });
-            console.log('🗑️ تم حذف الجلسة القديمة\n');
+            console.log('🗑️ حذف الجلسة القديمة\n');
         }
+        
+        const { version } = await fetchLatestBaileysVersion();
+        console.log(`📦 Baileys v${version.join('.')}\n`);
         
         const { state, saveCreds } = await useMultiFileAuthState('auth_info');
         
         const sock = makeWASocket({
             version,
-            auth: state,
-            printQRInTerminal: false, // نعرضه يدوياً
+            auth: {
+                creds: state.creds,
+                keys: makeCacheableSignalKeyStore(state.keys, P({ level: 'silent' }))
+            },
+            printQRInTerminal: false,
             logger: P({ level: 'silent' }),
-            browser: ['Session Generator', 'Chrome', '1.0.0'],
+            browser: Browsers.ubuntu('Chrome'),
             syncFullHistory: false,
-            markOnlineOnConnect: false
+            markOnlineOnConnect: false,
+            getMessage: async () => ({ conversation: '' })
         });
 
-        // حفظ بيانات الاعتماد
         sock.ev.on('creds.update', saveCreds);
 
-        // معالجة الاتصال
-        sock.ev.on('connection.update', async (update) => {
-            const { connection, lastDisconnect, qr } = update;
+        // ⭐ طلب Pairing Code
+        if (!state.creds.registered) {
+            console.log('🔑 جاري طلب Pairing Code...\n');
             
-            // عرض QR Code
-            if (qr) {
-                qrAttempts++;
+            // انتظار قليل للاتصال
+            await delay(3000);
+            
+            try {
+                const code = await sock.requestPairingCode(PHONE_NUMBER);
+                pairingCode = code;
                 
-                if (qrAttempts > MAX_QR_ATTEMPTS) {
-                    console.error('\n❌ تم تجاوز الحد الأقصى لمحاولات QR Code');
-                    console.log('💡 أعد تشغيل السكريبت وحاول مرة أخرى\n');
-                    process.exit(1);
-                }
+                console.log('\n' + '═'.repeat(60));
+                console.log('🔑 PAIRING CODE:');
+                console.log('═'.repeat(60));
+                console.log('\n        ' + code + '\n');
+                console.log('═'.repeat(60));
                 
-                console.log('\n────────────────────────────────────────────────────────────');
-                console.log(`📱 QR Code #${qrAttempts} - امسحه بواتساب الآن!`);
-                console.log('────────────────────────────────────────────────────────────');
-                console.log('\n📋 خطوات المسح:');
-                console.log('1. افتح واتساب على هاتفك');
-                console.log('2. اذهب إلى: الإعدادات > الأجهزة المرتبطة');
-                console.log('3. اضغط "ربط جهاز"');
-                console.log('4. امسح الكود من الرابط أدناه\n');
+                console.log('\n📱 الخطوات:');
+                console.log('1. افتح واتساب');
+                console.log('2. الإعدادات > الأجهزة المرتبطة');
+                console.log('3. ربط جهاز');
+                console.log('4. ربط باستخدام رقم الهاتف');
+                console.log(`5. أدخل الكود: ${code}\n`);
                 
-                // توليد رابط QR Code
-                const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(qr)}`;
-                console.log('🔗 أو استخدم هذا الرابط:');
-                console.log(qrUrl);
-                console.log('────────────────────────────────────────────────────────────');
-                console.log('⏳ في انتظار المسح...\n');
+                console.log(`🌐 أو افتح في المتصفح:\n   https://your-app.onrender.com\n`);
+                
+            } catch (error) {
+                console.error('❌ فشل طلب Pairing Code:', error.message);
+                return;
             }
+        }
+
+        sock.ev.on('connection.update', async (update) => {
+            const { connection, lastDisconnect } = update;
             
             if (connection === 'close') {
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
-                
-                console.log(`❌ الاتصال مغلق. كود: ${statusCode}`);
+                console.log(`❌ مغلق. كود: ${statusCode}`);
                 
                 if (statusCode === DisconnectReason.loggedOut) {
                     console.log('🔄 إعادة المحاولة...\n');
-                    setTimeout(generateSession, 3000);
-                } else if (statusCode === 515) {
-                    console.log('⚠️ خطأ 515 - سيتم إعادة المحاولة\n');
-                    setTimeout(generateSession, 5000);
-                } else {
-                    console.log('🔄 إعادة المحاولة...\n');
-                    setTimeout(generateSession, 3000);
+                    await delay(3000);
+                    return generateSession();
                 }
                 
             } else if (connection === 'open') {
-                isConnected = true;
+                connectionStatus = 'connected';
                 
-                console.log('\n✅ ════════════════════════════════════');
-                console.log('   تم الاتصال بنجاح! 🎉');
-                console.log(`   الرقم: ${sock.user.id.split(':')[0]}`);
-                console.log(`   الاسم: ${sock.user.name || 'غير محدد'}`);
-                console.log('════════════════════════════════════\n');
+                console.log('\n✅ ═══════════════════════════════════');
+                console.log('   متصل بنجاح! 🎉');
+                console.log(`   ${sock.user.id.split(':')[0]}`);
+                console.log('═══════════════════════════════════\n');
                 
-                // الانتظار قليلاً لضمان حفظ البيانات
-                console.log('⏳ جاري حفظ بيانات الجلسة...\n');
-                await new Promise(resolve => setTimeout(resolve, 5000));
+                console.log('⏳ حفظ الجلسة (10 ثواني)...\n');
+                await delay(10000);
                 
-                // تصدير الجلسة
                 try {
                     const credsPath = path.join(__dirname, 'auth_info', 'creds.json');
-                    
-                    if (!fs.existsSync(credsPath)) {
-                        throw new Error('ملف creds.json غير موجود');
-                    }
-                    
                     const creds = JSON.parse(fs.readFileSync(credsPath, 'utf-8'));
                     
-                    const sessionData = {
-                        creds: creds
-                    };
-                    
-                    const sessionStr = Buffer.from(JSON.stringify(sessionData)).toString('base64');
+                    const sessionStr = Buffer.from(JSON.stringify({ creds })).toString('base64');
                     globalSessionData = sessionStr;
                     
-                    console.log('\n╔════════════════════════════════════════════════════════════╗');
-                    console.log('║                   ✅ نجح! SESSION_DATA                    ║');
-                    console.log('╚════════════════════════════════════════════════════════════╝\n');
-                    
-                    console.log('📋 انسخ هذا النص وضعه في متغير SESSION_DATA:\n');
-                    console.log('─'.repeat(60));
+                    console.log('═'.repeat(60));
+                    console.log('✅ SESSION_DATA جاهز');
+                    console.log('═'.repeat(60));
                     console.log(sessionStr);
-                    console.log('─'.repeat(60));
+                    console.log('═'.repeat(60));
+                    
+                    fs.writeFileSync('SESSION_DATA.txt', sessionStr);
+                    console.log('\n💾 محفوظ في: SESSION_DATA.txt');
                     
                     console.log('\n📝 الخطوات التالية:');
-                    console.log('1. انسخ SESSION_DATA أعلاه');
-                    console.log('2. في Clever Cloud > Environment Variables');
-                    console.log('3. أضف: SESSION_DATA = [النص المنسوخ]');
-                    console.log('4. Restart البوت');
-                    console.log('5. البوت سيعمل بدون إعادة مسح QR Code! ✅\n');
-                    
-                    console.log('🔗 أو اذهب إلى:');
-                    console.log(`https://your-app.onrender.com/session\n`);
-                    
-                    // حفظ في ملف محلي أيضاً
-                    const sessionFile = path.join(__dirname, 'SESSION_DATA.txt');
-                    fs.writeFileSync(sessionFile, sessionStr);
-                    console.log(`💾 تم الحفظ أيضاً في: ${sessionFile}\n`);
-                    
-                    console.log('⚠️ ملاحظة: لا تشارك SESSION_DATA مع أحد!\n');
-                    
-                    // إبقاء السيرفر شغال
-                    console.log('🌐 السيرفر سيبقى شغالاً...');
-                    console.log('💡 يمكنك إيقافه الآن (Ctrl+C) بعد نسخ SESSION_DATA\n');
+                    console.log('1. انسخ SESSION_DATA');
+                    console.log('2. Clever Cloud > Environment Variables');
+                    console.log('3. SESSION_DATA = [النص]');
+                    console.log('4. Restart\n');
                     
                 } catch (error) {
-                    console.error('❌ فشل تصدير الجلسة:', error.message);
-                    process.exit(1);
+                    console.error('❌ فشل التصدير:', error.message);
                 }
             }
         });
-
-        console.log('✅ جاهز لتوليد QR Code...\n');
         
     } catch (error) {
-        console.error('❌ خطأ في توليد الجلسة:', error);
-        console.log('🔄 إعادة المحاولة بعد 10 ثواني...\n');
-        setTimeout(generateSession, 10000);
+        console.error('❌ خطأ:', error);
+        await delay(10000);
+        return generateSession();
     }
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🛑 معالجة الإيقاف
-// ═══════════════════════════════════════════════════════════
-
-process.on('SIGINT', () => {
-    console.log('\n\n👋 إيقاف السكريبت...');
-    if (globalSessionData) {
-        console.log('\n✅ SESSION_DATA موجود - يمكنك استخدامه');
-    } else {
-        console.log('\n⚠️ لم يتم توليد SESSION_DATA بعد');
-    }
-    server.close();
-    process.exit(0);
-});
-
-process.on('SIGTERM', () => {
-    console.log('\n\n👋 إيقاف السكريبت (SIGTERM)...');
-    server.close();
-    process.exit(0);
-});
-
-// ═══════════════════════════════════════════════════════════
-// 🚀 بدء التوليد
+// 🚀 بدء
 // ═══════════════════════════════════════════════════════════
 
 console.log('\n╔════════════════════════════════════════════════════════════╗');
-console.log('║         🔐 سكريبت توليد جلسة واتساب لـ Render           ║');
+console.log('║          🔑 توليد جلسة باستخدام Pairing Code            ║');
 console.log('╚════════════════════════════════════════════════════════════╝\n');
 
 generateSession();
