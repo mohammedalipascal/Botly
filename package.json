@@ -1,34 +1,19 @@
 {
   "name": "whatsapp-bot",
   "version": "2.0.0",
-  "description": "WhatsApp Bot with Session Management",
+  "description": "WhatsApp Bot with Baileys",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
     "session": "node generate-session.js",
-    "pairing": "node generate-pairing.js",
-    "stable": "node generate-stable.js",
-    "diagnose": "node diagnose.js",
-    "fix": "npm uninstall @whiskeysockets/baileys && npm install @whiskeysockets/baileys@6.7.7",
     "dev": "nodemon index.js"
   },
-  "keywords": [
-    "whatsapp",
-    "bot",
-    "baileys"
-  ],
-  "author": "مقداد",
-  "license": "MIT",
   "dependencies": {
-    "@whiskeysockets/baileys": "6.7.7",
+    "@whiskeysockets/baileys": "^6.7.9",
     "@hapi/boom": "^10.0.1",
-    "dotenv": "^16.4.5",
-    "pino": "^8.19.0",
+    "pino": "^9.5.0",
     "qrcode-terminal": "^0.12.0",
-    "qr-image": "^3.2.0"
-  },
-  "devDependencies": {
-    "nodemon": "^3.0.3"
+    "dotenv": "^16.4.5"
   },
   "engines": {
     "node": ">=18.0.0"
