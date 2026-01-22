@@ -2,24 +2,28 @@ const { default: makeWASocket, DisconnectReason, useMultiFileAuthState, fetchLat
 const pino = require('pino');
 const qrcode = require('qrcode-terminal');
 const fs = require('fs');
-const path = require('path');
+const { SocksProxyAgent } = require('socks-proxy-agent');
 
-console.log('\n🔐 مولد جلسة واتساب - نسخة محسّنة\n');
+console.log('\n🔐 مولد جلسة واتساب - مع Proxy\n');
 
 let connectionClosed = false;
 const MAX_RETRIES = 3;
 let retryCount = 0;
 
+// ✅ إعدادات Proxy (اختياري)
+const PROXY_CONFIG = {
+    enabled: process.env.USE_PROXY === 'true',
+    url: process.env.PROXY_URL || 'socks5://127.0.0.1:1080'
+};
+
 async function createSession() {
     try {
-        // حذف الجلسة القديمة
         const authPath = './auth_info';
         if (fs.existsSync(authPath)) {
             fs.rmSync(authPath, { recursive: true, force: true });
             console.log('🗑️  حذف الجلسة القديمة\n');
         }
 
-        // ✅ جلب أحدث إصدار من Baileys
         console.log('📦 جاري التحقق من أحدث إصدار Baileys...');
         const { version, isLatest } = await fetchLatestBaileysVersion();
         console.log(`✅ إصدار Baileys: ${version.join('.')}`);
@@ -27,29 +31,37 @@ async function createSession() {
 
         const { state, saveCreds } = await useMultiFileAuthState('auth_info');
 
-        const sock = makeWASocket({
+        // إعداد Socket
+        const socketConfig = {
             version,
             auth: {
                 creds: state.creds,
                 keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' }))
             },
-            printQRInTerminal: false, // ✅ تعطيل الطريقة القديمة
+            printQRInTerminal: false,
             logger: pino({ level: 'silent' }),
             browser: ['WhatsApp Bot', 'Chrome', '4.0.0'],
-            defaultQueryTimeoutMs: undefined,
+            defaultQueryTimeoutMs: 60000, // زيادة المهلة
             syncFullHistory: false,
             markOnlineOnConnect: false,
             getMessage: async (key) => {
                 return { conversation: '' };
             }
-        });
+        };
+
+        // ✅ إضافة Proxy إذا كان مفعّل
+        if (PROXY_CONFIG.enabled) {
+            console.log(`🔐 استخدام Proxy: ${PROXY_CONFIG.url}\n`);
+            socketConfig.agent = new SocksProxyAgent(PROXY_CONFIG.url);
+        }
+
+        const sock = makeWASocket(socketConfig);
 
         sock.ev.on('creds.update', saveCreds);
 
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect, qr } = update;
 
-            // ✅ عرض QR يدوياً باستخدام qrcode-terminal
             if (qr) {
                 console.log('\n📱 ═══════════════════════════════════');
                 console.log('   امسح QR Code من الأسفل 👇');
@@ -58,7 +70,7 @@ async function createSession() {
                 
                 qrcode.generate(qr, { small: true });
                 
-                console.log('\n⏰ عندك 30 ثانية لمسح الكود!\n');
+                console.log('\n⏰ عندك 60 ثانية لمسح الكود!\n');
             }
 
             if (connection === 'open') {
@@ -69,8 +81,6 @@ async function createSession() {
                 console.log('═══════════════════════════════════\n');
 
                 console.log('⏳ جاري حفظ بيانات الجلسة...\n');
-
-                // انتظار حفظ البيانات
                 await new Promise(resolve => setTimeout(resolve, 5000));
 
                 const credsPath = './auth_info/creds.json';
@@ -79,7 +89,6 @@ async function createSession() {
                     try {
                         const creds = JSON.parse(fs.readFileSync(credsPath, 'utf-8'));
                         
-                        // التأكد من وجود البيانات الأساسية
                         if (!creds.noiseKey || !creds.signedIdentityKey) {
                             throw new Error('بيانات الجلسة غير كاملة');
                         }
@@ -91,19 +100,13 @@ async function createSession() {
                         console.log('✅ SESSION_DATA جاهز!\n');
                         console.log(`SESSION_DATA=${sessionString}\n`);
                         console.log('═'.repeat(70));
-                        console.log('\n📋 الخطوات التالية:');
-                        console.log('1. انسخ السطر أعلاه (SESSION_DATA=...)');
-                        console.log('2. افتح ملف .env');
-                        console.log('3. الصق السطر في ملف .env');
-                        console.log('4. شغّل البوت: node index.js\n');
+                        console.log('\n📋 انسخ السطر أعلاه وضعه في .env\n');
 
-                        // حفظ في ملف نصي
                         fs.writeFileSync('SESSION_DATA.txt', `SESSION_DATA=${sessionString}`);
-                        console.log('💾 تم الحفظ أيضاً في: SESSION_DATA.txt\n');
+                        console.log('💾 تم الحفظ في: SESSION_DATA.txt\n');
 
                         connectionClosed = true;
                         
-                        // إغلاق الاتصال بشكل صحيح
                         setTimeout(async () => {
                             try {
                                 await sock.logout();
@@ -115,9 +118,6 @@ async function createSession() {
                         console.error('❌ خطأ في معالجة الجلسة:', error.message);
                         process.exit(1);
                     }
-                } else {
-                    console.error('❌ ملف creds.json غير موجود!');
-                    process.exit(1);
                 }
             }
 
@@ -127,31 +127,20 @@ async function createSession() {
 
                 console.log(`\n❌ الاتصال مغلق - كود: ${statusCode}, السبب: ${reason}\n`);
 
-                // معالجة الأخطاء الشائعة
-                if (statusCode === 405) {
-                    console.log('⚠️  خطأ 405 - حلول مقترحة:\n');
-                    console.log('1. تحديث Baileys:');
-                    console.log('   npm update @whiskeysockets/baileys\n');
-                    console.log('2. إعادة تثبيت المكتبات:');
-                    console.log('   rm -rf node_modules package-lock.json');
-                    console.log('   npm install\n');
-
-                } else if (statusCode === 515) {
-                    console.log('⚠️  خطأ 515 - مشكلة في الشبكة:\n');
-                    console.log('1. غيّر شبكة الإنترنت (جرب موبايل data)');
-                    console.log('2. استخدم VPN');
-                    console.log('3. أعد تشغيل الراوتر');
-                    console.log('4. تأكد أن واتساب محدث لآخر إصدار\n');
+                if (statusCode === 515) {
+                    console.log('⚠️  خطأ 515 - IP محظور من WhatsApp!\n');
+                    console.log('🔧 الحلول:');
+                    console.log('1. شغّل محلياً على جهازك (الحل الأفضل)');
+                    console.log('2. استخدم Termux على موبايل أندرويد');
+                    console.log('3. فعّل VPN/Proxy:');
+                    console.log('   USE_PROXY=true');
+                    console.log('   PROXY_URL=socks5://your-proxy:1080\n');
+                    console.log('4. جرب شبكة إنترنت مختلفة تماماً\n');
 
                 } else if (statusCode === 401 || statusCode === 403) {
-                    console.log('⚠️  خطأ في المصادقة - QR منتهي أو غير صحيح\n');
-                    console.log('جرب مرة أخرى وامسح QR بسرعة\n');
-
-                } else if (statusCode === DisconnectReason.loggedOut) {
-                    console.log('⚠️  تم تسجيل الخروج من الجلسة\n');
+                    console.log('⚠️  QR منتهي - جرب مرة أخرى بسرعة\n');
 
                 } else if (statusCode === DisconnectReason.timedOut) {
-                    console.log('⚠️  انتهت مهلة الاتصال\n');
                     if (retryCount < MAX_RETRIES) {
                         retryCount++;
                         console.log(`🔄 إعادة المحاولة (${retryCount}/${MAX_RETRIES})...\n`);
@@ -172,26 +161,19 @@ async function createSession() {
 
     } catch (error) {
         console.error('❌ خطأ عام:', error.message);
-        console.log('\n📋 تحقق من:');
-        console.log('1. تثبيت المكتبات: npm install');
-        console.log('2. اتصال الإنترنت');
-        console.log('3. إصدار Node.js (يُفضل v18 أو أحدث)\n');
+        console.log('\n📋 الحلول:');
+        console.log('1. شغّل محلياً: node generate-stable.js');
+        console.log('2. استخدم Termux على الموبايل');
+        console.log('3. جرب VPN/Proxy مختلف\n');
         process.exit(1);
     }
 }
 
-// معالجة الإيقاف المفاجئ
 process.on('SIGINT', () => {
     console.log('\n\n👋 إيقاف المولد...\n');
     process.exit(0);
 });
 
-process.on('unhandledRejection', (error) => {
-    console.error('❌ Unhandled Rejection:', error);
-    process.exit(1);
-});
-
-// بدء التشغيل
 console.log('🚀 بدء عملية إنشاء الجلسة...\n');
 createSession().catch(err => {
     console.error('❌ خطأ فادح:', err);
