@@ -7,7 +7,8 @@
     "start": "node index.js",
     "dev": "nodemon index.js",
     "clear-session": "rm -rf auth_info && echo 'Session cleared!'",
-    "test": "node index.js"
+    "test": "node index.js",
+    "deploy": "git push clever master"
   },
   "keywords": [
     "whatsapp",
