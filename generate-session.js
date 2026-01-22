@@ -17,7 +17,7 @@ const http = require('http');
 // ═══════════════════════════════════════════════════════════
 
 // ⭐ غيّر هذا الرقم لرقمك (بدون + أو 00)
-const PHONE_NUMBER = process.env.PHONE_NUMBER || '201234567890';
+const PHONE_NUMBER = process.env.PHONE_NUMBER || '249962204268';
 
 console.log(`\n📱 رقم الهاتف المستخدم: ${PHONE_NUMBER}`);
 console.log('⚠️ تأكد أن الرقم صحيح!\n');
