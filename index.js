@@ -355,11 +355,9 @@ async function getAIResponse(userMessage) {
 const processedMessages = new Set();
 const MAX_PROCESSED_CACHE = 1000;
 let reconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 10;
+const MAX_RECONNECT_ATTEMPTS = 10; // ⭐ زيادة المحاولات
 let globalSock = null;
-let connectionCheckInterval = null;
-let error440Count = 0; // ⭐ عدد أخطاء 440 المتتالية
-const MAX_440_ERRORS = 3; // ⭐ الحد الأقصى قبل حذف الجلسة
+let connectionCheckInterval = null; // ⭐ لمتابعة الاتصال
 
 function cleanProcessedMessages() {
     if (processedMessages.size > MAX_PROCESSED_CACHE) {
@@ -418,19 +416,14 @@ async function startBot() {
             printQRInTerminal: false,
             logger: P({ level: CONFIG.logLevel }),
             browser: ['Ubuntu', 'Chrome', '20.0.04'],
-            
-            // ⭐ إعدادات مهمة جداً لمنع prekey bundle conflicts
-            shouldSyncHistoryMessage: () => false, // لا تزامن السجل
-            syncFullHistory: false,
-            fireInitQueries: false, // لا استعلامات تلقائية
-            
-            // ⭐ إعدادات الاتصال
             defaultQueryTimeoutMs: undefined,
-            connectTimeoutMs: 60000,
-            keepAliveIntervalMs: 30000,
-            retryRequestDelayMs: 250,
-            
+            syncFullHistory: false,
             markOnlineOnConnect: true,
+            
+            // ⭐ إعدادات لمنع قطع الاتصال
+            keepAliveIntervalMs: 30000,
+            connectTimeoutMs: 60000,
+            retryRequestDelayMs: 250,
             
             getMessage: async (key) => {
                 return { conversation: '' };
@@ -438,14 +431,8 @@ async function startBot() {
         });
 
         globalSock = sock;
+        sock.ev.on('creds.update', saveCreds);
 
-        // ⭐ حفظ التحديثات (مهم جداً!)
-        sock.ev.on('creds.update', async () => {
-            await saveCreds();
-            console.log('💾 تم تحديث credentials');
-        });
-
-        // معالجة الاتصال
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect, qr } = update;
             
@@ -485,7 +472,6 @@ async function startBot() {
                 console.log('════════════════════════════════════\n');
                 
                 reconnectAttempts = 0;
-                error440Count = 0; // ⭐ إعادة تعيين عداد 440
                 processedMessages.clear();
                 
                 // ⭐ بدء مراقبة الاتصال
