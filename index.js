@@ -12,23 +12,23 @@ const fs = require('fs');
 const path = require('path');
 
 // ═══════════════════════════════════════════════════════════
+// 🔧 دالة Delay
+// ═══════════════════════════════════════════════════════════
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+// ═══════════════════════════════════════════════════════════
 // 🤖 إعدادات الذكاء الاصطناعي
 // ═══════════════════════════════════════════════════════════
 
 const AI_CONFIG = {
     enabled: process.env.AI_ENABLED === 'true',
-    provider: process.env.AI_PROVIDER || 'groq', // groq أو huggingface
+    provider: process.env.AI_PROVIDER || 'groq',
     apiKey: process.env.AI_API_KEY || '',
     model: process.env.AI_MODEL || 'llama-3.3-70b-versatile',
     personality: process.env.AI_PERSONALITY || 'شخصية مقداد الافتراضية',
     maxTokens: parseInt(process.env.AI_MAX_TOKENS) || 500,
     temperature: parseFloat(process.env.AI_TEMPERATURE) || 0.7
 };
-
-// ═══════════════════════════════════════════════════════════
-// 🔧 دالة Delay
-// ═══════════════════════════════════════════════════════════
-const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // ═══════════════════════════════════════════════════════════
 // 🔧 الإعدادات
@@ -68,11 +68,10 @@ if (!CONFIG.sessionData || CONFIG.sessionData.trim() === '') {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🧠 قاعدة المعرفة (Knowledge Base)
+// 🧠 قاعدة المعرفة
 // ═══════════════════════════════════════════════════════════
 
 const KNOWLEDGE_BASE = {
-    // معلومات شخصية
     personal: {
         name: "مقداد",
         age: "25 سنة",
@@ -81,38 +80,28 @@ const KNOWLEDGE_BASE = {
         hobbies: ["البرمجة", "القراءة", "التقنية"],
         languages: ["العربية", "الإنجليزية"]
     },
-    
-    // مهارات تقنية
     skills: {
         programming: ["JavaScript", "Node.js", "Python", "PHP"],
         frameworks: ["React", "Express", "Laravel"],
         databases: ["MySQL", "MongoDB"],
         tools: ["Git", "Docker", "VS Code"]
     },
-    
-    // مشاريع
     projects: {
         current: "بوت واتساب ذكي مع AI",
         completed: ["موقع تجارة إلكترونية", "نظام إدارة محتوى", "تطبيق موبايل"],
         planning: ["منصة تعليمية", "أداة أتمتة"]
     },
-    
-    // أسلوب الكتابة
     style: {
         tone: "ودود ومحترف",
         emoji_usage: "معتدل",
         response_length: "مختصر ومفيد",
         greetings: ["مرحباً", "أهلاً", "السلام عليكم"]
     },
-    
-    // آراء واهتمامات
     opinions: {
         tech_preferences: "أفضل التقنيات المفتوحة المصدر والبسيطة",
         work_philosophy: "الكود النظيف أهم من السرعة",
         learning: "التعلم المستمر أساس النجاح"
     },
-    
-    // معلومات إضافية (أضف هنا ما تريد)
     custom: {
         favorite_food: "الكشري",
         favorite_color: "الأزرق",
@@ -122,51 +111,48 @@ const KNOWLEDGE_BASE = {
 };
 
 // ═══════════════════════════════════════════════════════════
-// 🎭 بناء الشخصية (Personality Prompt)
+// 🎭 بناء الشخصية
 // ═══════════════════════════════════════════════════════════
 
 function buildPersonalityPrompt() {
-    return `أنت مقداد، ${KNOWLEDGE_BASE.personal.occupation} و${KNOWLEDGE_BASE.personal.education}.
+    return `أنت مقداد، ${KNOWLEDGE_BASE.personal.occupation} من ${KNOWLEDGE_BASE.personal.location}.
 
 # شخصيتك:
 - ${KNOWLEDGE_BASE.personal.age}
-- ${KNOWLEDGE_BASE.style.tone}
-- أسلوبك: ${KNOWLEDGE_BASE.style.personality}
+- تتحدث ${KNOWLEDGE_BASE.personal.languages.join(' و')}
+- أسلوبك: ${KNOWLEDGE_BASE.style.tone}
+- تستخدم الإيموجي بشكل ${KNOWLEDGE_BASE.style.emoji_usage}
 
 # مهاراتك:
-- أنظمة التشغيل: ${KNOWLEDGE_BASE.skills.operating_systems.join(', ')}
-- السوفت وير: ${KNOWLEDGE_BASE.skills.software.join(', ')}
-- البرمجة: ${KNOWLEDGE_BASE.skills.programming.join(', ')}
-- التصميم: ${KNOWLEDGE_BASE.skills.design.join(', ')}
-- الهاردوير: ${KNOWLEDGE_BASE.skills.hardware.join(', ')}
-- الأمان: ${KNOWLEDGE_BASE.skills.security.join(', ')}
+- لغات البرمجة: ${KNOWLEDGE_BASE.skills.programming.join(', ')}
+- أطر العمل: ${KNOWLEDGE_BASE.skills.frameworks.join(', ')}
+- قواعد البيانات: ${KNOWLEDGE_BASE.skills.databases.join(', ')}
 
 # مشاريعك:
-${KNOWLEDGE_BASE.projects.description}: ${KNOWLEDGE_BASE.projects.types.join(', ')}
+- المشروع الحالي: ${KNOWLEDGE_BASE.projects.current}
+- مشاريع مكتملة: ${KNOWLEDGE_BASE.projects.completed.join(', ')}
+
+# فلسفتك في العمل:
+${KNOWLEDGE_BASE.opinions.work_philosophy}
 
 # أسلوب الرد:
-- مختصر وبارد
-- لا تبالغ في الترحيب
-- رد فقط على ما يُسأل
-- لا تعرض المساعدة إلا إذا طُلبت صراحة
-- لا تسأل "كيف أساعدك" أو "ماذا تريد"
-- عند الترحيب: ${KNOWLEDGE_BASE.style.greetings.join(' أو ')} فقط
+- ${KNOWLEDGE_BASE.style.response_length}
+- ابدأ بـ: ${KNOWLEDGE_BASE.style.greetings.join(' أو ')}
+- كن ${KNOWLEDGE_BASE.style.tone}
 
-# استخدام الإيموجي:
-- قليل جداً
-- فقط عند الضرورة القصوى
-- تجنبها في الردود العادية
+# معلومات شخصية:
+- طعامك المفضل: ${KNOWLEDGE_BASE.custom.favorite_food}
+- لونك المفضل: ${KNOWLEDGE_BASE.custom.favorite_color}
+- تفضل العمل: ${KNOWLEDGE_BASE.custom.work_hours}
 
 # تعليمات مهمة:
 1. أجب كأنك مقداد نفسه
-2. كن مختصراً وبارداً
-3. لا تذكر أنك AI أو chatbot أبداً
-4. لا تكشف موقعك (السودان) إلا إذا سُئلت صراحة
-5. إذا لم تعرف شيء، قل "ما أعرف" أو "مو متأكد" ببساطة
+2. استخدم معرفتك أعلاه في الردود
+3. لا تذكر أنك AI أو chatbot
+4. كن طبيعياً وودوداً
+5. إذا لم تعرف شيء، قل "لست متأكد" بأسلوب مقداد
 6. رد باللغة العربية دائماً
-7. كن محترفاً ومتواضعاً وحازماً
-8. لا ترحب بحرارة - فقط ترحيب بسيط
-9. لا تطرح أسئلة إضافية إلا للضرورة`;
+7. احتفظ بشخصية مقداد في كل شيء`;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -236,7 +222,7 @@ function loadSessionFromEnv() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🤖 دالة AI - Groq (مجاني وسريع جداً!)
+// 🤖 دالة AI - Groq
 // ═══════════════════════════════════════════════════════════
 
 async function getAIResponse_Groq(userMessage) {
@@ -278,7 +264,7 @@ async function getAIResponse_Groq(userMessage) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🤖 دالة AI - Hugging Face (بديل مجاني)
+// 🤖 دالة AI - Hugging Face
 // ═══════════════════════════════════════════════════════════
 
 async function getAIResponse_HuggingFace(userMessage) {
@@ -360,9 +346,6 @@ const MAX_PROCESSED_CACHE = 1000;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 10;
 let globalSock = null;
-let connectionCheckInterval = null;
-let error440Count = 0; // ⭐ عدد أخطاء 440 المتتالية
-const MAX_440_ERRORS = 3; // ⭐ الحد الأقصى قبل حذف الجلسة
 
 function cleanProcessedMessages() {
     if (processedMessages.size > MAX_PROCESSED_CACHE) {
@@ -372,29 +355,6 @@ function cleanProcessedMessages() {
             processedMessages.delete(iterator.next().value);
         }
     }
-}
-
-// ═══════════════════════════════════════════════════════════
-// 🔄 مراقبة الاتصال
-// ═══════════════════════════════════════════════════════════
-
-function startConnectionMonitor(sock) {
-    // إيقاف المراقبة القديمة
-    if (connectionCheckInterval) {
-        clearInterval(connectionCheckInterval);
-    }
-    
-    // مراقبة كل 30 ثانية
-    connectionCheckInterval = setInterval(() => {
-        if (sock && sock.ws && sock.ws.readyState === 1) {
-            console.log('✅ الاتصال نشط');
-        } else {
-            console.log('⚠️ الاتصال غير نشط - محاولة إعادة الاتصال...');
-            if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-                reconnectWithDelay(false, 5000);
-            }
-        }
-    }, 30000);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -421,19 +381,13 @@ async function startBot() {
             printQRInTerminal: false,
             logger: P({ level: CONFIG.logLevel }),
             browser: ['Ubuntu', 'Chrome', '20.0.04'],
-            
-            // ⭐ إعدادات مهمة جداً لمنع prekey bundle conflicts
-            shouldSyncHistoryMessage: () => false, // لا تزامن السجل
-            syncFullHistory: false,
-            fireInitQueries: false, // لا استعلامات تلقائية
-            
-            // ⭐ إعدادات الاتصال
             defaultQueryTimeoutMs: undefined,
-            connectTimeoutMs: 60000,
-            keepAliveIntervalMs: 30000,
-            retryRequestDelayMs: 250,
+            syncFullHistory: false,
+            markOnlineOnConnect: false, // ✅ مهم
             
-            markOnlineOnConnect: true,
+            keepAliveIntervalMs: 30000,
+            connectTimeoutMs: 60000,
+            retryRequestDelayMs: 250,
             
             getMessage: async (key) => {
                 return { conversation: '' };
@@ -441,14 +395,8 @@ async function startBot() {
         });
 
         globalSock = sock;
+        sock.ev.on('creds.update', saveCreds);
 
-        // ⭐ حفظ التحديثات (مهم جداً!)
-        sock.ev.on('creds.update', async () => {
-            await saveCreds();
-            console.log('💾 تم تحديث credentials');
-        });
-
-        // معالجة الاتصال
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect, qr } = update;
             
@@ -461,17 +409,25 @@ async function startBot() {
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
                 console.log(`❌ الاتصال مغلق. كود: ${statusCode}`);
                 
+                // ✅ معالجة 440
+                if (statusCode === 440 || statusCode === DisconnectReason.connectionReplaced) {
+                    console.log('⚠️ خطأ 440/connectionReplaced - جلسة مستبدلة');
+                    console.log('💡 هذا يعني جلسة أخرى نشطة أو restart سريع');
+                    console.log('🔄 إعادة المحاولة بعد 10 ثوانٍ...\n');
+                    await delay(10000);
+                    reconnectWithDelay(false, 10000);
+                    return;
+                }
+                
                 if (statusCode === DisconnectReason.badSession || 
                     statusCode === DisconnectReason.loggedOut ||
                     statusCode === 401 || statusCode === 403) {
                     console.error('\n❌ الجلسة غير صالحة!\n');
                     process.exit(1);
-                } else if (statusCode === DisconnectReason.connectionReplaced) {
-                    console.log('🔄 تم استبدال الاتصال\n');
-                    process.exit(1);
                 } else if (statusCode === 515) {
                     console.log('⚠️ خطأ 515 - إعادة المحاولة...\n');
-                    reconnectWithDelay(false, 5000);
+                    await delay(3000);
+                    reconnectWithDelay(false, 3000);
                 } else {
                     reconnectWithDelay();
                 }
@@ -488,15 +444,11 @@ async function startBot() {
                 console.log('════════════════════════════════════\n');
                 
                 reconnectAttempts = 0;
-                error440Count = 0; // ⭐ إعادة تعيين عداد 440
                 processedMessages.clear();
-                
-                // ⭐ بدء مراقبة الاتصال
-                startConnectionMonitor(sock);
                 
                 if (CONFIG.ownerNumber) {
                     try {
-                        await delay(2000);
+                        await delay(3000);
                         await sock.sendMessage(CONFIG.ownerNumber, {
                             text: `✅ *${CONFIG.botName} متصل الآن!*\n\n` +
                                   `📱 الرقم: ${sock.user.id.split(':')[0]}\n` +
@@ -597,22 +549,18 @@ async function startBot() {
                 try {
                     let replyText;
                     
-                    // محاولة الحصول على رد AI
                     if (AI_CONFIG.enabled) {
                         const aiResponse = await getAIResponse(messageText);
                         
                         if (aiResponse) {
                             replyText = aiResponse;
                         } else {
-                            // فشل AI - رد احتياطي
                             replyText = `👋 مرحباً!\n\nأنا ${CONFIG.botOwner}، شكراً لرسالتك 🙏\n\n_"${messageText}"_\n\nالبوت يعمل ✅`;
                         }
                     } else {
-                        // AI معطّل - رد عادي
                         replyText = `👋 مرحباً!\n\nأنا *${CONFIG.botName}* 🤖\nمن تصميم *${CONFIG.botOwner}*\n\nشكراً لرسالتك:\n_"${messageText}"_\n\nالبوت يعمل ✅`;
                     }
 
-                    // إرسال الرد
                     await sock.sendMessage(sender, { 
                         text: replyText
                     }, {
@@ -634,8 +582,8 @@ async function startBot() {
         
     } catch (error) {
         console.error('❌ خطأ في بدء البوت:', error);
-        console.log('🔄 إعادة المحاولة بعد 10 ثواني...\n');
-        setTimeout(startBot, 10000);
+        await delay(10000);
+        reconnectWithDelay(false, 10000);
     }
 }
 
@@ -657,33 +605,19 @@ function reconnectWithDelay(longDelay = false, customDelay = null) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🛑 معالجة الإيقاف
+// 🛑 معالجة الإيقاف - بدون logout!
 // ═══════════════════════════════════════════════════════════
 
 process.on('SIGINT', async () => {
     console.log('\n\n👋 إيقاف البوت...\n');
-    if (connectionCheckInterval) {
-        clearInterval(connectionCheckInterval);
-    }
-    if (globalSock) {
-        try {
-            await globalSock.logout();
-        } catch (e) {}
-    }
+    // ✅ لا يوجد logout - الجلسة تبقى
     server.close();
     process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
     console.log('\n\n👋 إيقاف البوت (SIGTERM)...\n');
-    if (connectionCheckInterval) {
-        clearInterval(connectionCheckInterval);
-    }
-    if (globalSock) {
-        try {
-            await globalSock.logout();
-        } catch (e) {}
-    }
+    // ✅ لا يوجد logout - الجلسة تبقى
     server.close();
     process.exit(0);
 });
