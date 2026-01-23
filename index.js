@@ -47,10 +47,10 @@ console.log('══════════════════════�
 if (!CONFIG.sessionData || CONFIG.sessionData.trim() === '') {
     console.error('\n❌ خطأ: SESSION_DATA غير موجود!\n');
     console.log('📋 الخطوات المطلوبة:');
-    console.log('1. شغّل: node generate-session.js');
+    console.log('1. شغّل: node generate-stable.js');
     console.log('2. امسح الـ QR Code');
     console.log('3. انسخ SESSION_DATA');
-    console.log('4. ضعه في ملف .env');
+    console.log('4. ضعه في Environment Variables');
     console.log('5. شغّل البوت: node index.js\n');
     process.exit(1);
 }
@@ -75,47 +75,113 @@ server.listen(CONFIG.port, () => {
 });
 
 // ═══════════════════════════════════════════════════════════
-// 💾 تحميل الجلسة
+// 💾 تحميل الجلسة - الحل الصحيح 100%
 // ═══════════════════════════════════════════════════════════
 
 function loadSessionFromEnv() {
     try {
-        console.log('🔐 تحميل الجلسة من ENV...');
+        console.log('🔐 تحميل الجلسة من SESSION_DATA...');
         
         const sessionStr = CONFIG.sessionData.trim();
         
-        if (sessionStr.length < 50) {
-            throw new Error('بيانات الجلسة قصيرة جداً');
+        // فحص طول SESSION_DATA
+        if (sessionStr.length < 100) {
+            throw new Error('SESSION_DATA قصير جداً - يجب أن يكون أكثر من 100 حرف');
         }
         
-        const decoded = Buffer.from(sessionStr, 'base64').toString('utf-8');
-        const session = JSON.parse(decoded);
+        console.log(`📏 طول SESSION_DATA: ${sessionStr.length} حرف`);
         
-        if (!session.creds || !session.creds.noiseKey) {
-            throw new Error('بيانات الجلسة غير كاملة');
+        // فك التشفير من Base64
+        let decoded;
+        try {
+            decoded = Buffer.from(sessionStr, 'base64').toString('utf-8');
+        } catch (e) {
+            throw new Error('فشل فك تشفير Base64 - تأكد من نسخ SESSION_DATA كاملاً');
         }
+        
+        // تحويل إلى JSON
+        let authData;
+        try {
+            authData = JSON.parse(decoded);
+        } catch (e) {
+            throw new Error('فشل تحويل JSON - SESSION_DATA تالف');
+        }
+        
+        // التحقق من البنية
+        console.log('📂 فحص محتويات الجلسة...');
+        console.log(`📁 الملفات الموجودة: ${Object.keys(authData).length}`);
+        
+        // ⭐ التحقق من وجود creds.json
+        if (!authData['creds.json']) {
+            throw new Error('creds.json غير موجود في SESSION_DATA');
+        }
+        
+        let credsData;
+        try {
+            credsData = JSON.parse(authData['creds.json']);
+        } catch (e) {
+            throw new Error('creds.json تالف - لا يمكن تحويله لـ JSON');
+        }
+        
+        // التحقق من محتويات creds.json
+        if (!credsData.noiseKey || !credsData.signedIdentityKey || !credsData.signedPreKey) {
+            console.error('⚠️ محتويات creds.json:');
+            console.error(`   - noiseKey: ${credsData.noiseKey ? '✅' : '❌'}`);
+            console.error(`   - signedIdentityKey: ${credsData.signedIdentityKey ? '✅' : '❌'}`);
+            console.error(`   - signedPreKey: ${credsData.signedPreKey ? '✅' : '❌'}`);
+            throw new Error('creds.json غير مكتمل - يجب إنشاء جلسة جديدة');
+        }
+        
+        console.log('✅ creds.json صحيح ومكتمل');
         
         // إنشاء مجلد auth_info
         const authPath = path.join(__dirname, 'auth_info');
-        if (!fs.existsSync(authPath)) {
-            fs.mkdirSync(authPath, { recursive: true });
+        if (fs.existsSync(authPath)) {
+            console.log('🗑️ حذف auth_info القديم...');
+            fs.rmSync(authPath, { recursive: true, force: true });
+        }
+        fs.mkdirSync(authPath, { recursive: true });
+        console.log('📁 تم إنشاء مجلد auth_info');
+        
+        // ⭐ حفظ كل الملفات من authData
+        let savedFiles = 0;
+        for (const [filename, content] of Object.entries(authData)) {
+            try {
+                const filePath = path.join(authPath, filename);
+                fs.writeFileSync(filePath, content);
+                savedFiles++;
+                console.log(`   ✅ ${filename}`);
+            } catch (err) {
+                console.error(`   ❌ فشل حفظ ${filename}: ${err.message}`);
+            }
         }
         
-        // حفظ creds.json
-        fs.writeFileSync(
-            path.join(authPath, 'creds.json'),
-            JSON.stringify(session.creds, null, 2)
-        );
-        
+        console.log(`\n✅ تم حفظ ${savedFiles} ملف في auth_info`);
         console.log('✅ تم تحميل الجلسة بنجاح\n');
         return true;
         
     } catch (error) {
-        console.error('❌ فشل تحميل الجلسة:', error.message);
-        console.log('\n📋 الحل:');
-        console.log('1. شغّل: node generate-session.js');
-        console.log('2. احصل على SESSION_DATA جديد');
-        console.log('3. حدّث ملف .env\n');
+        console.error('\n❌ ═══════════════════════════════════');
+        console.error(`❌ فشل تحميل الجلسة: ${error.message}`);
+        console.error('❌ ═══════════════════════════════════\n');
+        
+        console.log('📋 الحلول المقترحة:\n');
+        console.log('1️⃣ تحقق من SESSION_DATA في Environment Variables:');
+        console.log('   • يجب أن يكون أكثر من 1000 حرف');
+        console.log('   • تأكد من نسخه كاملاً بدون مسافات زائدة\n');
+        
+        console.log('2️⃣ أنشئ جلسة جديدة:');
+        console.log('   • شغّل: node generate-stable.js');
+        console.log('   • امسح QR Code');
+        console.log('   • انتظر ظهور SESSION_DATA');
+        console.log('   • انسخه كاملاً\n');
+        
+        console.log('3️⃣ في Clever Cloud:');
+        console.log('   • افتح Environment Variables');
+        console.log('   • احذف SESSION_DATA القديم');
+        console.log('   • أضف SESSION_DATA الجديد');
+        console.log('   • احفظ وأعد التشغيل\n');
+        
         process.exit(1);
     }
 }
@@ -162,7 +228,7 @@ async function startBot() {
                 creds: state.creds,
                 keys: makeCacheableSignalKeyStore(state.keys, P({ level: 'silent' }))
             },
-            printQRInTerminal: false, // ممنوع عرض QR
+            printQRInTerminal: false,
             logger: P({ level: CONFIG.logLevel }),
             browser: ['Ubuntu', 'Chrome', '20.0.04'],
             defaultQueryTimeoutMs: undefined,
@@ -187,7 +253,7 @@ async function startBot() {
                 console.error('\n❌ خطأ: تم طلب QR Code!');
                 console.error('هذا يعني أن SESSION_DATA غير صالح\n');
                 console.log('📋 الحل:');
-                console.log('1. شغّل: node generate-session.js');
+                console.log('1. شغّل: node generate-stable.js');
                 console.log('2. احصل على SESSION_DATA جديد\n');
                 process.exit(1);
             }
@@ -205,9 +271,9 @@ async function startBot() {
                     
                     console.error('\n❌ الجلسة غير صالحة أو منتهية!\n');
                     console.log('📋 الحل:');
-                    console.log('1. شغّل: node generate-session.js');
+                    console.log('1. شغّل: node generate-stable.js');
                     console.log('2. احصل على SESSION_DATA جديد');
-                    console.log('3. حدّث ملف .env\n');
+                    console.log('3. حدّث Environment Variables\n');
                     process.exit(1);
                     
                 } else if (statusCode === DisconnectReason.connectionReplaced) {
@@ -218,6 +284,10 @@ async function startBot() {
                     console.log('⚠️ خطأ 405 - تحديث Baileys مطلوب');
                     console.log('💡 جرب: npm update @whiskeysockets/baileys\n');
                     reconnectWithDelay(true);
+                    
+                } else if (statusCode === 515) {
+                    console.log('⚠️ خطأ 515 - إعادة المحاولة بعد 5 ثوانٍ...\n');
+                    reconnectWithDelay(false, 5000);
                     
                 } else if (statusCode === 500 || statusCode === 503 || 
                            statusCode === DisconnectReason.timedOut ||
@@ -391,18 +461,18 @@ ${isGroup ? '👥 مجموعة' : '👤 خاص'}
 // 🔄 إعادة الاتصال
 // ═══════════════════════════════════════════════════════════
 
-function reconnectWithDelay(longDelay = false) {
+function reconnectWithDelay(longDelay = false, customDelay = null) {
     if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
         console.error('❌ فشل الاتصال بعد عدة محاولات');
         console.log('\n📋 الحلول المقترحة:');
         console.log('1. تحقق من اتصال الإنترنت');
         console.log('2. حدّث Baileys: npm update @whiskeysockets/baileys');
-        console.log('3. أنشئ جلسة جديدة: node generate-session.js\n');
+        console.log('3. أنشئ جلسة جديدة: node generate-stable.js\n');
         process.exit(1);
     }
     
     reconnectAttempts++;
-    const delayTime = longDelay ? 15000 : (5000 * reconnectAttempts);
+    const delayTime = customDelay || (longDelay ? 15000 : (5000 * reconnectAttempts));
     
     console.log(`🔄 إعادة المحاولة بعد ${delayTime / 1000}ث (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})\n`);
     setTimeout(startBot, delayTime);
