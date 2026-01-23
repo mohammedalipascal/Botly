@@ -1,13 +1,16 @@
 require('dotenv').config();
-const makeWASocket = require('@whiskeysockets/baileys').default;
 const { 
-    useMultiFileAuthState, 
+    default: makeWASocket,
+    useMultiFileAuthState,
     DisconnectReason,
     fetchLatestBaileysVersion,
-    makeCacheableSignalKeyStore
+    makeCacheableSignalKeyStore,
+    Browsers,
+    delay
 } = require('@whiskeysockets/baileys');
 const P = require('pino');
 const http = require('http');
+const NodeCache = require('node-cache');
 
 // ═══════════════════════════════════════════════════════════
 // 🔧 الإعدادات
@@ -46,35 +49,20 @@ server.listen(CONFIG.port, () => {
 });
 
 // ═══════════════════════════════════════════════════════════
-// 🔗 دالة توليد رابط QR Code مؤقت
+// 🔗 دالة توليد روابط QR
 // ═══════════════════════════════════════════════════════════
 
 function generateQRLinks(qrData) {
-    // ترميز البيانات للاستخدام في URL
     const encoded = encodeURIComponent(qrData);
     
-    // خيارات متعددة من APIs مجانية
     const links = {
-        // الأفضل: QR Server (بدون حد)
         primary: `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encoded}`,
-        
-        // بديل 1: QRCode Monkey
-        alternative1: `https://api.qrcode-monkey.com//qr/custom?data=${encoded}&size=400`,
-        
-        // بديل 2: GoQR.me
-        alternative2: `https://api.qrserver.com/v1/create-qr-code/?size=300x300&format=png&data=${encoded}`,
-        
-        // بديل 3: QR Code Generator
-        alternative3: `https://chart.googleapis.com/chart?chs=400x400&cht=qr&chl=${encoded}`,
-        
-        // صفحة HTML جاهزة للمشاركة
-        webpage: `https://api.qrserver.com/v1/create-qr-code/?size=500x500&ecc=H&data=${encoded}`
+        alternative: `https://chart.googleapis.com/chart?chs=400x400&cht=qr&chl=${encoded}`
     };
     
     return links;
 }
 
-// دالة طباعة الروابط بشكل جميل
 function displayQRLinks(links) {
     console.log('\n╔════════════════════════════════════════════════════════╗');
     console.log('║                                                        ║');
@@ -82,31 +70,28 @@ function displayQRLinks(links) {
     console.log('║                                                        ║');
     console.log('╚════════════════════════════════════════════════════════╝\n');
     
-    console.log('🔗 الرابط الرئيسي (الأفضل):');
+    console.log('🔗 الرابط الرئيسي:');
     console.log(`   ${links.primary}\n`);
     
-    console.log('🔗 رابط بديل 1:');
-    console.log(`   ${links.alternative3}\n`);
+    console.log('🔗 رابط بديل:');
+    console.log(`   ${links.alternative}\n`);
     
     console.log('📱 الخطوات:');
-    console.log('   1. انسخ أي رابط أعلاه 👆');
-    console.log('   2. افتحه في المتصفح (كمبيوتر أو موبايل)');
+    console.log('   1. انسخ الرابط أعلاه');
+    console.log('   2. افتحه في المتصفح');
     console.log('   3. امسح الكود بواتساب');
     console.log('   4. انتظر الاتصال...\n');
     
-    console.log('💡 نصيحة: يمكنك إرسال الرابط لأي شخص ليمسح الكود!\n');
-    console.log('⏰ الرابط صالح لمدة 60 ثانية فقط\n');
     console.log('═'.repeat(60) + '\n');
 }
 
 // ═══════════════════════════════════════════════════════════
-// 📊 متغيرات التتبع
+// 💾 Cache للرسائل
 // ═══════════════════════════════════════════════════════════
 
+const msgRetryCounterCache = new NodeCache();
 const processedMessages = new Set();
 const MAX_CACHE = 500;
-let reconnectAttempts = 0;
-const MAX_RECONNECT = 10;
 
 function cleanCache() {
     if (processedMessages.size > MAX_CACHE) {
@@ -119,31 +104,77 @@ function cleanCache() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🤖 دالة بدء البوت
+// 🔧 متغيرات التحكم
+// ═══════════════════════════════════════════════════════════
+
+let reconnectAttempts = 0;
+const MAX_RECONNECT = 5;
+let isConnecting = false;
+let sock = null;
+
+// ═══════════════════════════════════════════════════════════
+// 🤖 دالة بدء البوت - النسخة المستقرة
 // ═══════════════════════════════════════════════════════════
 
 async function startBot() {
+    // منع محاولات متعددة في نفس الوقت
+    if (isConnecting) {
+        console.log('⏳ محاولة اتصال جارية، انتظر...\n');
+        return;
+    }
+    
+    isConnecting = true;
+    
     try {
         console.log('🚀 بدء البوت...\n');
         
-        const { version } = await fetchLatestBaileysVersion();
-        console.log(`📦 Baileys v${version.join('.')}\n`);
+        // جلب أحدث إصدار
+        const { version, isLatest } = await fetchLatestBaileysVersion();
+        console.log(`📦 Baileys v${version.join('.')} ${isLatest ? '✅' : '⚠️'}\n`);
         
+        // تحميل الجلسة
         const { state, saveCreds } = await useMultiFileAuthState('auth_info');
         
-        const sock = makeWASocket({
+        // إنشاء الاتصال بإعدادات محسّنة
+        sock = makeWASocket({
             version,
+            logger: P({ level: 'silent' }),
+            printQRInTerminal: false,
+            
+            // 🔧 الإعدادات المهمة لتجنب 515
             auth: {
                 creds: state.creds,
                 keys: makeCacheableSignalKeyStore(state.keys, P({ level: 'silent' }))
             },
-            printQRInTerminal: false,
-            logger: P({ level: 'silent' }),
-            browser: ['Botly', 'Desktop', '1.0.0'],
-            defaultQueryTimeoutMs: undefined,
+            
+            // Browser ID - مهم جداً!
+            browser: Browsers.ubuntu('Desktop'),
+            
+            // إعدادات الاتصال المحسّنة
+            markOnlineOnConnect: false, // ⚠️ مهم: عدم الظهور أونلاين مباشرة
             syncFullHistory: false,
-            markOnlineOnConnect: true,
-            getMessage: async () => ({ conversation: '' })
+            
+            // Retry settings
+            msgRetryCounterCache,
+            defaultQueryTimeoutMs: 60000, // زيادة المهلة
+            
+            // منع تحميل الرسائل القديمة
+            getMessage: async () => undefined,
+            
+            // إعدادات إضافية للاستقرار
+            connectTimeoutMs: 60000,
+            keepAliveIntervalMs: 30000,
+            
+            // تعطيل بعض المميزات غير الضرورية
+            emitOwnEvents: false,
+            fireInitQueries: true,
+            generateHighQualityLinkPreview: false,
+            
+            // Mobile API بدلاً من Web (أكثر استقراراً)
+            mobile: false,
+            
+            // تخزين مؤقت للرسائل
+            shouldIgnoreJid: jid => jid === 'status@broadcast'
         });
 
         // ═══════════════════════════════════════════════════════════
@@ -153,93 +184,161 @@ async function startBot() {
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect, qr } = update;
             
-            // عرض QR Code كروابط
+            // QR Code
             if (qr) {
                 const links = generateQRLinks(qr);
                 displayQRLinks(links);
-                
-                // إرسال الرابط للمالك إذا كان موجود
-                if (CONFIG.ownerNumber) {
-                    try {
-                        // نحتاج انتظار اتصال سابق، لذلك نتخطى هذا في المرة الأولى
-                        console.log('💡 في المرة القادمة، سيتم إرسال الرابط للمالك تلقائياً\n');
-                    } catch (e) {
-                        // تجاهل الخطأ في المرة الأولى
-                    }
-                }
             }
             
             // الاتصال مغلق
             if (connection === 'close') {
+                isConnecting = false;
+                
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
+                const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
                 
                 console.log(`\n❌ الاتصال مغلق - كود: ${statusCode}\n`);
                 
-                if (statusCode === DisconnectReason.loggedOut) {
-                    console.log('🚪 تم تسجيل الخروج');
-                    console.log('💡 احذف مجلد auth_info وأعد التشغيل\n');
-                    process.exit(1);
+                // معالجة الأخطاء المختلفة
+                switch (statusCode) {
+                    case DisconnectReason.badSession:
+                        console.log('📱 جلسة سيئة - يُنصح بحذف auth_info\n');
+                        await delay(3000);
+                        reconnectSafely();
+                        break;
                     
-                } else if (statusCode === 515) {
-                    console.log('🚫 خطأ 515 - جلسة نشطة أخرى!');
-                    console.log('\n📋 الحل:');
-                    console.log('1. افتح واتساب > الإعدادات > الأجهزة المرتبطة');
-                    console.log('2. احذف جميع الأجهزة');
-                    console.log('3. أغلق واتساب ويب في كل مكان');
-                    console.log('4. انتظر 5 دقائق ⏰');
-                    console.log('5. احذف مجلد auth_info');
-                    console.log('6. أعد تشغيل البوت\n');
-                    process.exit(1);
+                    case DisconnectReason.connectionClosed:
+                        console.log('🔌 الاتصال مغلق - إعادة المحاولة\n');
+                        await delay(5000);
+                        reconnectSafely();
+                        break;
                     
-                } else if (statusCode === 401 || statusCode === 403) {
-                    console.log('🔑 خطأ مصادقة - الجلسة منتهية');
-                    console.log('💡 احذف مجلد auth_info وأعد التشغيل\n');
-                    process.exit(1);
+                    case DisconnectReason.connectionLost:
+                        console.log('📡 فقدان الاتصال - إعادة المحاولة\n');
+                        await delay(5000);
+                        reconnectSafely();
+                        break;
                     
-                } else if (statusCode !== DisconnectReason.loggedOut) {
-                    if (reconnectAttempts < MAX_RECONNECT) {
-                        reconnectAttempts++;
-                        const delay = 3000 * reconnectAttempts;
-                        console.log(`🔄 إعادة الاتصال بعد ${delay/1000}ث (${reconnectAttempts}/${MAX_RECONNECT})\n`);
-                        setTimeout(startBot, delay);
-                    } else {
-                        console.log('❌ فشل الاتصال بعد عدة محاولات\n');
+                    case DisconnectReason.connectionReplaced:
+                        console.log('🔄 تم استبدال الاتصال\n');
+                        console.log('⚠️ جلسة أخرى نشطة - توقف\n');
                         process.exit(1);
-                    }
+                        break;
+                    
+                    case DisconnectReason.timedOut:
+                        console.log('⏱️ انتهت المهلة - إعادة المحاولة\n');
+                        await delay(10000);
+                        reconnectSafely();
+                        break;
+                    
+                    case DisconnectReason.loggedOut:
+                        console.log('🚪 تم تسجيل الخروج\n');
+                        console.log('💡 احذف auth_info وأعد التشغيل\n');
+                        process.exit(1);
+                        break;
+                    
+                    case DisconnectReason.restartRequired:
+                        console.log('🔄 إعادة التشغيل مطلوبة\n');
+                        await delay(2000);
+                        reconnectSafely();
+                        break;
+                    
+                    case 401:
+                    case 403:
+                        console.log('🔑 خطأ مصادقة - الجلسة منتهية\n');
+                        console.log('💡 احذف auth_info وأعد التشغيل\n');
+                        process.exit(1);
+                        break;
+                    
+                    case 408:
+                        console.log('⏱️ Request Timeout - إعادة المحاولة\n');
+                        await delay(10000);
+                        reconnectSafely();
+                        break;
+                    
+                    case 428:
+                        console.log('🔄 اتصال قديم - إعادة المحاولة\n');
+                        await delay(5000);
+                        reconnectSafely();
+                        break;
+                    
+                    case 440:
+                        console.log('🚪 تم تسجيل الخروج من الجلسة\n');
+                        console.log('💡 احذف auth_info وأعد التشغيل\n');
+                        process.exit(1);
+                        break;
+                    
+                    case 500:
+                    case 503:
+                        console.log('🔧 خطأ في الخادم - إعادة المحاولة\n');
+                        await delay(15000);
+                        reconnectSafely();
+                        break;
+                    
+                    case 515:
+                        console.log('🚫 خطأ 515 - Connection Refused\n');
+                        console.log('⚠️ هذا الخطأ يحدث عادة بسبب:');
+                        console.log('   1. جلسة نشطة أخرى');
+                        console.log('   2. واتساب ويب مفتوح');
+                        console.log('   3. محاولة اتصال سريعة جداً\n');
+                        console.log('🔧 الحل:');
+                        console.log('   1. أغلق جميع جلسات واتساب ويب');
+                        console.log('   2. احذف الأجهزة المرتبطة من الهاتف');
+                        console.log('   3. انتظر 10 دقائق ⏰');
+                        console.log('   4. احذف مجلد auth_info');
+                        console.log('   5. أعد تشغيل البوت\n');
+                        
+                        // محاولة واحدة بعد تأخير طويل
+                        if (reconnectAttempts === 0) {
+                            console.log('⏰ انتظار 60 ثانية ثم محاولة مرة واحدة...\n');
+                            await delay(60000);
+                            reconnectSafely();
+                        } else {
+                            console.log('❌ فشل الاتصال - توقف\n');
+                            process.exit(1);
+                        }
+                        break;
+                    
+                    default:
+                        if (shouldReconnect) {
+                            console.log('❓ خطأ غير معروف - إعادة المحاولة\n');
+                            await delay(5000);
+                            reconnectSafely();
+                        }
                 }
             }
             
             // الاتصال ناجح
             else if (connection === 'open') {
+                isConnecting = false;
+                reconnectAttempts = 0;
+                
                 console.log('\n✅ ════════════════════════════════════');
                 console.log('   🎉 متصل بواتساب بنجاح!');
                 console.log(`   📱 الرقم: ${sock.user?.id?.split(':')[0] || '---'}`);
                 console.log(`   👤 الاسم: ${sock.user?.name || '---'}`);
                 console.log(`   🤖 البوت: ${CONFIG.botName}`);
-                console.log(`   👥 المجموعات: ${CONFIG.replyInGroups ? 'نعم ✅' : 'لا ❌'}`);
                 console.log('════════════════════════════════════\n');
                 
-                reconnectAttempts = 0;
                 processedMessages.clear();
                 
-                // إشعار المالك
+                // إشعار المالك (بعد تأخير)
                 if (CONFIG.ownerNumber) {
                     setTimeout(async () => {
                         try {
                             await sock.sendMessage(CONFIG.ownerNumber, {
-                                text: `✅ *${CONFIG.botName} متصل الآن!*\n\n` +
-                                      `📱 الرقم: ${sock.user.id.split(':')[0]}\n` +
-                                      `⏰ ${new Date().toLocaleString('ar-EG')}\n` +
-                                      `👥 المجموعات: ${CONFIG.replyInGroups ? 'نعم' : 'لا'}`
+                                text: `✅ *${CONFIG.botName} متصل!*\n\n` +
+                                      `📱 ${sock.user.id.split(':')[0]}\n` +
+                                      `⏰ ${new Date().toLocaleString('ar-EG')}`
                             });
-                            console.log('✅ تم إرسال إشعار للمالك\n');
                         } catch (e) {
                             console.log('⚠️ لم يتم إرسال إشعار للمالك\n');
                         }
-                    }, 3000);
+                    }, 5000);
                 }
             }
             
+            // جاري الاتصال
             else if (connection === 'connecting') {
                 console.log('🔄 جاري الاتصال بواتساب...');
             }
@@ -298,8 +397,8 @@ async function startBot() {
                         text: `👋 مرحباً!\n\n` +
                               `🤖 أنا *${CONFIG.botName}*\n` +
                               `👨‍💻 من تصميم *${CONFIG.botOwner}*\n\n` +
-                              `📩 رسالتك:\n_"${text}"_\n\n` +
-                              `${isGroup ? '👥 مجموعة' : '👤 خاص'} • ✅ البوت يعمل`
+                              `📩 "${text}"\n\n` +
+                              `${isGroup ? '👥 مجموعة' : '👤 خاص'} • ✅`
                     }, { quoted: msg });
                     
                     console.log('✅ تم الرد\n');
@@ -316,34 +415,56 @@ async function startBot() {
         console.log('✅ البوت جاهز! 🚀\n');
         
     } catch (error) {
+        isConnecting = false;
         console.error('\n❌ خطأ في بدء البوت:', error.message, '\n');
         
-        if (reconnectAttempts < MAX_RECONNECT) {
-            reconnectAttempts++;
-            console.log(`🔄 إعادة المحاولة ${reconnectAttempts}/${MAX_RECONNECT}...\n`);
-            setTimeout(startBot, 5000);
-        } else {
-            console.log('❌ فشل البوت بعد عدة محاولات\n');
-            process.exit(1);
-        }
+        await delay(5000);
+        reconnectSafely();
     }
+}
+
+// ═══════════════════════════════════════════════════════════
+// 🔄 إعادة الاتصال الآمنة
+// ═══════════════════════════════════════════════════════════
+
+async function reconnectSafely() {
+    if (reconnectAttempts >= MAX_RECONNECT) {
+        console.log('❌ فشل الاتصال بعد عدة محاولات\n');
+        console.log('💡 جرّب:');
+        console.log('   1. حذف مجلد auth_info');
+        console.log('   2. تحديث Baileys: npm update @whiskeysockets/baileys');
+        console.log('   3. إعادة التشغيل\n');
+        process.exit(1);
+    }
+    
+    reconnectAttempts++;
+    const delayTime = Math.min(reconnectAttempts * 5000, 30000); // حد أقصى 30 ثانية
+    
+    console.log(`🔄 إعادة المحاولة ${reconnectAttempts}/${MAX_RECONNECT} بعد ${delayTime/1000}ث...\n`);
+    
+    await delay(delayTime);
+    await startBot();
 }
 
 // ═══════════════════════════════════════════════════════════
 // 🛑 معالجة الإيقاف
 // ═══════════════════════════════════════════════════════════
 
-process.on('SIGINT', () => {
+async function cleanup() {
     console.log('\n👋 إيقاف البوت...\n');
+    
+    if (sock) {
+        try {
+            await sock.logout();
+        } catch (e) {}
+    }
+    
     server.close();
     process.exit(0);
-});
+}
 
-process.on('SIGTERM', () => {
-    console.log('\n👋 إيقاف البوت (SIGTERM)...\n');
-    server.close();
-    process.exit(0);
-});
+process.on('SIGINT', cleanup);
+process.on('SIGTERM', cleanup);
 
 process.on('unhandledRejection', (err) => {
     console.error('❌ Rejection:', err);
@@ -360,6 +481,7 @@ process.on('uncaughtException', (err) => {
 console.log('╔════════════════════════════════════════════════╗');
 console.log('║                                                ║');
 console.log('║            🤖 WhatsApp Bot - Botly            ║');
+console.log('║          النسخة المستقرة (Anti-515)           ║');
 console.log('║                                                ║');
 console.log('╚════════════════════════════════════════════════╝\n');
 
