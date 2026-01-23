@@ -12,23 +12,23 @@ const fs = require('fs');
 const path = require('path');
 
 // ═══════════════════════════════════════════════════════════
+// 🔧 دالة Delay
+// ═══════════════════════════════════════════════════════════
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+// ═══════════════════════════════════════════════════════════
 // 🤖 إعدادات الذكاء الاصطناعي
 // ═══════════════════════════════════════════════════════════
 
 const AI_CONFIG = {
     enabled: process.env.AI_ENABLED === 'true',
-    provider: process.env.AI_PROVIDER || 'groq', // groq أو huggingface
+    provider: process.env.AI_PROVIDER || 'groq',
     apiKey: process.env.AI_API_KEY || '',
     model: process.env.AI_MODEL || 'llama-3.3-70b-versatile',
     personality: process.env.AI_PERSONALITY || 'شخصية مقداد الافتراضية',
     maxTokens: parseInt(process.env.AI_MAX_TOKENS) || 500,
     temperature: parseFloat(process.env.AI_TEMPERATURE) || 0.7
 };
-
-// ═══════════════════════════════════════════════════════════
-// 🔧 دالة Delay
-// ═══════════════════════════════════════════════════════════
-const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // ═══════════════════════════════════════════════════════════
 // 🔧 الإعدادات
@@ -68,11 +68,10 @@ if (!CONFIG.sessionData || CONFIG.sessionData.trim() === '') {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🧠 قاعدة المعرفة (Knowledge Base)
+// 🧠 قاعدة المعرفة
 // ═══════════════════════════════════════════════════════════
 
 const KNOWLEDGE_BASE = {
-    // معلومات شخصية
     personal: {
         name: "مقداد",
         age: "25 سنة",
@@ -81,38 +80,28 @@ const KNOWLEDGE_BASE = {
         hobbies: ["البرمجة", "القراءة", "التقنية"],
         languages: ["العربية", "الإنجليزية"]
     },
-    
-    // مهارات تقنية
     skills: {
         programming: ["JavaScript", "Node.js", "Python", "PHP"],
         frameworks: ["React", "Express", "Laravel"],
         databases: ["MySQL", "MongoDB"],
         tools: ["Git", "Docker", "VS Code"]
     },
-    
-    // مشاريع
     projects: {
         current: "بوت واتساب ذكي مع AI",
         completed: ["موقع تجارة إلكترونية", "نظام إدارة محتوى", "تطبيق موبايل"],
         planning: ["منصة تعليمية", "أداة أتمتة"]
     },
-    
-    // أسلوب الكتابة
     style: {
         tone: "ودود ومحترف",
         emoji_usage: "معتدل",
         response_length: "مختصر ومفيد",
         greetings: ["مرحباً", "أهلاً", "السلام عليكم"]
     },
-    
-    // آراء واهتمامات
     opinions: {
         tech_preferences: "أفضل التقنيات المفتوحة المصدر والبسيطة",
         work_philosophy: "الكود النظيف أهم من السرعة",
         learning: "التعلم المستمر أساس النجاح"
     },
-    
-    // معلومات إضافية (أضف هنا ما تريد)
     custom: {
         favorite_food: "الكشري",
         favorite_color: "الأزرق",
@@ -122,7 +111,7 @@ const KNOWLEDGE_BASE = {
 };
 
 // ═══════════════════════════════════════════════════════════
-// 🎭 بناء الشخصية (Personality Prompt)
+// 🎭 بناء الشخصية
 // ═══════════════════════════════════════════════════════════
 
 function buildPersonalityPrompt() {
@@ -233,7 +222,7 @@ function loadSessionFromEnv() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🤖 دالة AI - Groq (مجاني وسريع جداً!)
+// 🤖 دالة AI - Groq
 // ═══════════════════════════════════════════════════════════
 
 async function getAIResponse_Groq(userMessage) {
@@ -275,7 +264,7 @@ async function getAIResponse_Groq(userMessage) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🤖 دالة AI - Hugging Face (بديل مجاني)
+// 🤖 دالة AI - Hugging Face
 // ═══════════════════════════════════════════════════════════
 
 async function getAIResponse_HuggingFace(userMessage) {
@@ -355,9 +344,8 @@ async function getAIResponse(userMessage) {
 const processedMessages = new Set();
 const MAX_PROCESSED_CACHE = 1000;
 let reconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 10; // ⭐ زيادة المحاولات
+const MAX_RECONNECT_ATTEMPTS = 10;
 let globalSock = null;
-let connectionCheckInterval = null; // ⭐ لمتابعة الاتصال
 
 function cleanProcessedMessages() {
     if (processedMessages.size > MAX_PROCESSED_CACHE) {
@@ -367,29 +355,6 @@ function cleanProcessedMessages() {
             processedMessages.delete(iterator.next().value);
         }
     }
-}
-
-// ═══════════════════════════════════════════════════════════
-// 🔄 مراقبة الاتصال
-// ═══════════════════════════════════════════════════════════
-
-function startConnectionMonitor(sock) {
-    // إيقاف المراقبة القديمة
-    if (connectionCheckInterval) {
-        clearInterval(connectionCheckInterval);
-    }
-    
-    // مراقبة كل 30 ثانية
-    connectionCheckInterval = setInterval(() => {
-        if (sock && sock.ws && sock.ws.readyState === 1) {
-            console.log('✅ الاتصال نشط');
-        } else {
-            console.log('⚠️ الاتصال غير نشط - محاولة إعادة الاتصال...');
-            if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-                reconnectWithDelay(false, 5000);
-            }
-        }
-    }, 30000);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -418,9 +383,8 @@ async function startBot() {
             browser: ['Ubuntu', 'Chrome', '20.0.04'],
             defaultQueryTimeoutMs: undefined,
             syncFullHistory: false,
-            markOnlineOnConnect: true,
+            markOnlineOnConnect: false, // ✅ مهم
             
-            // ⭐ إعدادات لمنع قطع الاتصال
             keepAliveIntervalMs: 30000,
             connectTimeoutMs: 60000,
             retryRequestDelayMs: 250,
@@ -445,17 +409,25 @@ async function startBot() {
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
                 console.log(`❌ الاتصال مغلق. كود: ${statusCode}`);
                 
+                // ✅ معالجة 440
+                if (statusCode === 440 || statusCode === DisconnectReason.connectionReplaced) {
+                    console.log('⚠️ خطأ 440/connectionReplaced - جلسة مستبدلة');
+                    console.log('💡 هذا يعني جلسة أخرى نشطة أو restart سريع');
+                    console.log('🔄 إعادة المحاولة بعد 10 ثوانٍ...\n');
+                    await delay(10000);
+                    reconnectWithDelay(false, 10000);
+                    return;
+                }
+                
                 if (statusCode === DisconnectReason.badSession || 
                     statusCode === DisconnectReason.loggedOut ||
                     statusCode === 401 || statusCode === 403) {
                     console.error('\n❌ الجلسة غير صالحة!\n');
                     process.exit(1);
-                } else if (statusCode === DisconnectReason.connectionReplaced) {
-                    console.log('🔄 تم استبدال الاتصال\n');
-                    process.exit(1);
                 } else if (statusCode === 515) {
                     console.log('⚠️ خطأ 515 - إعادة المحاولة...\n');
-                    reconnectWithDelay(false, 5000);
+                    await delay(3000);
+                    reconnectWithDelay(false, 3000);
                 } else {
                     reconnectWithDelay();
                 }
@@ -474,12 +446,9 @@ async function startBot() {
                 reconnectAttempts = 0;
                 processedMessages.clear();
                 
-                // ⭐ بدء مراقبة الاتصال
-                startConnectionMonitor(sock);
-                
                 if (CONFIG.ownerNumber) {
                     try {
-                        await delay(2000);
+                        await delay(3000);
                         await sock.sendMessage(CONFIG.ownerNumber, {
                             text: `✅ *${CONFIG.botName} متصل الآن!*\n\n` +
                                   `📱 الرقم: ${sock.user.id.split(':')[0]}\n` +
@@ -580,22 +549,18 @@ async function startBot() {
                 try {
                     let replyText;
                     
-                    // محاولة الحصول على رد AI
                     if (AI_CONFIG.enabled) {
                         const aiResponse = await getAIResponse(messageText);
                         
                         if (aiResponse) {
                             replyText = aiResponse;
                         } else {
-                            // فشل AI - رد احتياطي
                             replyText = `👋 مرحباً!\n\nأنا ${CONFIG.botOwner}، شكراً لرسالتك 🙏\n\n_"${messageText}"_\n\nالبوت يعمل ✅`;
                         }
                     } else {
-                        // AI معطّل - رد عادي
                         replyText = `👋 مرحباً!\n\nأنا *${CONFIG.botName}* 🤖\nمن تصميم *${CONFIG.botOwner}*\n\nشكراً لرسالتك:\n_"${messageText}"_\n\nالبوت يعمل ✅`;
                     }
 
-                    // إرسال الرد
                     await sock.sendMessage(sender, { 
                         text: replyText
                     }, {
@@ -617,8 +582,8 @@ async function startBot() {
         
     } catch (error) {
         console.error('❌ خطأ في بدء البوت:', error);
-        console.log('🔄 إعادة المحاولة بعد 10 ثواني...\n');
-        setTimeout(startBot, 10000);
+        await delay(10000);
+        reconnectWithDelay(false, 10000);
     }
 }
 
@@ -640,33 +605,19 @@ function reconnectWithDelay(longDelay = false, customDelay = null) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🛑 معالجة الإيقاف
+// 🛑 معالجة الإيقاف - بدون logout!
 // ═══════════════════════════════════════════════════════════
 
 process.on('SIGINT', async () => {
     console.log('\n\n👋 إيقاف البوت...\n');
-    if (connectionCheckInterval) {
-        clearInterval(connectionCheckInterval);
-    }
-    if (globalSock) {
-        try {
-            await globalSock.logout();
-        } catch (e) {}
-    }
+    // ✅ لا يوجد logout - الجلسة تبقى
     server.close();
     process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
     console.log('\n\n👋 إيقاف البوت (SIGTERM)...\n');
-    if (connectionCheckInterval) {
-        clearInterval(connectionCheckInterval);
-    }
-    if (globalSock) {
-        try {
-            await globalSock.logout();
-        } catch (e) {}
-    }
+    // ✅ لا يوجد logout - الجلسة تبقى
     server.close();
     process.exit(0);
 });
