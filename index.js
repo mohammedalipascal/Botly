@@ -8,7 +8,6 @@ const {
 } = require('@whiskeysockets/baileys');
 const P = require('pino');
 const http = require('http');
-const qrcode = require('qrcode-terminal');
 
 // ═══════════════════════════════════════════════════════════
 // 🔧 الإعدادات البسيطة
@@ -31,20 +30,378 @@ console.log(`💾 الجلسة: محلية (auth_info/)`);
 console.log('═══════════════════════════════════\n');
 
 // ═══════════════════════════════════════════════════════════
-// 🌐 سيرفر HTTP بسيط
+// 🌐 سيرفر HTTP مع عرض QR
 // ═══════════════════════════════════════════════════════════
 
+let currentQR = null;
+let isConnected = false;
+let botInfo = null;
+
 const server = http.createServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({
-        status: 'online',
-        bot: CONFIG.botName,
-        time: new Date().toISOString()
-    }));
+    // صفحة QR Code
+    if (req.url === '/qr' || req.url === '/') {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        
+        if (isConnected && botInfo) {
+            // البوت متصل
+            res.end(`
+<!DOCTYPE html>
+<html dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${CONFIG.botName} - متصل</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            text-align: center;
+            max-width: 500px;
+            width: 100%;
+        }
+        .success-icon {
+            font-size: 80px;
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #10b981;
+            font-size: 32px;
+            margin-bottom: 20px;
+        }
+        .info {
+            background: #f0fdf4;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+            border-right: 4px solid #10b981;
+        }
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            margin: 10px 0;
+            font-size: 16px;
+        }
+        .label {
+            color: #6b7280;
+            font-weight: 500;
+        }
+        .value {
+            color: #1f2937;
+            font-weight: 600;
+        }
+        .note {
+            color: #6b7280;
+            font-size: 14px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="success-icon">✅</div>
+        <h1>البوت متصل بنجاح!</h1>
+        
+        <div class="info">
+            <div class="info-item">
+                <span class="label">🤖 اسم البوت:</span>
+                <span class="value">${botInfo.name}</span>
+            </div>
+            <div class="info-item">
+                <span class="label">📱 رقم الهاتف:</span>
+                <span class="value">${botInfo.number}</span>
+            </div>
+            <div class="info-item">
+                <span class="label">👤 اسم الحساب:</span>
+                <span class="value">${botInfo.userName}</span>
+            </div>
+            <div class="info-item">
+                <span class="label">👥 الرد في المجموعات:</span>
+                <span class="value">${botInfo.groups ? 'نعم ✅' : 'لا ❌'}</span>
+            </div>
+            <div class="info-item">
+                <span class="label">⏰ وقت الاتصال:</span>
+                <span class="value">${botInfo.time}</span>
+            </div>
+        </div>
+        
+        <p class="note">البوت يعمل بشكل صحيح ويستقبل الرسائل 🎉</p>
+    </div>
+</body>
+</html>
+            `);
+        } else if (currentQR) {
+            // عرض QR Code
+            res.end(`
+<!DOCTYPE html>
+<html dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${CONFIG.botName} - مسح QR Code</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            text-align: center;
+            max-width: 500px;
+            width: 100%;
+        }
+        h1 {
+            color: #667eea;
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: #6b7280;
+            font-size: 16px;
+            margin-bottom: 30px;
+        }
+        #qrcode {
+            background: white;
+            padding: 20px;
+            border-radius: 15px;
+            display: inline-block;
+            margin: 20px 0;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        .steps {
+            background: #f9fafb;
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 20px;
+            text-align: right;
+        }
+        .step {
+            display: flex;
+            align-items: center;
+            margin: 15px 0;
+            gap: 15px;
+        }
+        .step-number {
+            background: #667eea;
+            color: white;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+        .step-text {
+            color: #374151;
+            text-align: right;
+            flex: 1;
+        }
+        .timer {
+            color: #ef4444;
+            font-size: 18px;
+            font-weight: bold;
+            margin-top: 20px;
+        }
+        .warning {
+            background: #fef2f2;
+            color: #dc2626;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+            border-right: 4px solid #ef4444;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        #qrcode img {
+            animation: pulse 2s infinite;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 ${CONFIG.botName}</h1>
+        <p class="subtitle">امسح الكود لربط البوت بواتساب</p>
+        
+        <div id="qrcode"></div>
+        
+        <div class="steps">
+            <div class="step">
+                <div class="step-number">1</div>
+                <div class="step-text">افتح تطبيق واتساب على هاتفك</div>
+            </div>
+            <div class="step">
+                <div class="step-number">2</div>
+                <div class="step-text">اذهب إلى: الإعدادات ← الأجهزة المرتبطة</div>
+            </div>
+            <div class="step">
+                <div class="step-number">3</div>
+                <div class="step-text">اضغط على "ربط جهاز"</div>
+            </div>
+            <div class="step">
+                <div class="step-number">4</div>
+                <div class="step-text">امسح الكود أعلاه ☝️</div>
+            </div>
+        </div>
+        
+        <div class="warning">
+            ⚠️ امسح الكود خلال 60 ثانية قبل انتهاء صلاحيته
+        </div>
+        
+        <p class="timer" id="timer">⏰ جاري التحميل...</p>
+    </div>
+    
+    <script>
+        // عرض QR Code
+        const qrData = ${JSON.stringify(currentQR)};
+        new QRCode(document.getElementById("qrcode"), {
+            text: qrData,
+            width: 256,
+            height: 256,
+            colorDark: "#000000",
+            colorLight: "#ffffff",
+            correctLevel: QRCode.CorrectLevel.H
+        });
+        
+        // العد التنازلي
+        let seconds = 60;
+        const timerEl = document.getElementById('timer');
+        
+        const countdown = setInterval(() => {
+            seconds--;
+            timerEl.textContent = '⏰ متبقي: ' + seconds + ' ثانية';
+            
+            if (seconds <= 0) {
+                clearInterval(countdown);
+                timerEl.textContent = '❌ انتهت صلاحية الكود - حدّث الصفحة';
+                timerEl.style.color = '#dc2626';
+            } else if (seconds <= 10) {
+                timerEl.style.color = '#dc2626';
+            }
+        }, 1000);
+        
+        // تحديث الصفحة كل 3 ثواني للتحقق من الاتصال
+        setInterval(() => {
+            fetch('/status')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.connected) {
+                        window.location.reload();
+                    }
+                })
+                .catch(() => {});
+        }, 3000);
+    </script>
+</body>
+</html>
+            `);
+        } else {
+            // في انتظار QR Code
+            res.end(`
+<!DOCTYPE html>
+<html dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${CONFIG.botName} - جاري التحميل</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 60px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            text-align: center;
+        }
+        .spinner {
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #667eea;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 30px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        h2 {
+            color: #374151;
+            font-size: 24px;
+        }
+        p {
+            color: #6b7280;
+            margin-top: 15px;
+        }
+    </style>
+    <meta http-equiv="refresh" content="2">
+</head>
+<body>
+    <div class="container">
+        <div class="spinner"></div>
+        <h2>🔄 جاري تحضير QR Code...</h2>
+        <p>انتظر قليلاً، سيظهر الكود تلقائياً</p>
+    </div>
+</body>
+</html>
+            `);
+        }
+    }
+    
+    // API للتحقق من الحالة
+    else if (req.url === '/status') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            connected: isConnected,
+            hasQR: currentQR !== null,
+            bot: CONFIG.botName,
+            time: new Date().toISOString()
+        }));
+    }
+    
+    // الصفحة الافتراضية
+    else {
+        res.writeHead(302, { 'Location': '/qr' });
+        res.end();
+    }
 });
 
 server.listen(CONFIG.port, () => {
-    console.log(`🌐 HTTP Server: http://localhost:${CONFIG.port}\n`);
+    console.log(`🌐 HTTP Server: http://localhost:${CONFIG.port}`);
+    console.log(`📱 QR Code Page: http://localhost:${CONFIG.port}/qr\n`);
 });
 
 // ═══════════════════════════════════════════════════════════
@@ -104,20 +461,16 @@ async function startBot() {
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect, qr } = update;
             
-            // عرض QR Code
+            // عرض QR Code في الويب
             if (qr) {
+                currentQR = qr;
                 console.log('\n📱 ═══════════════════════════════════════');
-                console.log('       امسح QR Code بواتساب الآن!');
+                console.log('       QR Code جاهز للمسح!');
                 console.log('═══════════════════════════════════════\n');
-                
-                // عرض QR في الترمينال
-                qrcode.generate(qr, { small: true });
-                
-                console.log('\n📋 الخطوات:');
-                console.log('1. افتح واتساب على الهاتف');
-                console.log('2. اذهب إلى: الإعدادات > الأجهزة المرتبطة');
-                console.log('3. امسح الكود أعلاه ☝️');
-                console.log('4. انتظر الاتصال...\n');
+                console.log('🔗 افتح هذا الرابط في المتصفح:\n');
+                console.log(`   👉 http://localhost:${CONFIG.port}/qr`);
+                console.log('\n   أو إذا كنت على شبكة محلية، استخدم IP الجهاز');
+                console.log('═══════════════════════════════════════\n');
             }
             
             // الاتصال مغلق
@@ -164,13 +517,24 @@ async function startBot() {
             
             // الاتصال ناجح
             else if (connection === 'open') {
+                currentQR = null;
+                isConnected = true;
+                botInfo = {
+                    name: CONFIG.botName,
+                    number: sock.user?.id?.split(':')[0] || '---',
+                    userName: sock.user?.name || '---',
+                    groups: CONFIG.replyInGroups,
+                    time: new Date().toLocaleString('ar-EG')
+                };
+                
                 console.log('\n✅ ════════════════════════════════════');
                 console.log('   🎉 متصل بواتساب بنجاح!');
-                console.log(`   📱 الرقم: ${sock.user?.id?.split(':')[0] || '---'}`);
-                console.log(`   👤 الاسم: ${sock.user?.name || '---'}`);
+                console.log(`   📱 الرقم: ${botInfo.number}`);
+                console.log(`   👤 الاسم: ${botInfo.userName}`);
                 console.log(`   🤖 البوت: ${CONFIG.botName}`);
                 console.log(`   👥 المجموعات: ${CONFIG.replyInGroups ? 'نعم ✅' : 'لا ❌'}`);
                 console.log('════════════════════════════════════\n');
+                console.log(`🌐 عرض التفاصيل: http://localhost:${CONFIG.port}/qr\n`);
                 
                 reconnectAttempts = 0;
                 processedMessages.clear();
