@@ -355,8 +355,9 @@ async function getAIResponse(userMessage) {
 const processedMessages = new Set();
 const MAX_PROCESSED_CACHE = 1000;
 let reconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 5;
+const MAX_RECONNECT_ATTEMPTS = 10; // ⭐ زيادة المحاولات
 let globalSock = null;
+let connectionCheckInterval = null; // ⭐ لمتابعة الاتصال
 
 function cleanProcessedMessages() {
     if (processedMessages.size > MAX_PROCESSED_CACHE) {
@@ -366,6 +367,29 @@ function cleanProcessedMessages() {
             processedMessages.delete(iterator.next().value);
         }
     }
+}
+
+// ═══════════════════════════════════════════════════════════
+// 🔄 مراقبة الاتصال
+// ═══════════════════════════════════════════════════════════
+
+function startConnectionMonitor(sock) {
+    // إيقاف المراقبة القديمة
+    if (connectionCheckInterval) {
+        clearInterval(connectionCheckInterval);
+    }
+    
+    // مراقبة كل 30 ثانية
+    connectionCheckInterval = setInterval(() => {
+        if (sock && sock.ws && sock.ws.readyState === 1) {
+            console.log('✅ الاتصال نشط');
+        } else {
+            console.log('⚠️ الاتصال غير نشط - محاولة إعادة الاتصال...');
+            if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                reconnectWithDelay(false, 5000);
+            }
+        }
+    }, 30000);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -395,6 +419,12 @@ async function startBot() {
             defaultQueryTimeoutMs: undefined,
             syncFullHistory: false,
             markOnlineOnConnect: true,
+            
+            // ⭐ إعدادات لمنع قطع الاتصال
+            keepAliveIntervalMs: 30000,
+            connectTimeoutMs: 60000,
+            retryRequestDelayMs: 250,
+            
             getMessage: async (key) => {
                 return { conversation: '' };
             }
@@ -443,6 +473,9 @@ async function startBot() {
                 
                 reconnectAttempts = 0;
                 processedMessages.clear();
+                
+                // ⭐ بدء مراقبة الاتصال
+                startConnectionMonitor(sock);
                 
                 if (CONFIG.ownerNumber) {
                     try {
@@ -612,6 +645,9 @@ function reconnectWithDelay(longDelay = false, customDelay = null) {
 
 process.on('SIGINT', async () => {
     console.log('\n\n👋 إيقاف البوت...\n');
+    if (connectionCheckInterval) {
+        clearInterval(connectionCheckInterval);
+    }
     if (globalSock) {
         try {
             await globalSock.logout();
@@ -623,6 +659,9 @@ process.on('SIGINT', async () => {
 
 process.on('SIGTERM', async () => {
     console.log('\n\n👋 إيقاف البوت (SIGTERM)...\n');
+    if (connectionCheckInterval) {
+        clearInterval(connectionCheckInterval);
+    }
     if (globalSock) {
         try {
             await globalSock.logout();
