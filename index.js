@@ -17,7 +17,7 @@ const path = require('path');
 
 const AI_CONFIG = {
     enabled: process.env.AI_ENABLED === 'true',
-    provider: process.env.AI_PROVIDER || 'groq', // groq أو huggingface
+    provider: process.env.AI_PROVIDER || 'groq',
     apiKey: process.env.AI_API_KEY || '',
     model: process.env.AI_MODEL || 'llama-3.3-70b-versatile',
     personality: process.env.AI_PERSONALITY || 'شخصية مقداد الافتراضية',
@@ -72,7 +72,6 @@ if (!CONFIG.sessionData || CONFIG.sessionData.trim() === '') {
 // ═══════════════════════════════════════════════════════════
 
 const KNOWLEDGE_BASE = {
-    // معلومات شخصية
     personal: {
         name: "مقداد",
         age: "25 سنة",
@@ -82,7 +81,6 @@ const KNOWLEDGE_BASE = {
         languages: ["العربية", "الإنجليزية"]
     },
     
-    // مهارات تقنية
     skills: {
         programming: ["JavaScript", "Node.js", "Python", "PHP"],
         frameworks: ["React", "Express", "Laravel"],
@@ -90,14 +88,12 @@ const KNOWLEDGE_BASE = {
         tools: ["Git", "Docker", "VS Code"]
     },
     
-    // مشاريع
     projects: {
         current: "بوت واتساب ذكي مع AI",
         completed: ["موقع تجارة إلكترونية", "نظام إدارة محتوى", "تطبيق موبايل"],
         planning: ["منصة تعليمية", "أداة أتمتة"]
     },
     
-    // أسلوب الكتابة
     style: {
         tone: "ودود ومحترف",
         emoji_usage: "معتدل",
@@ -105,14 +101,12 @@ const KNOWLEDGE_BASE = {
         greetings: ["مرحباً", "أهلاً", "السلام عليكم"]
     },
     
-    // آراء واهتمامات
     opinions: {
         tech_preferences: "أفضل التقنيات المفتوحة المصدر والبسيطة",
         work_philosophy: "الكود النظيف أهم من السرعة",
         learning: "التعلم المستمر أساس النجاح"
     },
     
-    // معلومات إضافية (أضف هنا ما تريد)
     custom: {
         favorite_food: "الكشري",
         favorite_color: "الأزرق",
@@ -126,23 +120,20 @@ const KNOWLEDGE_BASE = {
 // ═══════════════════════════════════════════════════════════
 
 function buildPersonalityPrompt() {
-    return `أنت مقداد، ${KNOWLEDGE_BASE.personal.occupation} و${KNOWLEDGE_BASE.personal.education}.
+    return `أنت مقداد، ${KNOWLEDGE_BASE.personal.occupation} من ${KNOWLEDGE_BASE.personal.location}.
 
 # شخصيتك:
 - ${KNOWLEDGE_BASE.personal.age}
 - ${KNOWLEDGE_BASE.style.tone}
-- أسلوبك: ${KNOWLEDGE_BASE.style.personality}
 
 # مهاراتك:
-- أنظمة التشغيل: ${KNOWLEDGE_BASE.skills.operating_systems.join(', ')}
-- السوفت وير: ${KNOWLEDGE_BASE.skills.software.join(', ')}
 - البرمجة: ${KNOWLEDGE_BASE.skills.programming.join(', ')}
-- التصميم: ${KNOWLEDGE_BASE.skills.design.join(', ')}
-- الهاردوير: ${KNOWLEDGE_BASE.skills.hardware.join(', ')}
-- الأمان: ${KNOWLEDGE_BASE.skills.security.join(', ')}
+- Frameworks: ${KNOWLEDGE_BASE.skills.frameworks.join(', ')}
+- قواعد البيانات: ${KNOWLEDGE_BASE.skills.databases.join(', ')}
+- أدوات: ${KNOWLEDGE_BASE.skills.tools.join(', ')}
 
 # مشاريعك:
-${KNOWLEDGE_BASE.projects.description}: ${KNOWLEDGE_BASE.projects.types.join(', ')}
+المشروع الحالي: ${KNOWLEDGE_BASE.projects.current}
 
 # أسلوب الرد:
 - مختصر وبارد
@@ -190,7 +181,7 @@ server.listen(CONFIG.port, () => {
 });
 
 // ═══════════════════════════════════════════════════════════
-// 💾 تحميل الجلسة
+// 💾 تحميل الجلسة (محدّث لدعم الجلسة المصغرة)
 // ═══════════════════════════════════════════════════════════
 
 function loadSessionFromEnv() {
@@ -204,17 +195,7 @@ function loadSessionFromEnv() {
         }
         
         const decoded = Buffer.from(sessionStr, 'base64').toString('utf-8');
-        const authData = JSON.parse(decoded);
-        
-        if (!authData['creds.json']) {
-            throw new Error('creds.json غير موجود');
-        }
-        
-        const credsData = JSON.parse(authData['creds.json']);
-        
-        if (!credsData.noiseKey || !credsData.signedIdentityKey) {
-            throw new Error('creds.json غير مكتمل');
-        }
+        const sessionData = JSON.parse(decoded);
         
         const authPath = path.join(__dirname, 'auth_info');
         if (fs.existsSync(authPath)) {
@@ -222,8 +203,33 @@ function loadSessionFromEnv() {
         }
         fs.mkdirSync(authPath, { recursive: true });
         
-        for (const [filename, content] of Object.entries(authData)) {
-            fs.writeFileSync(path.join(authPath, filename), content);
+        // ⭐ دعم كل من الجلسة المصغرة والكاملة
+        if (sessionData.noiseKey) {
+            // ✅ جلسة مصغرة (creds.json فقط)
+            console.log('📦 جلسة مصغرة مكتشفة');
+            fs.writeFileSync(
+                path.join(authPath, 'creds.json'),
+                JSON.stringify(sessionData, null, 2)
+            );
+        } else if (sessionData['creds.json']) {
+            // ✅ جلسة كاملة (كل الملفات)
+            console.log('📦 جلسة كاملة مكتشفة');
+            for (const [filename, content] of Object.entries(sessionData)) {
+                fs.writeFileSync(path.join(authPath, filename), content);
+            }
+        } else {
+            throw new Error('تنسيق SESSION_DATA غير صالح');
+        }
+        
+        // التحقق من وجود creds.json
+        const credsPath = path.join(authPath, 'creds.json');
+        if (!fs.existsSync(credsPath)) {
+            throw new Error('creds.json غير موجود بعد فك التشفير');
+        }
+        
+        const creds = JSON.parse(fs.readFileSync(credsPath, 'utf-8'));
+        if (!creds.noiseKey || !creds.signedIdentityKey) {
+            throw new Error('creds.json غير مكتمل');
         }
         
         console.log('✅ تم تحميل الجلسة بنجاح\n');
@@ -236,7 +242,7 @@ function loadSessionFromEnv() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🤖 دالة AI - Groq (مجاني وسريع جداً!)
+// 🤖 دالة AI - Groq
 // ═══════════════════════════════════════════════════════════
 
 async function getAIResponse_Groq(userMessage) {
@@ -278,7 +284,7 @@ async function getAIResponse_Groq(userMessage) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🤖 دالة AI - Hugging Face (بديل مجاني)
+// 🤖 دالة AI - Hugging Face
 // ═══════════════════════════════════════════════════════════
 
 async function getAIResponse_HuggingFace(userMessage) {
@@ -361,8 +367,6 @@ let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 10;
 let globalSock = null;
 let connectionCheckInterval = null;
-let error440Count = 0; // ⭐ عدد أخطاء 440 المتتالية
-const MAX_440_ERRORS = 3; // ⭐ الحد الأقصى قبل حذف الجلسة
 
 function cleanProcessedMessages() {
     if (processedMessages.size > MAX_PROCESSED_CACHE) {
@@ -379,12 +383,10 @@ function cleanProcessedMessages() {
 // ═══════════════════════════════════════════════════════════
 
 function startConnectionMonitor(sock) {
-    // إيقاف المراقبة القديمة
     if (connectionCheckInterval) {
         clearInterval(connectionCheckInterval);
     }
     
-    // مراقبة كل 30 ثانية
     connectionCheckInterval = setInterval(() => {
         if (sock && sock.ws && sock.ws.readyState === 1) {
             console.log('✅ الاتصال نشط');
@@ -422,12 +424,10 @@ async function startBot() {
             logger: P({ level: CONFIG.logLevel }),
             browser: ['Ubuntu', 'Chrome', '20.0.04'],
             
-            // ⭐ إعدادات مهمة جداً لمنع prekey bundle conflicts
-            shouldSyncHistoryMessage: () => false, // لا تزامن السجل
+            shouldSyncHistoryMessage: () => false,
             syncFullHistory: false,
-            fireInitQueries: false, // لا استعلامات تلقائية
+            fireInitQueries: false,
             
-            // ⭐ إعدادات الاتصال
             defaultQueryTimeoutMs: undefined,
             connectTimeoutMs: 60000,
             keepAliveIntervalMs: 30000,
@@ -442,13 +442,11 @@ async function startBot() {
 
         globalSock = sock;
 
-        // ⭐ حفظ التحديثات (مهم جداً!)
         sock.ev.on('creds.update', async () => {
             await saveCreds();
             console.log('💾 تم تحديث credentials');
         });
 
-        // معالجة الاتصال
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect, qr } = update;
             
@@ -488,10 +486,8 @@ async function startBot() {
                 console.log('════════════════════════════════════\n');
                 
                 reconnectAttempts = 0;
-                error440Count = 0; // ⭐ إعادة تعيين عداد 440
                 processedMessages.clear();
                 
-                // ⭐ بدء مراقبة الاتصال
                 startConnectionMonitor(sock);
                 
                 if (CONFIG.ownerNumber) {
@@ -590,29 +586,21 @@ async function startBot() {
                 processedMessages.add(messageId);
                 cleanProcessedMessages();
 
-                // ═══════════════════════════════════════════════════
-                // 🧠 الرد الذكي بالـ AI
-                // ═══════════════════════════════════════════════════
-                
                 try {
                     let replyText;
                     
-                    // محاولة الحصول على رد AI
                     if (AI_CONFIG.enabled) {
                         const aiResponse = await getAIResponse(messageText);
                         
                         if (aiResponse) {
                             replyText = aiResponse;
                         } else {
-                            // فشل AI - رد احتياطي
                             replyText = `👋 مرحباً!\n\nأنا ${CONFIG.botOwner}، شكراً لرسالتك 🙏\n\n_"${messageText}"_\n\nالبوت يعمل ✅`;
                         }
                     } else {
-                        // AI معطّل - رد عادي
                         replyText = `👋 مرحباً!\n\nأنا *${CONFIG.botName}* 🤖\nمن تصميم *${CONFIG.botOwner}*\n\nشكراً لرسالتك:\n_"${messageText}"_\n\nالبوت يعمل ✅`;
                     }
 
-                    // إرسال الرد
                     await sock.sendMessage(sender, { 
                         text: replyText
                     }, {
@@ -696,7 +684,7 @@ process.on('uncaughtException', (error) => {
     console.error('❌ Uncaught Exception:', error);
 });
 
-// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
 // 🚀 بدء البوت
 // ═══════════════════════════════════════════════════════════
 
