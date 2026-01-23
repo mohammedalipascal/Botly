@@ -1,31 +1,35 @@
 require('dotenv').config();
+const makeWASocket = require('@whiskeysockets/baileys').default;
 const { 
-    default: makeWASocket,
-    useMultiFileAuthState,
+    useMultiFileAuthState, 
     DisconnectReason,
     fetchLatestBaileysVersion,
-    makeCacheableSignalKeyStore,
-    Browsers,
-    delay
+    makeCacheableSignalKeyStore
 } = require('@whiskeysockets/baileys');
+const { Boom } = require('@hapi/boom');
 const P = require('pino');
 const http = require('http');
-const NodeCache = require('node-cache');
 const fs = require('fs');
 const path = require('path');
+
+// ═══════════════════════════════════════════════════════════
+// 🔧 دالة Delay
+// ═══════════════════════════════════════════════════════════
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // ═══════════════════════════════════════════════════════════
 // 🔧 الإعدادات
 // ═══════════════════════════════════════════════════════════
 
 const CONFIG = {
-    sessionData: process.env.SESSION_DATA || null,
     botName: process.env.BOT_NAME || 'Botly',
     botOwner: process.env.BOT_OWNER || 'مقداد',
     prefix: process.env.PREFIX || '!',
     port: process.env.PORT || 8080,
     replyInGroups: process.env.REPLY_IN_GROUPS === 'true',
     ownerNumber: process.env.OWNER_NUMBER ? process.env.OWNER_NUMBER + '@s.whatsapp.net' : null,
+    sessionData: process.env.SESSION_DATA || null,
+    showIgnoredMessages: process.env.SHOW_IGNORED_MESSAGES === 'true',
     logLevel: process.env.LOG_LEVEL || 'silent'
 };
 
@@ -41,21 +45,15 @@ console.log('══════════════════════�
 // ═══════════════════════════════════════════════════════════
 
 if (!CONFIG.sessionData || CONFIG.sessionData.trim() === '') {
-    console.error('\n❌ خطأ فادح: SESSION_DATA غير موجود!\n');
+    console.error('\n❌ خطأ: SESSION_DATA غير موجود!\n');
     console.log('📋 الخطوات المطلوبة:');
-    console.log('1. شغّل ملف generate-stable.js على Ubuntu/Linux');
-    console.log('2. امسح QR Code أو استخدم Pairing Code');
-    console.log('3. انسخ SESSION_DATA من اللوجات');
-    console.log('4. في Clever Cloud:');
-    console.log('   - اذهب إلى Environment Variables');
-    console.log('   - أضف: SESSION_DATA = [النص الطويل]');
-    console.log('   - Update changes');
-    console.log('5. Restart البوت\n');
-    console.log('⚠️ البوت سيتوقف الآن حتى تضيف SESSION_DATA\n');
+    console.log('1. شغّل: node generate-session.js');
+    console.log('2. امسح الـ QR Code');
+    console.log('3. انسخ SESSION_DATA');
+    console.log('4. ضعه في ملف .env');
+    console.log('5. شغّل البوت: node index.js\n');
     process.exit(1);
 }
-
-console.log('✅ SESSION_DATA موجود - جاري التحميل...\n');
 
 // ═══════════════════════════════════════════════════════════
 // 🌐 سيرفر HTTP
@@ -73,11 +71,11 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(CONFIG.port, () => {
-    console.log(`🌐 HTTP Server: http://localhost:${CONFIG.port}\n`);
+    console.log(`🌐 HTTP Server: http://localhost:${CONFIG.port}`);
 });
 
 // ═══════════════════════════════════════════════════════════
-// 💾 تحميل الجلسة من SESSION_DATA
+// 💾 تحميل الجلسة
 // ═══════════════════════════════════════════════════════════
 
 function loadSessionFromEnv() {
@@ -86,18 +84,15 @@ function loadSessionFromEnv() {
         
         const sessionStr = CONFIG.sessionData.trim();
         
-        // التحقق من صحة البيانات
-        if (sessionStr.length < 100) {
-            throw new Error('SESSION_DATA قصير جداً - يبدو غير صحيح');
+        if (sessionStr.length < 50) {
+            throw new Error('بيانات الجلسة قصيرة جداً');
         }
         
-        // فك التشفير
         const decoded = Buffer.from(sessionStr, 'base64').toString('utf-8');
         const session = JSON.parse(decoded);
         
-        // التحقق من البنية
         if (!session.creds || !session.creds.noiseKey) {
-            throw new Error('SESSION_DATA لا يحتوي على بيانات صحيحة');
+            throw new Error('بيانات الجلسة غير كاملة');
         }
         
         // إنشاء مجلد auth_info
@@ -112,34 +107,32 @@ function loadSessionFromEnv() {
             JSON.stringify(session.creds, null, 2)
         );
         
-        console.log('✅ تم تحميل الجلسة بنجاح من ENV');
-        console.log(`📁 تم إنشاء: ${authPath}/creds.json\n`);
-        
+        console.log('✅ تم تحميل الجلسة بنجاح\n');
         return true;
         
     } catch (error) {
-        console.error('\n❌ فشل تحميل SESSION_DATA:', error.message);
+        console.error('❌ فشل تحميل الجلسة:', error.message);
         console.log('\n📋 الحل:');
-        console.log('1. تأكد أن SESSION_DATA صحيح ومكتمل');
-        console.log('2. شغّل generate-stable.js للحصول على SESSION_DATA جديد');
-        console.log('3. انسخه بالكامل (لا تقطع منه شيء)');
-        console.log('4. حدّث Environment Variable في Clever Cloud');
-        console.log('5. Restart البوت\n');
+        console.log('1. شغّل: node generate-session.js');
+        console.log('2. احصل على SESSION_DATA جديد');
+        console.log('3. حدّث ملف .env\n');
         process.exit(1);
     }
 }
 
 // ═══════════════════════════════════════════════════════════
-// 💾 Cache للرسائل
+// 📊 متغيرات التتبع
 // ═══════════════════════════════════════════════════════════
 
-const msgRetryCounterCache = new NodeCache();
 const processedMessages = new Set();
-const MAX_CACHE = 500;
+const MAX_PROCESSED_CACHE = 1000;
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 5;
+let globalSock = null;
 
-function cleanCache() {
-    if (processedMessages.size > MAX_CACHE) {
-        const toDelete = processedMessages.size - MAX_CACHE;
+function cleanProcessedMessages() {
+    if (processedMessages.size > MAX_PROCESSED_CACHE) {
+        const toDelete = processedMessages.size - MAX_PROCESSED_CACHE;
         const iterator = processedMessages.values();
         for (let i = 0; i < toDelete; i++) {
             processedMessages.delete(iterator.next().value);
@@ -148,195 +141,124 @@ function cleanCache() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🔧 متغيرات التحكم
-// ═══════════════════════════════════════════════════════════
-
-let reconnectAttempts = 0;
-const MAX_RECONNECT = 5;
-let isConnecting = false;
-let sock = null;
-
-// ═══════════════════════════════════════════════════════════
-// 🤖 دالة بدء البوت
+// 🤖 بدء البوت
 // ═══════════════════════════════════════════════════════════
 
 async function startBot() {
-    if (isConnecting) {
-        console.log('⏳ محاولة اتصال جارية...\n');
-        return;
-    }
-    
-    isConnecting = true;
-    
     try {
         console.log('🚀 بدء البوت...\n');
         
-        // ⭐ تحميل الجلسة من ENV أولاً
+        // تحميل الجلسة من ENV
         loadSessionFromEnv();
         
-        // جلب أحدث إصدار
         const { version, isLatest } = await fetchLatestBaileysVersion();
-        console.log(`📦 Baileys v${version.join('.')} ${isLatest ? '✅' : '⚠️'}\n`);
+        console.log(`📦 Baileys v${version.join('.')}, أحدث: ${isLatest ? '✅' : '⚠️'}\n`);
         
-        // تحميل حالة المصادقة
         const { state, saveCreds } = await useMultiFileAuthState('auth_info');
         
-        // التحقق من وجود الجلسة
-        if (!state.creds.registered) {
-            console.error('\n❌ الجلسة غير مسجلة!');
-            console.log('💡 يبدو أن SESSION_DATA غير صحيح');
-            console.log('📋 شغّل generate-stable.js للحصول على جلسة جديدة\n');
-            process.exit(1);
-        }
-        
-        console.log('✅ الجلسة صالحة - جاري الاتصال...\n');
-        
-        // إنشاء الاتصال
-        sock = makeWASocket({
+        const sock = makeWASocket({
             version,
-            logger: P({ level: CONFIG.logLevel }),
-            printQRInTerminal: false, // ⚠️ ممنوع QR - نستخدم SESSION_DATA فقط
-            
             auth: {
                 creds: state.creds,
                 keys: makeCacheableSignalKeyStore(state.keys, P({ level: 'silent' }))
             },
-            
-            browser: Browsers.ubuntu('Desktop'),
-            markOnlineOnConnect: false,
+            printQRInTerminal: false, // ممنوع عرض QR
+            logger: P({ level: CONFIG.logLevel }),
+            browser: ['Ubuntu', 'Chrome', '20.0.04'],
+            defaultQueryTimeoutMs: undefined,
             syncFullHistory: false,
-            
-            msgRetryCounterCache,
-            defaultQueryTimeoutMs: 60000,
-            
-            getMessage: async () => undefined,
-            
-            connectTimeoutMs: 60000,
-            keepAliveIntervalMs: 30000,
-            
-            emitOwnEvents: false,
-            fireInitQueries: true,
-            generateHighQualityLinkPreview: false,
-            
-            mobile: false,
-            shouldIgnoreJid: jid => jid === 'status@broadcast'
+            markOnlineOnConnect: true,
+            getMessage: async (key) => {
+                return { conversation: '' };
+            }
         });
+
+        globalSock = sock;
 
         // حفظ التحديثات
         sock.ev.on('creds.update', saveCreds);
 
-        // ═══════════════════════════════════════════════════════════
-        // 📱 معالجة الاتصال
-        // ═══════════════════════════════════════════════════════════
-        
+        // معالجة الاتصال
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect, qr } = update;
             
-            // ⚠️ إذا طُلب QR = SESSION_DATA غير صحيح
+            // ⚠️ إذا ظهر QR = الجلسة فاسدة
             if (qr) {
                 console.error('\n❌ خطأ: تم طلب QR Code!');
-                console.error('هذا يعني أن SESSION_DATA غير صالح أو منتهي\n');
+                console.error('هذا يعني أن SESSION_DATA غير صالح\n');
                 console.log('📋 الحل:');
-                console.log('1. شغّل generate-stable.js');
-                console.log('2. احصل على SESSION_DATA جديد');
-                console.log('3. حدّثه في Clever Cloud Environment Variables');
-                console.log('4. Restart البوت\n');
+                console.log('1. شغّل: node generate-session.js');
+                console.log('2. احصل على SESSION_DATA جديد\n');
                 process.exit(1);
             }
             
-            // الاتصال مغلق
             if (connection === 'close') {
-                isConnecting = false;
-                
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
-                const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+                const reason = lastDisconnect?.error?.output?.payload?.error || 'Unknown';
                 
-                console.log(`\n❌ الاتصال مغلق - كود: ${statusCode}\n`);
+                console.log(`❌ الاتصال مغلق. كود: ${statusCode}, سبب: ${reason}`);
                 
                 // معالجة الأخطاء
-                switch (statusCode) {
-                    case DisconnectReason.badSession:
-                    case DisconnectReason.loggedOut:
-                    case 401:
-                    case 403:
-                    case 440:
-                        console.log('🔑 الجلسة منتهية أو غير صالحة\n');
-                        console.log('📋 الحل:');
-                        console.log('1. شغّل generate-stable.js');
-                        console.log('2. احصل على SESSION_DATA جديد');
-                        console.log('3. حدّثه في Clever Cloud\n');
-                        process.exit(1);
-                        break;
+                if (statusCode === DisconnectReason.badSession || 
+                    statusCode === DisconnectReason.loggedOut ||
+                    statusCode === 401 || statusCode === 403) {
                     
-                    case DisconnectReason.connectionReplaced:
-                        console.log('🔄 جلسة أخرى نشطة - توقف\n');
-                        process.exit(1);
-                        break;
+                    console.error('\n❌ الجلسة غير صالحة أو منتهية!\n');
+                    console.log('📋 الحل:');
+                    console.log('1. شغّل: node generate-session.js');
+                    console.log('2. احصل على SESSION_DATA جديد');
+                    console.log('3. حدّث ملف .env\n');
+                    process.exit(1);
                     
-                    case 515:
-                        console.log('🚫 خطأ 515\n');
-                        console.log('💡 الحل:');
-                        console.log('1. أغلق جميع جلسات واتساب ويب');
-                        console.log('2. احذف الأجهزة المرتبطة');
-                        console.log('3. انتظر 5 دقائق');
-                        console.log('4. احصل على SESSION_DATA جديد\n');
-                        
-                        if (reconnectAttempts === 0) {
-                            console.log('⏰ انتظار دقيقة واحدة...\n');
-                            await delay(60000);
-                            reconnectSafely();
-                        } else {
-                            process.exit(1);
-                        }
-                        break;
+                } else if (statusCode === DisconnectReason.connectionReplaced) {
+                    console.log('🔄 تم استبدال الاتصال (جلسة أخرى نشطة)\n');
+                    process.exit(1);
                     
-                    default:
-                        if (shouldReconnect) {
-                            console.log('🔄 إعادة الاتصال...\n');
-                            await delay(5000);
-                            reconnectSafely();
-                        }
+                } else if (statusCode === 405) {
+                    console.log('⚠️ خطأ 405 - تحديث Baileys مطلوب');
+                    console.log('💡 جرب: npm update @whiskeysockets/baileys\n');
+                    reconnectWithDelay(true);
+                    
+                } else if (statusCode === 500 || statusCode === 503 || 
+                           statusCode === DisconnectReason.timedOut ||
+                           statusCode === DisconnectReason.connectionLost) {
+                    reconnectWithDelay();
+                    
+                } else {
+                    console.log('⚠️ خطأ غير متوقع - إعادة المحاولة\n');
+                    reconnectWithDelay();
                 }
-            }
-            
-            // الاتصال ناجح
-            else if (connection === 'open') {
-                isConnecting = false;
-                reconnectAttempts = 0;
                 
-                console.log('\n✅ ════════════════════════════════════');
-                console.log('   🎉 متصل بواتساب بنجاح!');
-                console.log(`   📱 الرقم: ${sock.user?.id?.split(':')[0] || '---'}`);
-                console.log(`   👤 الاسم: ${sock.user?.name || '---'}`);
-                console.log(`   🤖 البوت: ${CONFIG.botName}`);
-                console.log(`   👨‍💻 المالك: ${CONFIG.botOwner}`);
-                console.log(`   👥 المجموعات: ${CONFIG.replyInGroups ? 'نعم ✅' : 'لا ❌'}`);
+            } else if (connection === 'open') {
+                console.log('✅ ════════════════════════════════════');
+                console.log(`   متصل بواتساب بنجاح! 🎉`);
+                console.log(`   البوت: ${CONFIG.botName}`);
+                console.log(`   الرقم: ${sock.user?.id?.split(':')[0] || '---'}`);
+                console.log(`   الاسم: ${sock.user?.name || '---'}`);
+                console.log(`   المالك: ${CONFIG.botOwner}`);
+                console.log(`   المجموعات: ${CONFIG.replyInGroups ? 'نعم ✅' : 'لا ❌'}`);
                 console.log('════════════════════════════════════\n');
                 
+                reconnectAttempts = 0;
                 processedMessages.clear();
                 
                 // إشعار المالك
                 if (CONFIG.ownerNumber) {
-                    setTimeout(async () => {
-                        try {
-                            await sock.sendMessage(CONFIG.ownerNumber, {
-                                text: `✅ *${CONFIG.botName} متصل الآن!*\n\n` +
-                                      `📱 الرقم: ${sock.user.id.split(':')[0]}\n` +
-                                      `👤 الاسم: ${sock.user.name || '---'}\n` +
-                                      `⏰ ${new Date().toLocaleString('ar-EG')}\n` +
-                                      `👥 المجموعات: ${CONFIG.replyInGroups ? 'نعم ✅' : 'لا ❌'}`
-                            });
-                            console.log('✅ تم إرسال إشعار للمالك\n');
-                        } catch (e) {
-                            console.log('⚠️ لم يتم إرسال إشعار للمالك\n');
-                        }
-                    }, 5000);
+                    try {
+                        await delay(2000);
+                        await sock.sendMessage(CONFIG.ownerNumber, {
+                            text: `✅ *${CONFIG.botName} متصل الآن!*\n\n` +
+                                  `📱 الرقم: ${sock.user.id.split(':')[0]}\n` +
+                                  `⏰ ${new Date().toLocaleString('ar-EG')}\n` +
+                                  `👥 المجموعات: ${CONFIG.replyInGroups ? 'نعم ✅' : 'لا ❌'}`
+                        });
+                    } catch (err) {
+                        console.log('⚠️ لم يتم إرسال إشعار للمالك');
+                    }
                 }
-            }
-            
-            // جاري الاتصال
-            else if (connection === 'connecting') {
-                console.log('🔄 جاري الاتصال بواتساب...');
+                
+            } else if (connection === 'connecting') {
+                console.log('🔄 جاري الاتصال...');
             }
         });
 
@@ -349,74 +271,119 @@ async function startBot() {
                 if (type !== 'notify') return;
                 
                 const msg = messages[0];
-                if (!msg?.message) return;
-                if (msg.key.fromMe) return;
+                if (!msg || !msg.message) return;
                 
-                const sender = msg.key.remoteJid;
-                const messageId = msg.key.id;
-                const isGroup = sender.endsWith('@g.us');
-                
-                // فلترة
-                if (isGroup && !CONFIG.replyInGroups) return;
-                if (sender === 'status@broadcast') return;
-                
-                const timestamp = msg.messageTimestamp * 1000;
-                if (Date.now() - timestamp > 60000) return;
-                if (processedMessages.has(messageId)) return;
-                
-                const msgType = Object.keys(msg.message)[0];
-                if (['protocolMessage', 'senderKeyDistributionMessage', 
-                     'reactionMessage', 'messageContextInfo'].includes(msgType)) {
+                // تجاهل رسائل البوت
+                if (msg.key.fromMe) {
+                    if (CONFIG.showIgnoredMessages) console.log('⏭️ رسالة من البوت');
                     return;
                 }
                 
-                const text = 
+                const sender = msg.key.remoteJid;
+                const messageId = msg.key.id;
+                const timestamp = msg.messageTimestamp;
+                const isGroup = sender.endsWith('@g.us');
+                
+                // فحص المجموعات
+                if (isGroup && !CONFIG.replyInGroups) {
+                    if (CONFIG.showIgnoredMessages) {
+                        console.log(`⏭️ مجموعة (الرد معطل)`);
+                    }
+                    return;
+                }
+                
+                // تجاهل الحالات
+                if (sender === 'status@broadcast') {
+                    if (CONFIG.showIgnoredMessages) console.log('⏭️ حالة');
+                    return;
+                }
+                
+                // تجاهل الرسائل القديمة (أكثر من دقيقة)
+                const messageTime = timestamp * 1000;
+                const timeDiff = Date.now() - messageTime;
+                
+                if (timeDiff > 60000) {
+                    if (CONFIG.showIgnoredMessages) {
+                        console.log(`⏭️ رسالة قديمة (${Math.floor(timeDiff / 1000)}ث)`);
+                    }
+                    return;
+                }
+                
+                // تجاهل المكررة
+                if (processedMessages.has(messageId)) {
+                    if (CONFIG.showIgnoredMessages) console.log('⏭️ مكررة');
+                    return;
+                }
+                
+                // تجاهل رسائل البروتوكول
+                const messageType = Object.keys(msg.message)[0];
+                const ignoredTypes = [
+                    'protocolMessage',
+                    'senderKeyDistributionMessage',
+                    'reactionMessage',
+                    'messageContextInfo'
+                ];
+                
+                if (ignoredTypes.includes(messageType)) return;
+                
+                // استخراج النص
+                const messageText = 
                     msg.message.conversation ||
                     msg.message.extendedTextMessage?.text ||
                     msg.message.imageMessage?.caption ||
-                    msg.message.videoMessage?.caption || '';
+                    msg.message.videoMessage?.caption ||
+                    '';
 
-                if (!text.trim()) return;
+                if (!messageText.trim()) {
+                    if (CONFIG.showIgnoredMessages) console.log('⏭️ فارغة');
+                    return;
+                }
 
-                console.log('\n' + '─'.repeat(50));
-                console.log(`📩 ${isGroup ? '👥' : '👤'} ${sender}`);
-                console.log(`📝 ${text}`);
-                console.log('─'.repeat(50));
+                console.log('\n' + '='.repeat(50));
+                console.log(`📩 ${isGroup ? '👥 مجموعة' : '👤 خاص'}: ${sender}`);
+                console.log(`📝 ${messageText}`);
+                console.log(`⏰ ${new Date(messageTime).toLocaleString('ar-EG')}`);
+                console.log('='.repeat(50));
 
                 processedMessages.add(messageId);
-                cleanCache();
+                cleanProcessedMessages();
 
                 // الرد
                 try {
+                    const replyText = `👋 *مرحباً بك!*
+
+أنا *${CONFIG.botName}* 🤖
+من تصميم *${CONFIG.botOwner}* 👨‍💻
+
+شكراً لرسالتك:
+_"${messageText}"_
+
+${isGroup ? '👥 مجموعة' : '👤 خاص'}
+البوت يعمل ✅`;
+
                     await sock.sendMessage(sender, { 
-                        text: `👋 *مرحباً بك!*\n\n` +
-                              `أنا *${CONFIG.botName}* 🤖\n` +
-                              `من تصميم *${CONFIG.botOwner}* 👨‍💻\n\n` +
-                              `شكراً لرسالتك:\n` +
-                              `_"${text}"_\n\n` +
-                              `${isGroup ? '👥 مجموعة' : '👤 خاص'}\n` +
-                              `البوت يعمل بنجاح ✅`
-                    }, { quoted: msg });
+                        text: replyText
+                    }, {
+                        quoted: msg
+                    });
                     
                     console.log('✅ تم الرد\n');
                     
-                } catch (err) {
-                    console.error('❌ خطأ في الرد:', err.message);
+                } catch (error) {
+                    console.error('❌ خطأ في الرد:', error.message);
                 }
                 
             } catch (error) {
-                console.error('❌ خطأ:', error.message);
+                console.error('❌ خطأ في معالجة الرسالة:', error);
             }
         });
 
-        console.log('✅ البوت جاهز! 🚀\n');
+        console.log('✅ البوت جاهز ✨\n');
         
     } catch (error) {
-        isConnecting = false;
-        console.error('\n❌ خطأ في بدء البوت:', error.message, '\n');
-        
-        await delay(5000);
-        reconnectSafely();
+        console.error('❌ خطأ في بدء البوت:', error);
+        console.log('🔄 إعادة المحاولة بعد 10 ثواني...\n');
+        setTimeout(startBot, 10000);
     }
 }
 
@@ -424,56 +391,59 @@ async function startBot() {
 // 🔄 إعادة الاتصال
 // ═══════════════════════════════════════════════════════════
 
-async function reconnectSafely() {
-    if (reconnectAttempts >= MAX_RECONNECT) {
-        console.log('\n❌ فشل الاتصال بعد عدة محاولات\n');
-        console.log('💡 الحل:');
-        console.log('1. شغّل generate-stable.js');
-        console.log('2. احصل على SESSION_DATA جديد');
-        console.log('3. حدّثه في Clever Cloud\n');
+function reconnectWithDelay(longDelay = false) {
+    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+        console.error('❌ فشل الاتصال بعد عدة محاولات');
+        console.log('\n📋 الحلول المقترحة:');
+        console.log('1. تحقق من اتصال الإنترنت');
+        console.log('2. حدّث Baileys: npm update @whiskeysockets/baileys');
+        console.log('3. أنشئ جلسة جديدة: node generate-session.js\n');
         process.exit(1);
     }
     
     reconnectAttempts++;
-    const delayTime = Math.min(reconnectAttempts * 5000, 30000);
+    const delayTime = longDelay ? 15000 : (5000 * reconnectAttempts);
     
-    console.log(`🔄 إعادة المحاولة ${reconnectAttempts}/${MAX_RECONNECT} بعد ${delayTime/1000}ث...\n`);
-    
-    await delay(delayTime);
-    await startBot();
+    console.log(`🔄 إعادة المحاولة بعد ${delayTime / 1000}ث (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})\n`);
+    setTimeout(startBot, delayTime);
 }
 
 // ═══════════════════════════════════════════════════════════
 // 🛑 معالجة الإيقاف
 // ═══════════════════════════════════════════════════════════
 
-async function cleanup() {
-    console.log('\n👋 إيقاف البوت...\n');
-    
-    if (sock) {
+process.on('SIGINT', async () => {
+    console.log('\n\n👋 إيقاف البوت...\n');
+    if (globalSock) {
         try {
-            await sock.logout();
+            await globalSock.logout();
         } catch (e) {}
     }
-    
     server.close();
     process.exit(0);
-}
+});
 
-process.on('SIGINT', cleanup);
-process.on('SIGTERM', cleanup);
-process.on('unhandledRejection', (err) => console.error('❌ Rejection:', err));
-process.on('uncaughtException', (err) => console.error('❌ Exception:', err));
+process.on('SIGTERM', async () => {
+    console.log('\n\n👋 إيقاف البوت (SIGTERM)...\n');
+    if (globalSock) {
+        try {
+            await globalSock.logout();
+        } catch (e) {}
+    }
+    server.close();
+    process.exit(0);
+});
+
+process.on('unhandledRejection', (reason) => {
+    console.error('❌ Unhandled Rejection:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+    console.error('❌ Uncaught Exception:', error);
+});
 
 // ═══════════════════════════════════════════════════════════
 // 🚀 بدء البوت
 // ═══════════════════════════════════════════════════════════
-
-console.log('╔════════════════════════════════════════════════╗');
-console.log('║                                                ║');
-console.log('║       🤖 WhatsApp Bot - SESSION_DATA Mode     ║');
-console.log('║         يعمل فقط مع SESSION_DATA من ENV        ║');
-console.log('║                                                ║');
-console.log('╚════════════════════════════════════════════════╝\n');
 
 startBot();
