@@ -355,9 +355,11 @@ async function getAIResponse(userMessage) {
 const processedMessages = new Set();
 const MAX_PROCESSED_CACHE = 1000;
 let reconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 10; // ⭐ زيادة المحاولات
+const MAX_RECONNECT_ATTEMPTS = 10;
 let globalSock = null;
-let connectionCheckInterval = null; // ⭐ لمتابعة الاتصال
+let connectionCheckInterval = null;
+let error440Count = 0; // ⭐ عدد أخطاء 440 المتتالية
+const MAX_440_ERRORS = 3; // ⭐ الحد الأقصى قبل حذف الجلسة
 
 function cleanProcessedMessages() {
     if (processedMessages.size > MAX_PROCESSED_CACHE) {
@@ -472,6 +474,7 @@ async function startBot() {
                 console.log('════════════════════════════════════\n');
                 
                 reconnectAttempts = 0;
+                error440Count = 0; // ⭐ إعادة تعيين عداد 440
                 processedMessages.clear();
                 
                 // ⭐ بدء مراقبة الاتصال
