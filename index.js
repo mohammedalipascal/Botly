@@ -418,14 +418,19 @@ async function startBot() {
             printQRInTerminal: false,
             logger: P({ level: CONFIG.logLevel }),
             browser: ['Ubuntu', 'Chrome', '20.0.04'],
-            defaultQueryTimeoutMs: undefined,
-            syncFullHistory: false,
-            markOnlineOnConnect: true,
             
-            // ⭐ إعدادات لمنع قطع الاتصال
-            keepAliveIntervalMs: 30000,
+            // ⭐ إعدادات مهمة جداً لمنع prekey bundle conflicts
+            shouldSyncHistoryMessage: () => false, // لا تزامن السجل
+            syncFullHistory: false,
+            fireInitQueries: false, // لا استعلامات تلقائية
+            
+            // ⭐ إعدادات الاتصال
+            defaultQueryTimeoutMs: undefined,
             connectTimeoutMs: 60000,
+            keepAliveIntervalMs: 30000,
             retryRequestDelayMs: 250,
+            
+            markOnlineOnConnect: true,
             
             getMessage: async (key) => {
                 return { conversation: '' };
@@ -433,8 +438,14 @@ async function startBot() {
         });
 
         globalSock = sock;
-        sock.ev.on('creds.update', saveCreds);
 
+        // ⭐ حفظ التحديثات (مهم جداً!)
+        sock.ev.on('creds.update', async () => {
+            await saveCreds();
+            console.log('💾 تم تحديث credentials');
+        });
+
+        // معالجة الاتصال
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect, qr } = update;
             
