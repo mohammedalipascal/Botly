@@ -2,9 +2,9 @@
   "name": "whatsapp-session-generator",
   "version": "1.0.0",
   "description": "WhatsApp Session Generator with Baileys",
-  "main": "generate-stable.js",
+  "main": "index.js",
   "scripts": {
-    "start": "node generate-stable.js",
+    "start": "node index.js",
     "session": "node generate-stable.js"
   },
   "keywords": ["whatsapp", "baileys", "session"],
