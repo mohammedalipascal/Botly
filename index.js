@@ -25,9 +25,6 @@ const AI_CONFIG = {
     temperature: parseFloat(process.env.AI_TEMPERATURE) || 0.7
 };
 
-// ═══════════════════════════════════════════════════════════
-// 🔧 دالة Delay
-// ═══════════════════════════════════════════════════════════
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // ═══════════════════════════════════════════════════════════
@@ -41,9 +38,10 @@ const CONFIG = {
     port: process.env.PORT || 8080,
     replyInGroups: process.env.REPLY_IN_GROUPS === 'true',
     ownerNumber: process.env.OWNER_NUMBER ? process.env.OWNER_NUMBER + '@s.whatsapp.net' : null,
-    sessionData: process.env.SESSION_DATA || null,
     showIgnoredMessages: process.env.SHOW_IGNORED_MESSAGES === 'true',
-    logLevel: process.env.LOG_LEVEL || 'silent'
+    logLevel: process.env.LOG_LEVEL || 'silent',
+    // ⭐ قراءة من ملف بدل ENV
+    sessionFile: process.env.SESSION_FILE || 'session.json'
 };
 
 console.log('\n⚙️ ═══════ إعدادات البوت ═══════');
@@ -52,6 +50,7 @@ console.log(`👤 المالك: ${CONFIG.botOwner}`);
 console.log(`🔰 البادئة: ${CONFIG.prefix}`);
 console.log(`👥 الرد في المجموعات: ${CONFIG.replyInGroups ? '✅ نعم' : '❌ لا'}`);
 console.log(`🤖 AI: ${AI_CONFIG.enabled ? '✅ مفعّل' : '❌ معطّل'}`);
+console.log(`📁 ملف الجلسة: ${CONFIG.sessionFile}`);
 if (AI_CONFIG.enabled) {
     console.log(`🧠 المزود: ${AI_CONFIG.provider}`);
     console.log(`📊 النموذج: ${AI_CONFIG.model}`);
@@ -59,16 +58,7 @@ if (AI_CONFIG.enabled) {
 console.log('═══════════════════════════════════\n');
 
 // ═══════════════════════════════════════════════════════════
-// ⚠️ فحص SESSION_DATA
-// ═══════════════════════════════════════════════════════════
-
-if (!CONFIG.sessionData || CONFIG.sessionData.trim() === '') {
-    console.error('\n❌ خطأ: SESSION_DATA غير موجود!\n');
-    process.exit(1);
-}
-
-// ═══════════════════════════════════════════════════════════
-// 🧠 قاعدة المعرفة (Knowledge Base)
+// 🧠 قاعدة المعرفة
 // ═══════════════════════════════════════════════════════════
 
 const KNOWLEDGE_BASE = {
@@ -115,10 +105,6 @@ const KNOWLEDGE_BASE = {
     }
 };
 
-// ═══════════════════════════════════════════════════════════
-// 🎭 بناء الشخصية (Personality Prompt)
-// ═══════════════════════════════════════════════════════════
-
 function buildPersonalityPrompt() {
     return `أنت مقداد، ${KNOWLEDGE_BASE.personal.occupation} من ${KNOWLEDGE_BASE.personal.location}.
 
@@ -160,10 +146,6 @@ function buildPersonalityPrompt() {
 9. لا تطرح أسئلة إضافية إلا للضرورة`;
 }
 
-// ═══════════════════════════════════════════════════════════
-// 🌐 سيرفر HTTP
-// ═══════════════════════════════════════════════════════════
-
 const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
@@ -181,21 +163,28 @@ server.listen(CONFIG.port, () => {
 });
 
 // ═══════════════════════════════════════════════════════════
-// 💾 تحميل الجلسة (محدّث لدعم الجلسة المصغرة)
+// 💾 تحميل الجلسة من ملف (بدل ENV)
 // ═══════════════════════════════════════════════════════════
 
-function loadSessionFromEnv() {
+function loadSessionFromFile() {
     try {
-        console.log('🔐 تحميل الجلسة من SESSION_DATA...');
+        console.log(`🔐 تحميل الجلسة من ملف: ${CONFIG.sessionFile}...`);
         
-        const sessionStr = CONFIG.sessionData.trim();
+        const sessionPath = path.join(__dirname, CONFIG.sessionFile);
         
-        if (sessionStr.length < 100) {
-            throw new Error('SESSION_DATA قصير جداً');
+        if (!fs.existsSync(sessionPath)) {
+            throw new Error(`ملف الجلسة غير موجود: ${CONFIG.sessionFile}`);
         }
         
-        const decoded = Buffer.from(sessionStr, 'base64').toString('utf-8');
-        const sessionData = JSON.parse(decoded);
+        // قراءة الملف
+        const fileContent = fs.readFileSync(sessionPath, 'utf-8').trim();
+        
+        if (fileContent.length < 100) {
+            throw new Error('محتوى الجلسة قصير جداً');
+        }
+        
+        // فك التشفير
+        const sessionData = JSON.parse(fileContent);
         
         const authPath = path.join(__dirname, 'auth_info');
         if (fs.existsSync(authPath)) {
@@ -203,28 +192,15 @@ function loadSessionFromEnv() {
         }
         fs.mkdirSync(authPath, { recursive: true });
         
-        // ⭐ دعم كل من الجلسة المصغرة والكاملة
-        if (sessionData.noiseKey) {
-            // ✅ جلسة مصغرة (creds.json فقط)
-            console.log('📦 جلسة مصغرة مكتشفة');
-            fs.writeFileSync(
-                path.join(authPath, 'creds.json'),
-                JSON.stringify(sessionData, null, 2)
-            );
-        } else if (sessionData['creds.json']) {
-            // ✅ جلسة كاملة (كل الملفات)
-            console.log('📦 جلسة كاملة مكتشفة');
-            for (const [filename, content] of Object.entries(sessionData)) {
-                fs.writeFileSync(path.join(authPath, filename), content);
-            }
-        } else {
-            throw new Error('تنسيق SESSION_DATA غير صالح');
+        // كتابة الملفات
+        for (const [filename, content] of Object.entries(sessionData)) {
+            fs.writeFileSync(path.join(authPath, filename), content);
         }
         
-        // التحقق من وجود creds.json
+        // التحقق
         const credsPath = path.join(authPath, 'creds.json');
         if (!fs.existsSync(credsPath)) {
-            throw new Error('creds.json غير موجود بعد فك التشفير');
+            throw new Error('creds.json غير موجود');
         }
         
         const creds = JSON.parse(fs.readFileSync(credsPath, 'utf-8'));
@@ -237,13 +213,12 @@ function loadSessionFromEnv() {
         
     } catch (error) {
         console.error(`❌ فشل تحميل الجلسة: ${error.message}`);
+        console.log('\n📋 تأكد من:');
+        console.log(`1. وجود ملف ${CONFIG.sessionFile} في المشروع`);
+        console.log('2. الملف يحتوي على بيانات جلسة صحيحة\n');
         process.exit(1);
     }
 }
-
-// ═══════════════════════════════════════════════════════════
-// 🤖 دالة AI - Groq
-// ═══════════════════════════════════════════════════════════
 
 async function getAIResponse_Groq(userMessage) {
     try {
@@ -283,10 +258,6 @@ async function getAIResponse_Groq(userMessage) {
     }
 }
 
-// ═══════════════════════════════════════════════════════════
-// 🤖 دالة AI - Hugging Face
-// ═══════════════════════════════════════════════════════════
-
 async function getAIResponse_HuggingFace(userMessage) {
     try {
         const fullPrompt = `${buildPersonalityPrompt()}\n\nالمستخدم: ${userMessage}\nمقداد:`;
@@ -323,10 +294,6 @@ async function getAIResponse_HuggingFace(userMessage) {
     }
 }
 
-// ═══════════════════════════════════════════════════════════
-// 🧠 الدالة الرئيسية للذكاء الاصطناعي
-// ═══════════════════════════════════════════════════════════
-
 async function getAIResponse(userMessage) {
     if (!AI_CONFIG.enabled) {
         return null;
@@ -357,10 +324,6 @@ async function getAIResponse(userMessage) {
     return response;
 }
 
-// ═══════════════════════════════════════════════════════════
-// 📊 متغيرات التتبع
-// ═══════════════════════════════════════════════════════════
-
 const processedMessages = new Set();
 const MAX_PROCESSED_CACHE = 1000;
 let reconnectAttempts = 0;
@@ -377,10 +340,6 @@ function cleanProcessedMessages() {
         }
     }
 }
-
-// ═══════════════════════════════════════════════════════════
-// 🔄 مراقبة الاتصال
-// ═══════════════════════════════════════════════════════════
 
 function startConnectionMonitor(sock) {
     if (connectionCheckInterval) {
@@ -399,15 +358,11 @@ function startConnectionMonitor(sock) {
     }, 30000);
 }
 
-// ═══════════════════════════════════════════════════════════
-// 🤖 بدء البوت
-// ═══════════════════════════════════════════════════════════
-
 async function startBot() {
     try {
         console.log('🚀 بدء البوت...\n');
         
-        loadSessionFromEnv();
+        loadSessionFromFile(); // ⭐ تغيير هنا
         
         const { version, isLatest } = await fetchLatestBaileysVersion();
         console.log(`📦 Baileys v${version.join('.')}, أحدث: ${isLatest ? '✅' : '⚠️'}\n`);
@@ -509,10 +464,6 @@ async function startBot() {
             }
         });
 
-        // ═══════════════════════════════════════════════════════════
-        // 💬 معالجة الرسائل مع AI
-        // ═══════════════════════════════════════════════════════════
-        
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
             try {
                 if (type !== 'notify') return;
@@ -627,10 +578,6 @@ async function startBot() {
     }
 }
 
-// ═══════════════════════════════════════════════════════════
-// 🔄 إعادة الاتصال
-// ═══════════════════════════════════════════════════════════
-
 function reconnectWithDelay(longDelay = false, customDelay = null) {
     if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
         console.error('❌ فشل الاتصال بعد عدة محاولات');
@@ -643,10 +590,6 @@ function reconnectWithDelay(longDelay = false, customDelay = null) {
     console.log(`🔄 إعادة المحاولة بعد ${delayTime / 1000}ث (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})\n`);
     setTimeout(startBot, delayTime);
 }
-
-// ═══════════════════════════════════════════════════════════
-// 🛑 معالجة الإيقاف
-// ═══════════════════════════════════════════════════════════
 
 process.on('SIGINT', async () => {
     console.log('\n\n👋 إيقاف البوت...\n');
@@ -683,9 +626,5 @@ process.on('unhandledRejection', (reason) => {
 process.on('uncaughtException', (error) => {
     console.error('❌ Uncaught Exception:', error);
 });
-
-// ═══════════════════════════════════════════════════════
-// 🚀 بدء البوت
-// ═══════════════════════════════════════════════════════════
 
 startBot();
