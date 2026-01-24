@@ -10,7 +10,7 @@ const P = require('pino');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { getAIResponse } = require('./ai'); // ⭐ استيراد AI من ملف منفصل
+const { getAIResponse } = require('./ai');
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -68,7 +68,6 @@ server.listen(CONFIG.port, () => {
     console.log(`🌐 HTTP Server: http://localhost:${CONFIG.port}`);
 });
 
-// ⭐ Keep-Alive: ping نفسك كل 5 دقائق لمنع النوم
 setInterval(() => {
     const url = `http://localhost:${CONFIG.port}`;
     http.get(url, (res) => {
@@ -118,7 +117,7 @@ function loadSessionFromFile() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 📊 متغيرات
+// 📊 متغيرات + ذاكرة مؤقتة
 // ═══════════════════════════════════════════════════════════
 
 const processedMessages = new Set();
@@ -127,6 +126,27 @@ let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 5;
 let globalSock = null;
 let isReconnecting = false;
+
+// ⭐ ذاكرة مؤقتة لآخر 5 رسائل لكل مستخدم
+const userMemory = new Map();
+const MAX_MEMORY_PER_USER = 5;
+
+function addToUserMemory(userId, message) {
+    if (!userMemory.has(userId)) {
+        userMemory.set(userId, []);
+    }
+    
+    const memory = userMemory.get(userId);
+    memory.push(message);
+    
+    if (memory.length > MAX_MEMORY_PER_USER) {
+        memory.shift();
+    }
+}
+
+function getUserMemory(userId) {
+    return userMemory.get(userId) || [];
+}
 
 function cleanProcessedMessages() {
     if (processedMessages.size > MAX_PROCESSED_CACHE) {
@@ -193,7 +213,6 @@ async function startBot() {
                     return;
                 }
                 
-                // جلسة فاسدة
                 if (statusCode === DisconnectReason.badSession || 
                     statusCode === DisconnectReason.loggedOut ||
                     statusCode === 401 || statusCode === 403) {
@@ -201,7 +220,6 @@ async function startBot() {
                     process.exit(1);
                 }
                 
-                // 440
                 if (statusCode === 440 || statusCode === DisconnectReason.connectionReplaced) {
                     console.log('⚠️ خطأ 440 - انتظار 15 ثانية...\n');
                     isReconnecting = true;
@@ -211,7 +229,6 @@ async function startBot() {
                     return;
                 }
                 
-                // 515
                 if (statusCode === 515) {
                     console.log('⚠️ خطأ 515 - انتظار 5 ثوانٍ...\n');
                     isReconnecting = true;
@@ -266,7 +283,6 @@ async function startBot() {
                 const messageId = msg.key.id;
                 const isGroup = sender.endsWith('@g.us');
                 
-                // ⭐ تجاهل القنوات (Newsletters)
                 if (sender.endsWith('@newsletter')) {
                     if (CONFIG.showIgnoredMessages) {
                         console.log('⏭️ رسالة من قناة - متجاهلة');
@@ -300,12 +316,15 @@ async function startBot() {
                 processedMessages.add(messageId);
                 cleanProcessedMessages();
 
-                // ⭐ الرد بالـ AI
+                // ⭐ حفظ الرسالة في الذاكرة المؤقتة
+                addToUserMemory(sender, messageText);
+                const recentMessages = getUserMemory(sender);
+
                 try {
                     let replyText;
                     
                     if (AI_CONFIG.enabled) {
-                        const aiResponse = await getAIResponse(messageText, AI_CONFIG);
+                        const aiResponse = await getAIResponse(messageText, AI_CONFIG, sender, recentMessages);
                         replyText = aiResponse || `أهلين`;
                     } else {
                         replyText = `أهلين`;
