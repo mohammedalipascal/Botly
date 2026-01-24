@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "clear-session": "rm -rf auth_info && echo 'Session cleared!'",
+    "clear-session": "rm -rf auth_info && echo 'Session cleared!",
     "test": "node index.js",
     "deploy": "git push clever master"
   },
@@ -19,14 +19,17 @@
   "author": "مقداد",
   "license": "MIT",
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.8",
+    "baileys": "^6.17.16",
     "@hapi/boom": "^10.0.1",
     "pino": "^9.5.0",
     "dotenv": "^16.4.7",
-    "node-cache": "^5.1.2"
+    "node-cache": "^5.1.2",
+    "axios": "^1.6.0"
   },
   "devDependencies": {
-    "nodemon": "^3.1.9"
+    "nodemon": "^3.1.9",
+    "eslint": "^9.31.0",
+    "typescript": "^5.3.3"
   },
   "engines": {
     "node": ">=18.0.0"
