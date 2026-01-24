@@ -10,21 +10,13 @@ const P = require('pino');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { getAIResponse } = require('./ai'); // ⭐ استيراد AI من ملف منفصل
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // ═══════════════════════════════════════════════════════════
-// 🤖 إعدادات الذكاء الاصطناعي
+// 🔧 الإعدادات
 // ═══════════════════════════════════════════════════════════
-
-const AI_CONFIG = {
-    enabled: process.env.AI_ENABLED === 'true',
-    provider: process.env.AI_PROVIDER || 'groq',
-    apiKey: process.env.AI_API_KEY || '',
-    model: process.env.AI_MODEL || 'llama-3.3-70b-versatile',
-    maxTokens: parseInt(process.env.AI_MAX_TOKENS) || 500,
-    temperature: parseFloat(process.env.AI_TEMPERATURE) || 0.7
-};
 
 const CONFIG = {
     botName: process.env.BOT_NAME || 'Botly',
@@ -38,6 +30,14 @@ const CONFIG = {
     sessionFile: process.env.SESSION_FILE || 'session.json'
 };
 
+const AI_CONFIG = {
+    enabled: process.env.AI_ENABLED === 'true',
+    apiKey: process.env.AI_API_KEY || '',
+    model: process.env.AI_MODEL || 'llama-3.3-70b-versatile',
+    maxTokens: parseInt(process.env.AI_MAX_TOKENS) || 500,
+    temperature: parseFloat(process.env.AI_TEMPERATURE) || 0.7
+};
+
 console.log('\n⚙️ ═══════ إعدادات البوت ═══════');
 console.log(`📱 اسم البوت: ${CONFIG.botName}`);
 console.log(`👤 المالك: ${CONFIG.botOwner}`);
@@ -47,73 +47,19 @@ console.log(`📁 ملف الجلسة: ${CONFIG.sessionFile}`);
 console.log('═══════════════════════════════════\n');
 
 // ═══════════════════════════════════════════════════════════
-// 🧠 قاعدة المعرفة
+// 🌐 HTTP Server + Keep-Alive
 // ═══════════════════════════════════════════════════════════
 
-const KNOWLEDGE_BASE = {
-    personal: {
-        name: "مقداد",
-        age: "22 سنة",
-        location: "السودان",
-        occupation: "مهندس برمجيات ونظم",
-        education: "طالب طب في السودان",
-        languages: ["العربية", "الإنجليزية"]
-    },
-    skills: {
-        operating_systems: ["Windows", "Linux", "macOS"],
-        software: ["تطوير البرمجيات", "حل مشاكل السوفت وير"],
-        programming: ["JavaScript", "Node.js", "Python", "PHP"],
-        design: ["تصميم واجهات", "تصميم أنظمة"],
-        hardware: ["خبرة في جميع أنواع الأجهزة"],
-        security: ["اختبار بيئات الاختراق", "اختبار الأمان"]
-    },
-    projects: {
-        types: ["مشاريع إدارية", "مشاريع تجارية", "تسهيل المهام", "ابتكارات تقنية", "منصات تعليمية"],
-        description: "عدة مشاريع في مجالات مختلفة"
-    },
-    style: {
-        tone: "محترف، متواضع، ودود، حازم",
-        emoji_usage: "قليل جداً",
-        response_length: "مختصر وبارد",
-        greetings: ["أهلين", "مرحبا", "أهلا وسهلا"]
-    }
-};
-
-function buildPersonalityPrompt() {
-    return `أنت مقداد، ${KNOWLEDGE_BASE.personal.occupation} و${KNOWLEDGE_BASE.personal.education}.
-
-# شخصيتك:
-- ${KNOWLEDGE_BASE.personal.age}
-- ${KNOWLEDGE_BASE.style.tone}
-- مختصر وبارد
-
-# مهاراتك:
-- أنظمة التشغيل: ${KNOWLEDGE_BASE.skills.operating_systems.join(', ')}
-- البرمجة: ${KNOWLEDGE_BASE.skills.programming.join(', ')}
-- التصميم: ${KNOWLEDGE_BASE.skills.design.join(', ')}
-- الأمان: ${KNOWLEDGE_BASE.skills.security.join(', ')}
-
-# أسلوب الرد:
-- مختصر وبارد جداً
-- لا تبالغ في الترحيب
-- رد فقط على ما يُسأل
-- لا تعرض المساعدة إلا إذا طُلبت
-- عند الترحيب: ${KNOWLEDGE_BASE.style.greetings.join(' أو ')} فقط
-- استخدام الإيموجي: قليل جداً
-
-# تعليمات:
-1. أجب كأنك مقداد
-2. كن مختصراً وبارداً
-3. لا تذكر أنك AI
-4. لا تكشف موقعك إلا إذا سُئلت
-5. رد بالعربية دائماً`;
-}
+let requestCount = 0;
 
 const server = http.createServer((req, res) => {
+    requestCount++;
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
         status: 'online',
         bot: CONFIG.botName,
+        uptime: process.uptime(),
+        requests: requestCount,
         time: new Date().toISOString()
     }));
 });
@@ -121,6 +67,14 @@ const server = http.createServer((req, res) => {
 server.listen(CONFIG.port, () => {
     console.log(`🌐 HTTP Server: http://localhost:${CONFIG.port}`);
 });
+
+// ⭐ Keep-Alive: ping نفسك كل 5 دقائق لمنع النوم
+setInterval(() => {
+    const url = `http://localhost:${CONFIG.port}`;
+    http.get(url, (res) => {
+        console.log(`💓 Keep-alive ping: ${res.statusCode}`);
+    }).on('error', () => {});
+}, 5 * 60 * 1000);
 
 // ═══════════════════════════════════════════════════════════
 // 💾 تحميل الجلسة
@@ -164,47 +118,6 @@ function loadSessionFromFile() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🤖 دالة AI
-// ═══════════════════════════════════════════════════════════
-
-async function getAIResponse(userMessage) {
-    if (!AI_CONFIG.enabled || !AI_CONFIG.apiKey) return null;
-
-    try {
-        console.log(`🤖 طلب AI: ${userMessage.substring(0, 30)}...`);
-        
-        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${AI_CONFIG.apiKey}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                model: AI_CONFIG.model,
-                messages: [
-                    { role: 'system', content: buildPersonalityPrompt() },
-                    { role: 'user', content: userMessage }
-                ],
-                max_tokens: AI_CONFIG.maxTokens,
-                temperature: AI_CONFIG.temperature
-            })
-        });
-
-        if (!response.ok) return null;
-
-        const data = await response.json();
-        const reply = data.choices[0].message.content.trim();
-        
-        console.log(`✅ رد AI: ${reply.substring(0, 30)}...`);
-        return reply;
-
-    } catch (error) {
-        console.error('❌ خطأ AI:', error.message);
-        return null;
-    }
-}
-
-// ═══════════════════════════════════════════════════════════
 // 📊 متغيرات
 // ═══════════════════════════════════════════════════════════
 
@@ -213,7 +126,7 @@ const MAX_PROCESSED_CACHE = 1000;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 5;
 let globalSock = null;
-let isReconnecting = false; // ⭐ منع إعادة اتصال متعددة
+let isReconnecting = false;
 
 function cleanProcessedMessages() {
     if (processedMessages.size > MAX_PROCESSED_CACHE) {
@@ -250,22 +163,18 @@ async function startBot() {
             logger: P({ level: CONFIG.logLevel }),
             browser: ['Ubuntu', 'Chrome', '20.0.04'],
             
-            // ⭐ إعدادات مهمة
             syncFullHistory: false,
             markOnlineOnConnect: true,
             emitOwnEvents: false,
             
-            // ⭐ keepAlive داخلي من Baileys
             defaultQueryTimeoutMs: undefined,
             getMessage: async () => ({ conversation: '' })
         });
 
         globalSock = sock;
 
-        // ⭐ حفظ credentials
         sock.ev.on('creds.update', saveCreds);
 
-        // ⭐ معالجة الاتصال
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect, qr } = update;
             
@@ -279,9 +188,8 @@ async function startBot() {
                 
                 console.log(`\n❌ الاتصال مغلق - كود: ${statusCode}\n`);
                 
-                // ⭐ منع إعادة اتصال متعددة
                 if (isReconnecting) {
-                    console.log('⏭️ إعادة اتصال جارية بالفعل...\n');
+                    console.log('⏭️ إعادة اتصال جارية...\n');
                     return;
                 }
                 
@@ -293,28 +201,19 @@ async function startBot() {
                     process.exit(1);
                 }
                 
-                // 440 - جلسة مستبدلة
+                // 440
                 if (statusCode === 440 || statusCode === DisconnectReason.connectionReplaced) {
-                    console.log('⚠️ خطأ 440 - تم استبدال الاتصال');
-                    console.log('💡 هذا قد يكون بسبب restart سريع\n');
-                    
-                    // انتظار أطول
+                    console.log('⚠️ خطأ 440 - انتظار 15 ثانية...\n');
                     isReconnecting = true;
                     await delay(15000);
                     isReconnecting = false;
-                    
-                    if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-                        reconnectWithDelay(15000);
-                    } else {
-                        console.error('❌ فشل بعد 5 محاولات\n');
-                        process.exit(1);
-                    }
+                    reconnectWithDelay(15000);
                     return;
                 }
                 
                 // 515
                 if (statusCode === 515) {
-                    console.log('⚠️ خطأ 515\n');
+                    console.log('⚠️ خطأ 515 - انتظار 5 ثوانٍ...\n');
                     isReconnecting = true;
                     await delay(5000);
                     isReconnecting = false;
@@ -322,7 +221,6 @@ async function startBot() {
                     return;
                 }
                 
-                // أخطاء أخرى
                 reconnectWithDelay();
                 
             } else if (connection === 'open') {
@@ -337,7 +235,6 @@ async function startBot() {
                 isReconnecting = false;
                 processedMessages.clear();
                 
-                // إشعار المالك
                 if (CONFIG.ownerNumber) {
                     try {
                         await delay(3000);
@@ -354,7 +251,10 @@ async function startBot() {
             }
         });
 
-        // ⭐ معالجة الرسائل
+        // ═══════════════════════════════════════════════════════════
+        // 💬 معالجة الرسائل
+        // ═══════════════════════════════════════════════════════════
+        
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
             try {
                 if (type !== 'notify') return;
@@ -365,6 +265,14 @@ async function startBot() {
                 const sender = msg.key.remoteJid;
                 const messageId = msg.key.id;
                 const isGroup = sender.endsWith('@g.us');
+                
+                // ⭐ تجاهل القنوات (Newsletters)
+                if (sender.endsWith('@newsletter')) {
+                    if (CONFIG.showIgnoredMessages) {
+                        console.log('⏭️ رسالة من قناة - متجاهلة');
+                    }
+                    return;
+                }
                 
                 if (isGroup && !CONFIG.replyInGroups) return;
                 if (sender === 'status@broadcast') return;
@@ -392,12 +300,12 @@ async function startBot() {
                 processedMessages.add(messageId);
                 cleanProcessedMessages();
 
-                // الرد
+                // ⭐ الرد بالـ AI
                 try {
                     let replyText;
                     
                     if (AI_CONFIG.enabled) {
-                        const aiResponse = await getAIResponse(messageText);
+                        const aiResponse = await getAIResponse(messageText, AI_CONFIG);
                         replyText = aiResponse || `أهلين`;
                     } else {
                         replyText = `أهلين`;
@@ -424,7 +332,6 @@ async function startBot() {
     }
 }
 
-// ⭐ إعادة الاتصال
 function reconnectWithDelay(customDelay = null) {
     if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
         console.error('❌ فشل بعد عدة محاولات\n');
@@ -438,7 +345,6 @@ function reconnectWithDelay(customDelay = null) {
     setTimeout(startBot, delayTime);
 }
 
-// ⭐ معالجة الإيقاف
 process.on('SIGINT', () => {
     console.log('\n👋 إيقاف...\n');
     server.close();
