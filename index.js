@@ -180,15 +180,27 @@ async function startBot() {
                 keys: makeCacheableSignalKeyStore(state.keys, P({ level: 'silent' }))
             },
             printQRInTerminal: false,
-            logger: P({ level: CONFIG.logLevel }),
+            logger: P({ level: 'fatal' }),
             browser: ['Ubuntu', 'Chrome', '20.0.04'],
             
             syncFullHistory: false,
             markOnlineOnConnect: true,
             emitOwnEvents: false,
+            generateHighQualityLinkPreview: false,
             
             defaultQueryTimeoutMs: undefined,
-            getMessage: async () => ({ conversation: '' })
+            getMessage: async (key) => {
+                return { conversation: '' };
+            },
+            
+            // ⭐ إعدادات لتقليل مشاكل الجلسات
+            retryRequestDelayMs: 250,
+            maxMsgRetryCount: 5,
+            msgRetryCounterMap: {},
+            connectTimeoutMs: 60000,
+            
+            // ⭐ تقليل التحذيرات
+            shouldIgnoreJid: (jid) => jid.endsWith('@newsletter')
         });
 
         globalSock = sock;
