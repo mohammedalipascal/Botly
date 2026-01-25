@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════
-// 🧠 ملف الذكاء الاصطناعي - ai.js (مع دعم Gemini)
+// 🧠 ملف الذكاء الاصطناعي - ai.js (مع دعم Gemini 1.5)
 // ═══════════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════════
@@ -235,7 +235,7 @@ async function getAIResponse(userMessage, config, userId = 'default', recentMess
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🌟 Google Gemini API
+// 🌟 Google Gemini 1.5 API
 // ═══════════════════════════════════════════════════════════
 
 async function callGeminiAPI(userMessage, config, userId, recentMessages) {
@@ -267,9 +267,12 @@ async function callGeminiAPI(userMessage, config, userId, recentMessages) {
         `${contextText}**تذكر:** افهم السياق، فكر بذكاء، رد بشكل طبيعي كـ مقداد.\n\n**الرسالة الحالية:** ${userMessage}` :
         userMessage;
     
+    // ⭐ استخدام النموذج الصحيح: gemini-1.5-flash (مجاني وسريع)
+    const model = config.model || 'gemini-1.5-flash';
+    
     // استدعاء Gemini API
     const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${config.apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${config.apiKey}`,
         {
             method: 'POST',
             headers: {
