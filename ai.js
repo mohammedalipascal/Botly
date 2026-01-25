@@ -256,11 +256,11 @@ async function getAIResponse(userMessage, config, chatId = 'default', recentMess
         let fullPrompt = buildPersonalityPrompt(history);
         fullPrompt += `\n\nالمستخدم: ${userMessage}\nمقداد:`;
         
-        // ⭐ استدعاء Hugging Face API
+        // ⭐ استدعاء Hugging Face API (URL الجديد)
         const model = config.model || 'meta-llama/Llama-3.2-3B-Instruct';
         
         const response = await fetch(
-            `https://api-inference.huggingface.co/models/${model}`,
+            `https://router.huggingface.co/models/${model}`,
             {
                 method: 'POST',
                 headers: {
