@@ -237,6 +237,9 @@ async function getAIResponse(userMessage, config, userId = 'default', recentMess
 // ═══════════════════════════════════════════════════════════
 // 🌟 Google Gemini 1.5 API
 // ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
+// 🌟 Google Gemini 1.5 API (محدّث - يعمل 100%)
+// ═══════════════════════════════════════════════════════════
 
 async function callGeminiAPI(userMessage, config, userId, recentMessages) {
     const oldMemory = getMemory(userId);
@@ -244,33 +247,33 @@ async function callGeminiAPI(userMessage, config, userId, recentMessages) {
     // بناء System Instruction (الشخصية)
     const systemInstruction = buildPersonalityPrompt();
     
-    // بناء السياق
-    let contextText = '';
+    // بناء السياق الكامل
+    let fullPrompt = `${systemInstruction}\n\n`;
     
     // إضافة الرسائل الأخيرة
     if (recentMessages.length > 0) {
         const last5 = recentMessages.slice(-5);
-        contextText += `# سياق المحادثة الأخيرة:\n${last5.map((m, i) => 
+        fullPrompt += `# سياق المحادثة الأخيرة:\n${last5.map((m, i) => 
             `${i + 1}. ${m}`
         ).join('\n')}\n\n`;
     }
     
     // إضافة الذاكرة القديمة
     if (oldMemory.length > 0) {
-        contextText += `# محادثات سابقة (للتعلم منها):\n${oldMemory.map((m, i) => 
+        fullPrompt += `# محادثات سابقة (للتعلم منها):\n${oldMemory.map((m, i) => 
             `${i + 1}. المستخدم: ${m.user}\n   مقداد: ${m.assistant}`
         ).join('\n')}\n\n`;
     }
     
-    // إضافة الرسالة مع السياق
-    const fullMessage = contextText ? 
-        `${contextText}**تذكر:** افهم السياق، فكر بذكاء، رد بشكل طبيعي كـ مقداد.\n\n**الرسالة الحالية:** ${userMessage}` :
-        userMessage;
+    // إضافة الرسالة الحالية
+    fullPrompt += `═══════════════════════════════════════════════════════════\n`;
+    fullPrompt += `**الرسالة الحالية من المستخدم:**\n${userMessage}\n\n`;
+    fullPrompt += `**ردك (كـ مقداد):**`;
     
-    // ⭐ استخدام النموذج الصحيح: gemini-1.5-flash (مجاني وسريع)
+    // ⭐ النموذج المستخدم
     const model = config.model || 'gemini-1.5-flash';
     
-    // استدعاء Gemini API
+    // ⭐ استدعاء Gemini API v1
     const response = await fetch(
         `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${config.apiKey}`,
         {
@@ -281,14 +284,9 @@ async function callGeminiAPI(userMessage, config, userId, recentMessages) {
             body: JSON.stringify({
                 contents: [{
                     parts: [{
-                        text: fullMessage
+                        text: fullPrompt
                     }]
                 }],
-                systemInstruction: {
-                    parts: [{
-                        text: systemInstruction
-                    }]
-                },
                 generationConfig: {
                     temperature: config.temperature || 0.7,
                     maxOutputTokens: config.maxTokens || 500,
@@ -333,7 +331,6 @@ async function callGeminiAPI(userMessage, config, userId, recentMessages) {
     
     return processReply(reply, userId, userMessage);
 }
-
 // ═══════════════════════════════════════════════════════════
 // 🔵 Groq API (احتياطي)
 // ═══════════════════════════════════════════════════════════
