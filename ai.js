@@ -230,10 +230,10 @@ function checkQuickResponse(message) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🤖 دالة الذكاء الاصطناعي
+// 🤖 دالة الذكاء الاصطناعي - Hugging Face (مجاني 100%)
 // ═══════════════════════════════════════════════════════════
 
-async function getAIResponse(userMessage, config, chatId = 'default') {
+async function getAIResponse(userMessage, config, chatId = 'default', recentMessages = []) {
     if (!config.enabled || !config.apiKey) {
         return null;
     }
@@ -242,7 +242,7 @@ async function getAIResponse(userMessage, config, chatId = 'default') {
         // ⭐ فحص الردود الجاهزة أولاً
         const quickReply = checkQuickResponse(userMessage);
         if (quickReply) {
-            console.log(`⚡ رد سريع: ${quickReply.substring(0, 30)}...`);
+            console.log(`⚡ رد سريع: ${quickReply}`);
             addToHistory(chatId, userMessage, quickReply);
             return quickReply;
         }
@@ -252,37 +252,68 @@ async function getAIResponse(userMessage, config, chatId = 'default') {
         // ⭐ جلب المحادثة السابقة
         const history = getHistory(chatId);
         
-        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${config.apiKey}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                model: config.model,
-                messages: [
-                    {
-                        role: 'system',
-                        content: buildPersonalityPrompt(history)
+        // ⭐ بناء Prompt كامل
+        let fullPrompt = buildPersonalityPrompt(history);
+        fullPrompt += `\n\nالمستخدم: ${userMessage}\nمقداد:`;
+        
+        // ⭐ استدعاء Hugging Face API
+        const model = config.model || 'meta-llama/Llama-3.2-3B-Instruct';
+        
+        const response = await fetch(
+            `https://api-inference.huggingface.co/models/${model}`,
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${config.apiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    inputs: fullPrompt,
+                    parameters: {
+                        max_new_tokens: config.maxTokens || 300,
+                        temperature: config.temperature || 0.7,
+                        top_p: 0.9,
+                        repetition_penalty: 1.2,
+                        return_full_text: false,
+                        do_sample: true
                     },
-                    {
-                        role: 'user',
-                        content: userMessage
+                    options: {
+                        wait_for_model: true,
+                        use_cache: false
                     }
-                ],
-                max_tokens: config.maxTokens,
-                temperature: config.temperature
-            })
-        });
+                })
+            }
+        );
 
         if (!response.ok) {
-            throw new Error(`Groq API error: ${response.status}`);
+            const errorText = await response.text();
+            console.error(`❌ HuggingFace error: ${response.status} - ${errorText}`);
+            throw new Error(`HuggingFace API error: ${response.status}`);
         }
 
         const data = await response.json();
-        const reply = data.choices[0].message.content.trim();
         
-        console.log(`✅ رد AI: ${reply.substring(0, 30)}...`);
+        // استخراج الرد
+        let reply;
+        if (Array.isArray(data)) {
+            reply = data[0]?.generated_text?.trim();
+        } else if (data.generated_text) {
+            reply = data.generated_text.trim();
+        } else if (data.error) {
+            console.error(`❌ HuggingFace error: ${data.error}`);
+            throw new Error(data.error);
+        } else {
+            throw new Error('No response from HuggingFace');
+        }
+        
+        if (!reply) {
+            throw new Error('Empty response');
+        }
+        
+        // تنظيف الرد
+        reply = reply.replace(/^مقداد:\s*/i, '').trim();
+        
+        console.log(`✅ رد AI: ${reply.substring(0, 50)}...`);
         
         // ⭐ حفظ في الذاكرة
         addToHistory(chatId, userMessage, reply);
