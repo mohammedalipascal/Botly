@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════
-// 🧠 ملف الذكاء الاصطناعي - ai.js (مع دعم Gemini 1.5)
+// 🧠 ملف الذكاء الاصطناعي - ai.js (مع دعم DeepSeek)
 // ═══════════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════════
@@ -192,7 +192,7 @@ function buildPersonalityPrompt() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🤖 دالة الذكاء الاصطناعي - مع دعم Gemini و Groq
+// 🤖 دالة الذكاء الاصطناعي - مع دعم DeepSeek و Groq
 // ═══════════════════════════════════════════════════════════
 
 async function getAIResponse(userMessage, config, userId = 'default', recentMessages = []) {
@@ -203,21 +203,21 @@ async function getAIResponse(userMessage, config, userId = 'default', recentMess
     try {
         console.log(`🤖 طلب AI: ${userMessage.substring(0, 50)}...`);
         
-        // ⭐ تحديد المزود (Gemini أو Groq)
-        const provider = process.env.AI_PROVIDER || 'gemini';
+        // ⭐ تحديد المزود (DeepSeek أو Groq)
+        const provider = process.env.AI_PROVIDER || 'deepseek';
         
         // ⭐ إعادة محاولة مع تأخير للـ Rate Limit
         let lastError = null;
         for (let attempt = 1; attempt <= 3; attempt++) {
             try {
-                if (provider === 'gemini') {
-                    return await callGeminiAPI(userMessage, config, userId, recentMessages);
+                if (provider === 'deepseek') {
+                    return await callDeepSeekAPI(userMessage, config, userId, recentMessages);
                 } else {
                     return await callGroqAPI(userMessage, config, userId, recentMessages);
                 }
             } catch (error) {
                 lastError = error;
-                if (error.message.includes('429') || error.message.includes('RESOURCE_EXHAUSTED')) {
+                if (error.message.includes('429') || error.message.includes('RESOURCE_EXHAUSTED') || error.message.includes('rate_limit')) {
                     const delay = attempt * 5000; // 5ث، 10ث، 15ث
                     console.log(`⚠️ Rate limit - محاولة ${attempt}/3 بعد ${delay/1000}ث...`);
                     await new Promise(resolve => setTimeout(resolve, delay));
@@ -235,102 +235,78 @@ async function getAIResponse(userMessage, config, userId = 'default', recentMess
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🌟 Google Gemini 1.5 API
-// ═══════════════════════════════════════════════════════════
-// ═══════════════════════════════════════════════════════════
-// 🌟 Google Gemini 1.5 API (محدّث - يعمل 100%)
+// 🟢 DeepSeek API (مجاني تماماً - بديل ممتاز!)
 // ═══════════════════════════════════════════════════════════
 
-async function callGeminiAPI(userMessage, config, userId, recentMessages) {
+async function callDeepSeekAPI(userMessage, config, userId, recentMessages) {
     const oldMemory = getMemory(userId);
     
-    // بناء System Instruction (الشخصية)
-    const systemInstruction = buildPersonalityPrompt();
-    
-    // بناء السياق الكامل
-    let fullPrompt = `${systemInstruction}\n\n`;
+    // بناء المحادثة
+    const messages = [
+        {
+            role: 'system',
+            content: buildPersonalityPrompt()
+        }
+    ];
     
     // إضافة الرسائل الأخيرة
     if (recentMessages.length > 0) {
         const last5 = recentMessages.slice(-5);
-        fullPrompt += `# سياق المحادثة الأخيرة:\n${last5.map((m, i) => 
-            `${i + 1}. ${m}`
-        ).join('\n')}\n\n`;
+        messages.push({
+            role: 'system',
+            content: `# سياق المحادثة الأخيرة:\n${last5.map((m, i) => 
+                `${i + 1}. ${m}`
+            ).join('\n')}\n\n**تذكر:** افهم السياق، فكر بذكاء، رد بشكل طبيعي كـ مقداد.`
+        });
     }
     
     // إضافة الذاكرة القديمة
     if (oldMemory.length > 0) {
-        fullPrompt += `# محادثات سابقة (للتعلم منها):\n${oldMemory.map((m, i) => 
-            `${i + 1}. المستخدم: ${m.user}\n   مقداد: ${m.assistant}`
-        ).join('\n')}\n\n`;
+        messages.push({
+            role: 'system',
+            content: `# محادثات سابقة (للتعلم منها):\n${oldMemory.map((m, i) => 
+                `${i + 1}. المستخدم: ${m.user}\n   مقداد: ${m.assistant}`
+            ).join('\n')}`
+        });
     }
     
-    // إضافة الرسالة الحالية
-    fullPrompt += `═══════════════════════════════════════════════════════════\n`;
-    fullPrompt += `**الرسالة الحالية من المستخدم:**\n${userMessage}\n\n`;
-    fullPrompt += `**ردك (كـ مقداد):**`;
+    // الرسالة الحالية
+    messages.push({
+        role: 'user',
+        content: userMessage
+    });
     
-    // ⭐ النموذج المستخدم
-    const model = config.model || 'gemini-1.5-flash';
-    
-    // ⭐ استدعاء Gemini API v1
-    const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${config.apiKey}`,
-        {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                contents: [{
-                    parts: [{
-                        text: fullPrompt
-                    }]
-                }],
-                generationConfig: {
-                    temperature: config.temperature || 0.7,
-                    maxOutputTokens: config.maxTokens || 500,
-                    topP: 0.95,
-                    topK: 40
-                },
-                safetySettings: [
-                    {
-                        category: "HARM_CATEGORY_HARASSMENT",
-                        threshold: "BLOCK_NONE"
-                    },
-                    {
-                        category: "HARM_CATEGORY_HATE_SPEECH",
-                        threshold: "BLOCK_NONE"
-                    },
-                    {
-                        category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                        threshold: "BLOCK_NONE"
-                    },
-                    {
-                        category: "HARM_CATEGORY_DANGEROUS_CONTENT",
-                        threshold: "BLOCK_NONE"
-                    }
-                ]
-            })
-        }
-    );
+    // ⭐ استدعاء DeepSeek API (متوافق مع OpenAI)
+    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${config.apiKey}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            model: config.model || 'deepseek-chat',
+            messages: messages,
+            max_tokens: config.maxTokens || 500,
+            temperature: config.temperature || 0.7,
+            stream: false
+        })
+    });
 
     if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(`Gemini API error: ${response.status} - ${errorData.error?.message || 'Unknown error'}`);
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(`DeepSeek API error: ${response.status} - ${errorData.error?.message || 'Unknown error'}`);
     }
 
     const data = await response.json();
-    
-    // استخراج الرد
-    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    const reply = data.choices?.[0]?.message?.content?.trim();
     
     if (!reply) {
-        throw new Error('No response from Gemini');
+        throw new Error('No response from DeepSeek');
     }
     
     return processReply(reply, userId, userMessage);
 }
+
 // ═══════════════════════════════════════════════════════════
 // 🔵 Groq API (احتياطي)
 // ═══════════════════════════════════════════════════════════
