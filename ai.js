@@ -230,7 +230,7 @@ function checkQuickResponse(message) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🤖 دالة الذكاء الاصطناعي - Hugging Face (مجاني 100%)
+// 🤖 دالة الذكاء الاصطناعي - OpenRouter (مجاني!)
 // ═══════════════════════════════════════════════════════════
 
 async function getAIResponse(userMessage, config, chatId = 'default', recentMessages = []) {
@@ -252,66 +252,52 @@ async function getAIResponse(userMessage, config, chatId = 'default', recentMess
         // ⭐ جلب المحادثة السابقة
         const history = getHistory(chatId);
         
-        // ⭐ بناء Prompt كامل
-        let fullPrompt = buildPersonalityPrompt(history);
-        fullPrompt += `\n\nالمستخدم: ${userMessage}\nمقداد:`;
-        
-        // ⭐ استدعاء Hugging Face API (URL الجديد)
-        const model = config.model || 'meta-llama/Llama-3.2-3B-Instruct';
-        
-        const response = await fetch(
-            `https://router.huggingface.co/models/${model}`,
+        // ⭐ بناء messages array
+        const messages = [
             {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${config.apiKey}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    inputs: fullPrompt,
-                    parameters: {
-                        max_new_tokens: config.maxTokens || 300,
-                        temperature: config.temperature || 0.7,
-                        top_p: 0.9,
-                        repetition_penalty: 1.2,
-                        return_full_text: false,
-                        do_sample: true
-                    },
-                    options: {
-                        wait_for_model: true,
-                        use_cache: false
-                    }
-                })
+                role: 'system',
+                content: buildPersonalityPrompt(history)
+            },
+            {
+                role: 'user',
+                content: userMessage
             }
-        );
+        ];
+        
+        // ⭐ استدعاء OpenRouter API (متوافق مع OpenAI)
+        // النموذج المجاني: meta-llama/llama-3.2-3b-instruct:free
+        const model = config.model || 'meta-llama/llama-3.2-3b-instruct:free';
+        
+        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${config.apiKey}`,
+                'Content-Type': 'application/json',
+                'HTTP-Referer': 'https://github.com/yourusername/whatsapp-bot',
+                'X-Title': 'WhatsApp Bot'
+            },
+            body: JSON.stringify({
+                model: model,
+                messages: messages,
+                max_tokens: config.maxTokens || 300,
+                temperature: config.temperature || 0.7
+            })
+        });
 
         if (!response.ok) {
             const errorText = await response.text();
-            console.error(`❌ HuggingFace error: ${response.status} - ${errorText}`);
-            throw new Error(`HuggingFace API error: ${response.status}`);
+            console.error(`❌ OpenRouter error: ${response.status} - ${errorText}`);
+            throw new Error(`OpenRouter API error: ${response.status}`);
         }
 
         const data = await response.json();
         
         // استخراج الرد
-        let reply;
-        if (Array.isArray(data)) {
-            reply = data[0]?.generated_text?.trim();
-        } else if (data.generated_text) {
-            reply = data.generated_text.trim();
-        } else if (data.error) {
-            console.error(`❌ HuggingFace error: ${data.error}`);
-            throw new Error(data.error);
-        } else {
-            throw new Error('No response from HuggingFace');
-        }
+        let reply = data.choices?.[0]?.message?.content?.trim();
         
         if (!reply) {
-            throw new Error('Empty response');
+            throw new Error('No response from OpenRouter');
         }
-        
-        // تنظيف الرد
-        reply = reply.replace(/^مقداد:\s*/i, '').trim();
         
         console.log(`✅ رد AI: ${reply.substring(0, 50)}...`);
         
