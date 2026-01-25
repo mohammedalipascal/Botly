@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════
-// 🧠 ملف الذكاء الاصطناعي - ai.js (بدون ردود محفوظة)
+// 🧠 ملف الذكاء الاصطناعي - ai.js (مع دعم Gemini)
 // ═══════════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════════
@@ -192,7 +192,7 @@ function buildPersonalityPrompt() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🤖 دالة الذكاء الاصطناعي - بدون ردود محفوظة
+// 🤖 دالة الذكاء الاصطناعي - مع دعم Gemini و Groq
 // ═══════════════════════════════════════════════════════════
 
 async function getAIResponse(userMessage, config, userId = 'default', recentMessages = []) {
@@ -203,16 +203,24 @@ async function getAIResponse(userMessage, config, userId = 'default', recentMess
     try {
         console.log(`🤖 طلب AI: ${userMessage.substring(0, 50)}...`);
         
+        // ⭐ تحديد المزود (Gemini أو Groq)
+        const provider = process.env.AI_PROVIDER || 'gemini';
+        
         // ⭐ إعادة محاولة مع تأخير للـ Rate Limit
         let lastError = null;
         for (let attempt = 1; attempt <= 3; attempt++) {
             try {
-                return await callGroqAPI(userMessage, config, userId, recentMessages);
+                if (provider === 'gemini') {
+                    return await callGeminiAPI(userMessage, config, userId, recentMessages);
+                } else {
+                    return await callGroqAPI(userMessage, config, userId, recentMessages);
+                }
             } catch (error) {
                 lastError = error;
-                if (error.message.includes('429')) {
-                    console.log(`⚠️ Rate limit - محاولة ${attempt}/3 بعد ${attempt * 2}ث...`);
-                    await new Promise(resolve => setTimeout(resolve, attempt * 2000));
+                if (error.message.includes('429') || error.message.includes('RESOURCE_EXHAUSTED')) {
+                    const delay = attempt * 5000; // 5ث، 10ث، 15ث
+                    console.log(`⚠️ Rate limit - محاولة ${attempt}/3 بعد ${delay/1000}ث...`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
                 } else {
                     throw error;
                 }
@@ -226,8 +234,108 @@ async function getAIResponse(userMessage, config, userId = 'default', recentMess
     }
 }
 
+// ═══════════════════════════════════════════════════════════
+// 🌟 Google Gemini API
+// ═══════════════════════════════════════════════════════════
+
+async function callGeminiAPI(userMessage, config, userId, recentMessages) {
+    const oldMemory = getMemory(userId);
+    
+    // بناء System Instruction (الشخصية)
+    const systemInstruction = buildPersonalityPrompt();
+    
+    // بناء السياق
+    let contextText = '';
+    
+    // إضافة الرسائل الأخيرة
+    if (recentMessages.length > 0) {
+        const last5 = recentMessages.slice(-5);
+        contextText += `# سياق المحادثة الأخيرة:\n${last5.map((m, i) => 
+            `${i + 1}. ${m}`
+        ).join('\n')}\n\n`;
+    }
+    
+    // إضافة الذاكرة القديمة
+    if (oldMemory.length > 0) {
+        contextText += `# محادثات سابقة (للتعلم منها):\n${oldMemory.map((m, i) => 
+            `${i + 1}. المستخدم: ${m.user}\n   مقداد: ${m.assistant}`
+        ).join('\n')}\n\n`;
+    }
+    
+    // إضافة الرسالة مع السياق
+    const fullMessage = contextText ? 
+        `${contextText}**تذكر:** افهم السياق، فكر بذكاء، رد بشكل طبيعي كـ مقداد.\n\n**الرسالة الحالية:** ${userMessage}` :
+        userMessage;
+    
+    // استدعاء Gemini API
+    const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${config.apiKey}`,
+        {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                contents: [{
+                    parts: [{
+                        text: fullMessage
+                    }]
+                }],
+                systemInstruction: {
+                    parts: [{
+                        text: systemInstruction
+                    }]
+                },
+                generationConfig: {
+                    temperature: config.temperature || 0.7,
+                    maxOutputTokens: config.maxTokens || 500,
+                    topP: 0.95,
+                    topK: 40
+                },
+                safetySettings: [
+                    {
+                        category: "HARM_CATEGORY_HARASSMENT",
+                        threshold: "BLOCK_NONE"
+                    },
+                    {
+                        category: "HARM_CATEGORY_HATE_SPEECH",
+                        threshold: "BLOCK_NONE"
+                    },
+                    {
+                        category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                        threshold: "BLOCK_NONE"
+                    },
+                    {
+                        category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+                        threshold: "BLOCK_NONE"
+                    }
+                ]
+            })
+        }
+    );
+
+    if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(`Gemini API error: ${response.status} - ${errorData.error?.message || 'Unknown error'}`);
+    }
+
+    const data = await response.json();
+    
+    // استخراج الرد
+    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    
+    if (!reply) {
+        throw new Error('No response from Gemini');
+    }
+    
+    return processReply(reply, userId, userMessage);
+}
+
+// ═══════════════════════════════════════════════════════════
+// 🔵 Groq API (احتياطي)
+// ═══════════════════════════════════════════════════════════
+
 async function callGroqAPI(userMessage, config, userId, recentMessages) {
-    // جلب الذاكرة القديمة
     const oldMemory = getMemory(userId);
     
     // بناء المحادثة
@@ -238,7 +346,7 @@ async function callGroqAPI(userMessage, config, userId, recentMessages) {
         }
     ];
     
-    // إضافة الرسائل الأخيرة من المحادثة الحالية
+    // إضافة الرسائل الأخيرة
     if (recentMessages.length > 0) {
         const last5 = recentMessages.slice(-5);
         messages.push({
@@ -265,7 +373,7 @@ async function callGroqAPI(userMessage, config, userId, recentMessages) {
         content: userMessage
     });
     
-    // استدعاء API
+    // استدعاء Groq API
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -273,10 +381,10 @@ async function callGroqAPI(userMessage, config, userId, recentMessages) {
             'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-            model: config.model,
+            model: config.model || 'llama-3.3-70b-versatile',
             messages: messages,
-            max_tokens: config.maxTokens,
-            temperature: config.temperature
+            max_tokens: config.maxTokens || 500,
+            temperature: config.temperature || 0.7
         })
     });
 
@@ -285,8 +393,16 @@ async function callGroqAPI(userMessage, config, userId, recentMessages) {
     }
 
     const data = await response.json();
-    let reply = data.choices[0].message.content.trim();
+    const reply = data.choices[0].message.content.trim();
     
+    return processReply(reply, userId, userMessage);
+}
+
+// ═══════════════════════════════════════════════════════════
+// 🧹 معالجة الرد وتصحيح اللهجة
+// ═══════════════════════════════════════════════════════════
+
+function processReply(reply, userId, userMessage) {
     // تنظيف الرد
     reply = reply.replace(/\[.*?\]/g, '');
     reply = reply.replace(/\(.*?\)/g, '');
