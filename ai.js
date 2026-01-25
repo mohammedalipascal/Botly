@@ -208,21 +208,26 @@ function getQuickResponse(message) {
     const msg = message.toLowerCase().trim();
     
     // ⭐ فحص الإيموجي
-    const emojiPattern = /^[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]+$/u;
-    if (emojiPattern.test(msg)) {
-        // إيموجي الضحك
+    const emojiOnly = /^[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\s]+$/u;
+    if (emojiOnly.test(msg)) {
+        // إيموجي الضحك - تجاهل
         if (msg.match(/😂|🤣|😆|😄|😁/)) {
-            return null; // رد عادي أو تجاهل
+            return null; // يروح للـ AI
         }
-        // إيموجي الحب والقلوب
-        if (msg.match(/❤️|😍|💕|💖|♥️|💙|💚/)) {
-            return Math.random() > 0.5 ? 'شكراً' : null;
+        // إيموجي الحب
+        if (msg.match(/❤️|😍|💕|💖|♥️|💙|💚|🧡|💛|💜|🖤/)) {
+            return Math.random() > 0.6 ? 'شكراً' : null;
         }
-        // باقي الإيموجيز - أحياناً قول ما بحب الإيموجيز
-        if (Math.random() > 0.7) { // 30% فرصة
+        // باقي الإيموجيز
+        if (Math.random() > 0.7) {
             return 'ما بحب الإيموجيز الكتير';
         }
-        return null; // تجاهل
+        return null;
+    }
+    
+    // ⭐ حروف مفردة أو كلام مو مفهوم - خليها للـ AI
+    if (msg.length <= 2 && !msg.match(/^(نعم|لا|آه|لأ)$/)) {
+        return null; // يروح للـ AI
     }
     
     // ⭐ إذا قال "مقداد" فقط
@@ -251,35 +256,32 @@ function getQuickResponse(message) {
         return 'وعليكم السلام';
     }
     
-    // ⭐ صباح الخير
+    // ⭐ صباح/مساء الخير
     if (msg.includes('صباح الخير')) {
         const responses = ['صباح النور', 'صباح النور عليك'];
         return responses[Math.floor(Math.random() * responses.length)];
     }
     
-    // ⭐ مساء الخير
     if (msg.includes('مساء الخير')) {
         const responses = ['مساء النور', 'مساء النور عليك'];
         return responses[Math.floor(Math.random() * responses.length)];
     }
     
-    // ⭐ الحال (مع تنويع)
-    if (msg.includes('ازيك') || msg.includes('كيف حالك') || 
-        msg.includes('شخبارك') || msg.includes('عامل ايه')) {
+    // ⭐ الحال
+    if (msg.match(/^(ازيك|كيف حالك|شخبارك|عامل ايه|كيفك|اخبارك|شلونك)[\?؟]?$/)) {
         const responses = ['تمام', 'كويس', 'الحمد لله', 'تمام وانت كيف', 'الحمد لله وانت كيف'];
         return responses[Math.floor(Math.random() * responses.length)];
     }
     
     // الاختفاء
     if (msg.includes('وين مختفي') || msg.includes('وين كنت') || 
-        msg.includes('ليش مختفي') || msg.includes('فين') ||
+        msg.includes('ليش مختفي') || msg.includes('وينك') ||
         msg.includes('اختفيت ليه')) {
         return 'مع الشغل بس';
     }
     
     // المديح
-    if (msg.includes('خطير') || msg.includes('رائع') || msg.includes('حلو') || 
-        msg.includes('جميل') || msg.includes('ممتاز') || msg.includes('كويس اوي')) {
+    if (msg.match(/^(خطير|رائع|حلو|جميل|ممتاز|كويس اوي|تمام|برافو|عظيم)[\!؟\?]*$/)) {
         const responses = ['شكراً', 'شكرا تسلم'];
         return responses[Math.floor(Math.random() * responses.length)];
     }
@@ -292,6 +294,7 @@ function getQuickResponse(message) {
         return responses[Math.floor(Math.random() * responses.length)];
     }
     
+    // لو وصل هنا ومو من الردود السريعة → خليها للـ AI
     return null;
 }
 
@@ -418,7 +421,7 @@ async function callGroqAPI(userMessage, config, userId, recentMessages) {
         
         reply = reply.trim();
         
-        console.log(`✅ رد AI: ${reply.substring(0, 30)}...`);
+        console.log(`✅ رد AI: ${reply}`);
         
         // 6. حفظ في الذاكرة
         addToMemory(userId, userMessage, reply);
