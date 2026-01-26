@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════
-// 🧠 ملف الذكاء الاصطناعي - ai.js (بدون ردود محفوظة)
+// 🧠 ملف الذكاء الاصطناعي - ai.js (مع Hugging Face)
 // ═══════════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════════
@@ -192,7 +192,7 @@ function buildPersonalityPrompt() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🤖 دالة الذكاء الاصطناعي - بدون ردود محفوظة
+// 🤖 دالة الذكاء الاصطناعي - مع Hugging Face
 // ═══════════════════════════════════════════════════════════
 
 async function getAIResponse(userMessage, config, userId = 'default', recentMessages = []) {
@@ -207,12 +207,12 @@ async function getAIResponse(userMessage, config, userId = 'default', recentMess
         let lastError = null;
         for (let attempt = 1; attempt <= 3; attempt++) {
             try {
-                return await callGroqAPI(userMessage, config, userId, recentMessages);
+                return await callHuggingFaceAPI(userMessage, config, userId, recentMessages);
             } catch (error) {
                 lastError = error;
-                if (error.message.includes('429')) {
-                    console.log(`⚠️ Rate limit - محاولة ${attempt}/3 بعد ${attempt * 2}ث...`);
-                    await new Promise(resolve => setTimeout(resolve, attempt * 2000));
+                if (error.message.includes('429') || error.message.includes('503')) {
+                    console.log(`⚠️ Rate limit/Loading - محاولة ${attempt}/3 بعد ${attempt * 3}ث...`);
+                    await new Promise(resolve => setTimeout(resolve, attempt * 3000));
                 } else {
                     throw error;
                 }
@@ -225,50 +225,46 @@ async function getAIResponse(userMessage, config, userId = 'default', recentMess
         return null;
     }
 }
-async function callGroqAPI(userMessage, config, userId, recentMessages) {
+
+async function callHuggingFaceAPI(userMessage, config, userId, recentMessages) {
     // جلب الذاكرة القديمة
     const oldMemory = getMemory(userId);
     
-    // بناء المحادثة
-    const messages = [
-        {
-            role: 'system',
-            content: buildPersonalityPrompt()
-        }
-    ];
-    
-    // إضافة الرسائل الأخيرة من المحادثة الحالية
-    if (recentMessages.length > 0) {
-        const last5 = recentMessages.slice(-5);
-        messages.push({
-            role: 'system',
-            content: `# سياق المحادثة الأخيرة:\n${last5.map((m, i) => 
-                `${i + 1}. ${m}`
-            ).join('\n')}\n\n**تذكر:** افهم السياق، فكر بذكاء، رد بشكل طبيعي كـ مقداد.`
-        });
-    }
+    // بناء prompt كامل
+    let fullPrompt = buildPersonalityPrompt();
     
     // إضافة الذاكرة القديمة
     if (oldMemory.length > 0) {
-        messages.push({
-            role: 'system',
-            content: `# محادثات سابقة (للتعلم منها):\n${oldMemory.map((m, i) => 
-                `${i + 1}. المستخدم: ${m.user}\n   مقداد: ${m.assistant}`
-            ).join('\n')}`
+        fullPrompt += '\n\n# محادثات سابقة:\n';
+        oldMemory.forEach((m, i) => {
+            fullPrompt += `${i + 1}. المستخدم: ${m.user}\n   مقداد: ${m.assistant}\n`;
         });
     }
     
-    // تحويل الرسائل لنص واحد (Hugging Face يفضل هذا)
-    let fullPrompt = messages.map(m => {
-        if (m.role === 'system') return m.content;
-        if (m.role === 'user') return `المستخدم: ${m.content}`;
-        return '';
-    }).join('\n\n');
+    // إضافة الرسائل الأخيرة
+    if (recentMessages.length > 0) {
+        fullPrompt += '\n\n# سياق المحادثة الأخيرة:\n';
+        recentMessages.slice(-5).forEach((m, i) => {
+            fullPrompt += `${i + 1}. ${m}\n`;
+        });
+    }
     
-    fullPrompt += `\n\nالمستخدم: ${userMessage}\nمقداد:`;
+    // الرسالة الحالية
+    fullPrompt += `\n\n### المحادثة الآن:\nالمستخدم: ${userMessage}\nمقداد:`;
+    
+    // ⭐ نماذج مجانية ومضمونة (جرب واحد واحد)
+    const models = [
+        'google/flan-t5-large',           // نموذج Google - سريع وموثوق
+        'EleutherAI/gpt-neo-2.7B',        // نموذج قوي للنصوص
+        'facebook/opt-1.3b',              // نموذج Meta
+        'bigscience/bloom-560m'           // نموذج للغات متعددة
+    ];
+    
+    // استخدم أول نموذج متاح
+    const modelToUse = config.model || models[0];
     
     // استدعاء Hugging Face API
-    const response = await fetch('https://router.huggingface.co/models/meta-llama/Meta-Llama-3-8B-Instruct', {
+    const response = await fetch(`https://api-inference.huggingface.co/models/${modelToUse}`, {
         method: 'POST',
         headers: {
             'Authorization': `Bearer ${config.apiKey}`,
@@ -277,10 +273,15 @@ async function callGroqAPI(userMessage, config, userId, recentMessages) {
         body: JSON.stringify({
             inputs: fullPrompt,
             parameters: {
-                max_new_tokens: config.maxTokens || 512,
+                max_new_tokens: Math.min(config.maxTokens || 200, 500),
                 temperature: config.temperature || 0.7,
-                top_p: 0.95,
+                top_p: 0.9,
+                do_sample: true,
                 return_full_text: false
+            },
+            options: {
+                use_cache: false,
+                wait_for_model: true  // ⭐ مهم: انتظر النموذج لو كان بيحمل
             }
         })
     });
@@ -293,21 +294,33 @@ async function callGroqAPI(userMessage, config, userId, recentMessages) {
     const data = await response.json();
     let reply = '';
     
-    // Hugging Face يرجع array
-    if (Array.isArray(data) && data[0]?.generated_text) {
-        reply = data[0].generated_text;
+    // Hugging Face يرجع بصيغ مختلفة
+    if (Array.isArray(data)) {
+        if (data[0]?.generated_text) {
+            reply = data[0].generated_text;
+        } else if (data[0]?.summary_text) {
+            reply = data[0].summary_text;
+        } else {
+            reply = JSON.stringify(data[0]);
+        }
     } else if (data.generated_text) {
         reply = data.generated_text;
+    } else if (typeof data === 'string') {
+        reply = data;
     } else {
         reply = JSON.stringify(data);
     }
     
-    reply = reply.trim();
-    
     // تنظيف الرد
+    reply = reply.trim();
     reply = reply.replace(/\[.*?\]/g, '');
     reply = reply.replace(/\(.*?\)/g, '');
-    reply = reply.split('\n')[0]; // أخذ أول سطر فقط
+    
+    // أخذ أول جملة أو سطر فقط (لو الرد طويل)
+    const sentences = reply.split(/[.!؟.\n]/);
+    if (sentences.length > 0 && sentences[0].length > 10) {
+        reply = sentences[0].trim();
+    }
     
     // تصحيح اللهجة تلقائياً
     reply = reply.replace(/\bما أعرف\b/g, 'ما عارف');
@@ -317,6 +330,11 @@ async function callGroqAPI(userMessage, config, userId, recentMessages) {
     reply = reply.replace(/\bالآن\b/g, 'ساي');
     
     reply = reply.trim();
+    
+    // لو الرد فاضي أو قصير جداً
+    if (!reply || reply.length < 3) {
+        reply = "تمام";
+    }
     
     console.log(`✅ رد AI: ${reply}`);
     
