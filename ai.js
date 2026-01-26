@@ -1,392 +1,95 @@
-// ═══════════════════════════════════════════════════════════
-// 🧠 ملف الذكاء الاصطناعي - ai.js
-// ═══════════════════════════════════════════════════════════
+// 🧠 ملف الذكاء الاصطناعي المطور - شخصية مقداد
+const conversationMemory = new Map();
+const MAX_MEMORY_PER_USER = 5;
 
-// ═══════════════════════════════════════════════════════════
-// 💾 ذاكرة المحادثات (آخر 5 رسائل لكل محادثة)
-// ═══════════════════════════════════════════════════════════
-
-const conversationHistory = new Map();
-const MAX_HISTORY_PER_CHAT = 5;
-
-function addToHistory(chatId, userMsg, botReply) {
-    if (!conversationHistory.has(chatId)) {
-        conversationHistory.set(chatId, []);
-    }
-    
-    const history = conversationHistory.get(chatId);
-    history.push({ user: userMsg, bot: botReply });
-    
-    // احتفظ بآخر 5 رسائل فقط
-    if (history.length > MAX_HISTORY_PER_CHAT) {
-        history.shift();
-    }
+// --- إدارة الذاكرة ---
+function addToMemory(userId, userMsg, aiReply) {
+    if (!conversationMemory.has(userId)) conversationMemory.set(userId, []);
+    const memory = conversationMemory.get(userId);
+    memory.push({ user: userMsg, assistant: aiReply, time: Date.now() });
+    if (memory.length > MAX_MEMORY_PER_USER) memory.shift();
 }
 
-function getHistory(chatId) {
-    return conversationHistory.get(chatId) || [];
+function getMemory(userId) {
+    return conversationMemory.get(userId) || [];
 }
 
-// ═══════════════════════════════════════════════════════════
-// 🎯 قاعدة المعرفة
-// ═══════════════════════════════════════════════════════════
-
-const KNOWLEDGE_BASE = {
-    personal: {
-        name: "مقداد",
-        age: "22 سنة",
-        location: "السودان",
-        current_location: "مصر حالياً",
-        occupation: "مهندس برمجيات ونظم",
-        education: "طالب طب في السودان",
-        languages: ["العربية", "الإنجليزية"]
-    },
+// --- بناء الشخصية (The Core) ---
+function buildPersonalityPrompt() {
+    return `أنت مقداد. شخص حقيقي، سوداني (22 سنة)، مهندس برمجيات وطالب طب. اسي في مصر.
     
-    skills: {
-        operating_systems: ["Windows", "Linux", "macOS"],
-        software: ["تطوير البرمجيات", "حل مشاكل السوفت وير"],
-        programming: ["JavaScript", "Node.js", "Python", "PHP"],
-        design: ["تصميم واجهات", "تصميم أنظمة"],
-        hardware: ["خبرة في جميع أنواع الأجهزة"],
-        security: ["اختبار بيئات الاختراق", "اختبار الأمان"]
-    },
-    
-    projects: {
-        types: ["مشاريع إدارية", "مشاريع تجارية", "تسهيل المهام", "ابتكارات تقنية", "منصات تعليمية"],
-        description: "عدة مشاريع في مجالات مختلفة"
-    },
-    
-    style: {
-        tone: "محترف، متواضع، ودود، حازم",
-        dialect: "سوداني",
-        emoji_usage: "قليل جداً",
-        response_length: "مختصر وبارد",
-        greetings: ["أهلين", "مرحبا", "أهلا وسهلا", "وعليكم السلام"],
-        personality: "بارد ومختصر"
-    },
-    
-    // ⭐ ردود جاهزة باللهجة السودانية
-    quick_responses: {
-        greetings: {
-            "السلام عليكم": "وعليكم السلام",
-            "مرحبا": "أهلين",
-            "أهلا": "أهلا وسهلا",
-            "هاي": "أهلين"
-        },
-        
-        status: {
-            "ازيك": ["تمام", "كويس", "الحمد لله", "ماشي الحال"],
-            "كيفك": ["تمام", "كويس الحمد لله", "ماشي"],
-            "شخبارك": ["تمام والحمد لله", "ماشي الحال"],
-            "عامل ايه": ["تمام", "كويس الحمد لله"]
-        },
-        
-        location: {
-            "وينك": ["مع الشغل بس", "في مصر حالياً", "مشغول بالشغل"],
-            "وين مختفي": ["مع الشغل بس", "مشغول شوية"],
-            "فين": ["في مصر حالياً", "مشغول بالشغل"]
-        },
-        
-        identity: {
-            "منو معاي": "مقداد معاك",
-            "مين انت": "مقداد",
-            "انت منو": "أنا مقداد"
-        },
-        
-        compliments: {
-            "خطير": "شكراً",
-            "رائع": "شكراً",
-            "حلو": "شكراً",
-            "جميل": "شكراً",
-            "ممتاز": "شكراً"
-        },
-        
-        defensive: {
-            "مالك بتتكلم كدا": "مالي، بتكلم عادي",
-            "لي بتتكلم كدا": "في شنو؟ عادي",
-            "شنو مالك": "ما في حاجة، عادي"
-        }
-    }
-};
+# قواعد التعامل الأساسية:
+1. **من أنت:** إذا سألك "أنت منو؟" أو "منو معاي؟" رد بكلمة واحدة: "مقداد". لا تذكر أنك AI، ولا تذكر تفاصيل دراستك أو شغلك إلا لو سألك "بتقرا شنو؟" أو "شغال شنو؟".
+2. **الأسلوب:** بارد، مختصر جداً، ذكي. رد على قدر السؤال.
+3. **اللغة:** لهجة سودانية "نضيفة" وواقعية.
+4. **الردود التقنية:** لو السؤال برمجة أو طب، جاوب بذكاء واختصار مفيد. استخدم الإنجليزية للمصطلحات.
 
-// ═══════════════════════════════════════════════════════════
-// 🎭 بناء شخصية مقداد بالسوداني
-// ═══════════════════════════════════════════════════════════
+# قاموس اللهجة (إلزامي):
+- بدل "نعم/أجل" استخدم "أيوه" أو "أها".
+- بدل "ماذا" استخدم "شنو".
+- بدل "لماذا" استخدم "ليه".
+- بدل "أين" استخدم "وين".
+- بدل "كيف حالك" استخدم "اخبارك" أو "كيف تمام؟".
+- بدل "لا أعرف" استخدم "ما عارف" أو "الله أعلم".
+- بدل "الآن" استخدم "اسي".
+- ممنوع نهائياً كلمات: (أهلاً بك، كيف يمكنني مساعدتك، أنا نموذج ذكاء اصطناعي، يا هلا).
 
-function buildPersonalityPrompt(chatHistory = []) {
-    let historyContext = '';
-    
-    if (chatHistory.length > 0) {
-        historyContext = '\n# المحادثة السابقة:\n';
-        chatHistory.forEach((entry, i) => {
-            historyContext += `المستخدم: ${entry.user}\nأنت: ${entry.bot}\n`;
-        });
-        historyContext += '\n# تذكر المحادثة أعلاه واستخدمها في الرد إذا كان مناسباً.\n';
-    }
-    
-    return `أنت مقداد، ${KNOWLEDGE_BASE.personal.occupation} و${KNOWLEDGE_BASE.personal.education}.
-
-# معلومات شخصية:
-- ${KNOWLEDGE_BASE.personal.age}
-- من ${KNOWLEDGE_BASE.personal.location}، لكن ${KNOWLEDGE_BASE.personal.current_location}
-- ${KNOWLEDGE_BASE.style.tone}
-
-# مهاراتك:
-- أنظمة التشغيل: ${KNOWLEDGE_BASE.skills.operating_systems.join(', ')}
-- البرمجة: ${KNOWLEDGE_BASE.skills.programming.join(', ')}
-- التصميم: ${KNOWLEDGE_BASE.skills.design.join(', ')}
-- الأمان: ${KNOWLEDGE_BASE.skills.security.join(', ')}
-
-# أسلوب الرد - مهم جداً:
-- **استخدم اللهجة السودانية دائماً** (مثال: شنو، وين، ليه، كيفك، ما في، حاجة)
-- إذا لم تفهم شيء، قل "شنو؟" أو "ما فهمت، شنو قصدك؟"
-- كن مختصراً وبارداً
-- لا تبالغ في الترحيب
-- رد فقط على ما يُسأل
-
-# ردود محددة:
-- "السلام عليكم" → "وعليكم السلام"
-- "منو معاي" أو "مين انت" → "مقداد معاك"
-- "ازيك" أو "كيفك" → "تمام" أو "كويس" أو "الحمد لله" (لا تقل "ممتاز" أبداً)
-- "وينك" أو "وين مختفي" → "مع الشغل بس" أو "مشغول شوية"
-- "خطير" أو "رائع" أو "حلو" أو "جميل" → "شكراً" فقط
-- "مالك بتتكلم كدا" أو "ليه بتتكلم كدا" → "مالي، بتكلم عادي" أو "في شنو؟"
-
-# استخدام الإيموجي:
-- قليل جداً، فقط عند الضرورة
-
-# الذاكرة:
-- احتفظ بآخر 5 رسائل من المحادثة
-- إذا نسيت شيء قديم، قل "نسيت، شنو كان؟"
-- استخدم المحادثة السابقة للرد بشكل طبيعي
-
-# أمثلة باللهجة السودانية:
-- "شنو أخبارك؟" → "ماشي الحال، انت كيفك؟"
-- "وين كنت؟" → "مع الشغل بس"
-- "ممكن تساعدني؟" → "قول شنو تبي؟"
-- "ما فهمت" → "في شنو ما فهمتو؟"
-${historyContext}
-# تعليمات مهمة:
-1. **تكلم بالسوداني دائماً** (شنو، وين، ليه، كيفك، ما في حاجة)
-2. كن مختصراً وبارداً
-3. لا تذكر أنك AI أبداً
-4. موقعك الحالي: مصر (لو سُئلت)
-5. أصلك: السودان
-6. رد باللغة العربية/السودانية دائماً
-7. استخدم المحادثة السابقة في الرد
-8. إذا نسيت، قل "نسيت" بشكل طبيعي`;
+# أمثلة للرد السريع:
+- "السلام عليكم" -> "وعليكم السلام"
+- "أنت منو؟" -> "مقداد"
+- "بتعمل في شنو؟" -> "شغال"
+- "ممكن مساعدة؟" -> "قول، في شنو؟"
+- "تمام" -> "تسلم" أو "يديك العافية"`;
 }
 
-// ═══════════════════════════════════════════════════════════
-// 🔍 فحص الردود الجاهزة
-// ═══════════════════════════════════════════════════════════
-
-function checkQuickResponse(message) {
-    const msg = message.trim().toLowerCase();
-    
-    // تحيات
-    for (const [key, value] of Object.entries(KNOWLEDGE_BASE.quick_responses.greetings)) {
-        if (msg.includes(key.toLowerCase())) {
-            return value;
-        }
-    }
-    
-    // الحال
-    for (const [key, values] of Object.entries(KNOWLEDGE_BASE.quick_responses.status)) {
-        if (msg.includes(key.toLowerCase())) {
-            return values[Math.floor(Math.random() * values.length)];
-        }
-    }
-    
-    // الموقع
-    for (const [key, values] of Object.entries(KNOWLEDGE_BASE.quick_responses.location)) {
-        if (msg.includes(key.toLowerCase())) {
-            return values[Math.floor(Math.random() * values.length)];
-        }
-    }
-    
-    // الهوية
-    for (const [key, value] of Object.entries(KNOWLEDGE_BASE.quick_responses.identity)) {
-        if (msg.includes(key.toLowerCase())) {
-            return value;
-        }
-    }
-    
-    // مديح
-    for (const [key, value] of Object.entries(KNOWLEDGE_BASE.quick_responses.compliments)) {
-        if (msg.includes(key.toLowerCase())) {
-            return value;
-        }
-    }
-    
-    // دفاع
-    for (const [key, value] of Object.entries(KNOWLEDGE_BASE.quick_responses.defensive)) {
-        if (msg.includes(key.toLowerCase())) {
-            return value;
-        }
-    }
-    
-    return null;
-}
-
-// ═══════════════════════════════════════════════════════════
-// 🤖 دالة الذكاء الاصطناعي - Google Gemini (مجاني وذكي!)
-// ═══════════════════════════════════════════════════════════
-
-async function getAIResponse(userMessage, config, chatId = 'default', recentMessages = []) {
-    if (!config.enabled || !config.apiKey) {
-        return null;
-    }
+// --- الدالة الأساسية لاستدعاء API ---
+async function getAIResponse(userMessage, config, userId = 'default', recentMessages = []) {
+    if (!config.enabled || !config.apiKey) return null;
 
     try {
-        // ⭐ فحص الردود الجاهزة أولاً (توفير!)
-        const quickReply = checkQuickResponse(userMessage);
-        if (quickReply) {
-            console.log(`⚡ رد سريع (بدون AI): ${quickReply}`);
-            addToHistory(chatId, userMessage, quickReply);
-            return quickReply;
-        }
-        
-        // ⭐ فحص الرسائل البسيطة
-        const simplePatterns = [
-            /^(هلا|اهلا|مرحبا|هاي|hi|hello)$/i,
-            /^(شكرا|thanks|شكراً)$/i,
-            /^(ok|اوك|تمام|ماشي)$/i,
-            /^(😂|🤣|😭|❤️|👍)$/,
-            /^.{1,2}$/
+        const oldMemory = getMemory(userId);
+        const messages = [
+            { role: 'system', content: buildPersonalityPrompt() }
         ];
-        
-        for (const pattern of simplePatterns) {
-            if (pattern.test(userMessage.trim())) {
-                const simpleReplies = ['تمام', 'ماشي', 'أهلين', 'طيب'];
-                const reply = simpleReplies[Math.floor(Math.random() * simpleReplies.length)];
-                console.log(`⚡ رد بسيط (بدون AI): ${reply}`);
-                addToHistory(chatId, userMessage, reply);
-                return reply;
-            }
+
+        // إضافة السياق والذاكرة
+        if (oldMemory.length > 0) {
+            let memoryContext = "محادثاتنا الفاتت:\n";
+            oldMemory.forEach(m => memoryContext += `هو: ${m.user}\nأنت: ${m.assistant}\n`);
+            messages.push({ role: 'system', content: memoryContext });
         }
-        
-        console.log(`🤖 طلب Gemini AI: ${userMessage.substring(0, 30)}...`);
-        
-        // ⭐ جلب المحادثة السابقة
-        const history = getHistory(chatId);
-        
-        // ⭐ بناء المحادثة بصيغة Gemini
-        let conversationText = buildPersonalityPrompt(history);
-        conversationText += `\n\nالمستخدم: ${userMessage}\nمقداد:`;
-        
-        // ⭐ استدعاء Google Gemini API
-        const model = config.model || 'gemini-2.0-flash-exp'; // أحدث نموذج مجاني!
-        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${config.apiKey}`;
-        
-        const response = await fetch(apiUrl, {
+
+        messages.push({ role: 'user', content: userMessage });
+
+        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
             method: 'POST',
             headers: {
+                'Authorization': `Bearer ${config.apiKey}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                contents: [
-                    {
-                        parts: [
-                            {
-                                text: conversationText
-                            }
-                        ]
-                    }
-                ],
-                generationConfig: {
-                    temperature: config.temperature || 0.7,
-                    maxOutputTokens: config.maxTokens || 400,
-                    topP: 0.8,
-                    topK: 40
-                },
-                safetySettings: [
-                    {
-                        category: "HARM_CATEGORY_HARASSMENT",
-                        threshold: "BLOCK_NONE"
-                    },
-                    {
-                        category: "HARM_CATEGORY_HATE_SPEECH",
-                        threshold: "BLOCK_NONE"
-                    },
-                    {
-                        category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                        threshold: "BLOCK_NONE"
-                    },
-                    {
-                        category: "HARM_CATEGORY_DANGEROUS_CONTENT",
-                        threshold: "BLOCK_NONE"
-                    }
-                ]
+                model: config.model || "llama-3.3-70b-versatile",
+                messages: messages,
+                max_tokens: 150, // تقليل التوكنز لضمان الاختصار
+                temperature: 0.5 // درجة حرارة منخفضة ليكون الرد واقعي وغير مشتت
             })
         });
 
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            
-            // ⭐ معالجة Rate Limit
-            if (response.status === 429) {
-                console.log('⚠️ Rate limit - استخدام رد احتياطي');
-                const fallbackReplies = ['تمام، فهمتك', 'ماشي', 'طيب', 'أهلين'];
-                const reply = fallbackReplies[Math.floor(Math.random() * fallbackReplies.length)];
-                addToHistory(chatId, userMessage, reply);
-                return reply;
-            }
-            
-            throw new Error(`Gemini API error: ${response.status} - ${errorData.error?.message || 'Unknown'}`);
-        }
+        if (!response.ok) throw new Error(`API error: ${response.status}`);
 
         const data = await response.json();
-        
-        // ⭐ استخراج الرد من Gemini
-        let reply = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-        
-        if (!reply) {
-            throw new Error('No response from Gemini');
-        }
-        
-        // ⭐ تنظيف الرد
-        reply = reply.replace(/^مقداد:\s*/i, '').trim();
-        reply = reply.replace(/\*\*/g, ''); // إزالة التنسيق
-        
-        console.log(`✅ رد Gemini: ${reply.substring(0, 50)}...`);
-        
-        // ⭐ حفظ في الذاكرة
-        addToHistory(chatId, userMessage, reply);
-        
+        let reply = data.choices[0].message.content.trim();
+
+        // تنظيف الرد من أي مقدمات بوت (مثل: "بصفتي مقداد..")
+        reply = reply.replace(/بصفتي مقداد/g, '').replace(/أنا مقداد/g, 'مقداد').trim();
+
+        addToMemory(userId, userMessage, reply);
         return reply;
 
     } catch (error) {
-        console.error('❌ خطأ AI:', error.message);
-        
-        // ⭐ رد احتياطي
-        const fallbackReplies = ['تمام', 'فهمتك', 'ماشي', 'طيب'];
-        return fallbackReplies[Math.floor(Math.random() * fallbackReplies.length)];
+        console.error('❌ Error:', error.message);
+        return "في مشكلة في الشبكة، جرب تاني.";
     }
 }
 
-// ═══════════════════════════════════════════════════════════
-// 🧹 تنظيف الذاكرة القديمة (كل ساعة)
-// ═══════════════════════════════════════════════════════════
-
-setInterval(() => {
-    const now = Date.now();
-    const oneHour = 60 * 60 * 1000;
-    
-    for (const [chatId, history] of conversationHistory.entries()) {
-        if (history.length === 0) {
-            conversationHistory.delete(chatId);
-        }
-    }
-    
-    console.log(`🧹 تنظيف الذاكرة: ${conversationHistory.size} محادثة نشطة`);
-}, 60 * 60 * 1000);
-
-// ═══════════════════════════════════════════════════════════
-// 📤 تصدير
-// ═══════════════════════════════════════════════════════════
-
-module.exports = {
-    getAIResponse,
-    KNOWLEDGE_BASE
-};
+module.exports = { getAIResponse };
