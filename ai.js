@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════
-// 🧠 ملف الذكاء الاصطناعي - ai.js (مع Hugging Face)
+// 🧠 ملف الذكاء الاصطناعي - ai.js (مع Hugging Face - محدث)
 // ═══════════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════════
@@ -192,7 +192,7 @@ function buildPersonalityPrompt() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🤖 دالة الذكاء الاصطناعي - مع Hugging Face
+// 🤖 دالة الذكاء الاصطناعي - مع Hugging Face الجديد
 // ═══════════════════════════════════════════════════════════
 
 async function getAIResponse(userMessage, config, userId = 'default', recentMessages = []) {
@@ -210,7 +210,7 @@ async function getAIResponse(userMessage, config, userId = 'default', recentMess
                 return await callHuggingFaceAPI(userMessage, config, userId, recentMessages);
             } catch (error) {
                 lastError = error;
-                if (error.message.includes('429') || error.message.includes('503')) {
+                if (error.message.includes('429') || error.message.includes('503') || error.message.includes('loading')) {
                     console.log(`⚠️ Rate limit/Loading - محاولة ${attempt}/3 بعد ${attempt * 3}ث...`);
                     await new Promise(resolve => setTimeout(resolve, attempt * 3000));
                 } else {
@@ -230,58 +230,62 @@ async function callHuggingFaceAPI(userMessage, config, userId, recentMessages) {
     // جلب الذاكرة القديمة
     const oldMemory = getMemory(userId);
     
-    // بناء prompt كامل
-    let fullPrompt = buildPersonalityPrompt();
+    // بناء الرسائل بصيغة chat
+    const messages = [];
+    
+    // إضافة system prompt
+    messages.push({
+        role: "system",
+        content: buildPersonalityPrompt()
+    });
     
     // إضافة الذاكرة القديمة
     if (oldMemory.length > 0) {
-        fullPrompt += '\n\n# محادثات سابقة:\n';
-        oldMemory.forEach((m, i) => {
-            fullPrompt += `${i + 1}. المستخدم: ${m.user}\n   مقداد: ${m.assistant}\n`;
+        oldMemory.forEach(m => {
+            messages.push({
+                role: "user",
+                content: m.user
+            });
+            messages.push({
+                role: "assistant",
+                content: m.assistant
+            });
         });
     }
     
-    // إضافة الرسائل الأخيرة
-    if (recentMessages.length > 0) {
-        fullPrompt += '\n\n# سياق المحادثة الأخيرة:\n';
-        recentMessages.slice(-5).forEach((m, i) => {
-            fullPrompt += `${i + 1}. ${m}\n`;
-        });
-    }
+    // إضافة الرسالة الحالية
+    messages.push({
+        role: "user",
+        content: userMessage
+    });
     
-    // الرسالة الحالية
-    fullPrompt += `\n\n### المحادثة الآن:\nالمستخدم: ${userMessage}\nمقداد:`;
+    // ⭐ استخدام Hugging Face Router الجديد
+    // نماذج chat مجانية ومتاحة
+    const modelToUse = config.model || 'mistralai/Mistral-7B-Instruct-v0.2';
     
-    // ⭐ نماذج مجانية ومضمونة (جرب واحد واحد)
-    const models = [
-        'google/flan-t5-large',           // نموذج Google - سريع وموثوق
-        'EleutherAI/gpt-neo-2.7B',        // نموذج قوي للنصوص
-        'facebook/opt-1.3b',              // نموذج Meta
-        'bigscience/bloom-560m'           // نموذج للغات متعددة
-    ];
-    
-    // استخدم أول نموذج متاح
-    const modelToUse = config.model || models[0];
-    
-    // استدعاء Hugging Face API
-    const response = await fetch(`https://router.huggingface.co/models/${modelToUse}`, {
+    const response = await fetch('https://api-inference.huggingface.co/models/' + modelToUse, {
         method: 'POST',
         headers: {
             'Authorization': `Bearer ${config.apiKey}`,
             'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-            inputs: fullPrompt,
+            inputs: messages.map(m => {
+                if (m.role === 'system') return m.content;
+                if (m.role === 'user') return `المستخدم: ${m.content}`;
+                return `مقداد: ${m.content}`;
+            }).join('\n\n') + '\n\nمقداد:',
             parameters: {
-                max_new_tokens: Math.min(config.maxTokens || 200, 500),
+                max_new_tokens: Math.min(config.maxTokens || 150, 300),
                 temperature: config.temperature || 0.7,
                 top_p: 0.9,
                 do_sample: true,
-                return_full_text: false
+                return_full_text: false,
+                stop: ['\nالمستخدم:', '\n\n']
             },
             options: {
                 use_cache: false,
-                wait_for_model: true  // ⭐ مهم: انتظر النموذج لو كان بيحمل
+                wait_for_model: true
             }
         })
     });
@@ -294,12 +298,10 @@ async function callHuggingFaceAPI(userMessage, config, userId, recentMessages) {
     const data = await response.json();
     let reply = '';
     
-    // Hugging Face يرجع بصيغ مختلفة
+    // معالجة الرد
     if (Array.isArray(data)) {
         if (data[0]?.generated_text) {
             reply = data[0].generated_text;
-        } else if (data[0]?.summary_text) {
-            reply = data[0].summary_text;
         } else {
             reply = JSON.stringify(data[0]);
         }
@@ -315,11 +317,13 @@ async function callHuggingFaceAPI(userMessage, config, userId, recentMessages) {
     reply = reply.trim();
     reply = reply.replace(/\[.*?\]/g, '');
     reply = reply.replace(/\(.*?\)/g, '');
+    reply = reply.replace(/^مقداد:\s*/i, '');
+    reply = reply.replace(/^المستخدم:.*$/gm, '');
     
-    // أخذ أول جملة أو سطر فقط (لو الرد طويل)
-    const sentences = reply.split(/[.!؟.\n]/);
-    if (sentences.length > 0 && sentences[0].length > 10) {
-        reply = sentences[0].trim();
+    // أخذ أول جملة فقط
+    const firstLine = reply.split('\n')[0].trim();
+    if (firstLine.length > 10) {
+        reply = firstLine;
     }
     
     // تصحيح اللهجة تلقائياً
@@ -331,8 +335,8 @@ async function callHuggingFaceAPI(userMessage, config, userId, recentMessages) {
     
     reply = reply.trim();
     
-    // لو الرد فاضي أو قصير جداً
-    if (!reply || reply.length < 3) {
+    // لو الرد فاضي
+    if (!reply || reply.length < 2) {
         reply = "تمام";
     }
     
