@@ -264,7 +264,7 @@ async function callHuggingFaceAPI(userMessage, config, userId, recentMessages) {
     const modelToUse = config.model || models[0];
     
     // استدعاء Hugging Face API
-    const response = await fetch(`https://api-inference.huggingface.co/models/${modelToUse}`, {
+    const response = await fetch(`https://router.huggingface.co/models/${modelToUse}`, {
         method: 'POST',
         headers: {
             'Authorization': `Bearer ${config.apiKey}`,
