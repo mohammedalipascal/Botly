@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════
-// 🧠 ملف الذكاء الاصطناعي - ai.js (مع OpenRouter - FIXED)
+// 🧠 ملف الذكاء الاصطناعي - ai.js (مع GitHub Models - مجاني 100%)
 // ═══════════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════════
@@ -192,7 +192,7 @@ function buildPersonalityPrompt() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🤖 دالة الذكاء الاصطناعي - مع OpenRouter (FIXED)
+// 🤖 دالة الذكاء الاصطناعي - مع GitHub Models (مجاني 100%)
 // ═══════════════════════════════════════════════════════════
 
 async function getAIResponse(userMessage, config, userId = 'default', recentMessages = []) {
@@ -207,7 +207,7 @@ async function getAIResponse(userMessage, config, userId = 'default', recentMess
         let lastError = null;
         for (let attempt = 1; attempt <= 3; attempt++) {
             try {
-                return await callOpenRouterAPI(userMessage, config, userId, recentMessages);
+                return await callGitHubModelsAPI(userMessage, config, userId, recentMessages);
             } catch (error) {
                 lastError = error;
                 if (error.message.includes('429') || error.message.includes('503')) {
@@ -226,7 +226,7 @@ async function getAIResponse(userMessage, config, userId = 'default', recentMess
     }
 }
 
-async function callOpenRouterAPI(userMessage, config, userId, recentMessages) {
+async function callGitHubModelsAPI(userMessage, config, userId, recentMessages) {
     // جلب الذاكرة القديمة
     const oldMemory = getMemory(userId);
     
@@ -258,27 +258,27 @@ async function callOpenRouterAPI(userMessage, config, userId, recentMessages) {
         content: userMessage
     });
     
-    // ⭐ نماذج مجانية متاحة فعلياً (يناير 2026)
-    // هذي النماذج شغالة ومضمونة
+    // ⭐ نماذج GitHub Models المجانية (متاحة 100%)
+    // راجع: https://github.com/marketplace?type=models
     const freeModels = [
-        'deepseek/deepseek-chat-v3-0324:free',        // الأفضل - قوي وسريع
-        'meta-llama/llama-3.3-70b-instruct:free',     // Llama 3.3 - ممتاز
-        'google/gemini-2.0-flash-exp:free',           // Gemini - سريع
-        'deepseek/deepseek-r1:free',                  // DeepSeek R1 - للتفكير
-        'meta-llama/llama-4-maverick:free',           // Llama 4 - جديد
-        'nvidia/llama-3.1-nemotron-ultra-253b-v1:free' // NVIDIA - قوي جداً
+        'openai/gpt-4o-mini',              // ✅ الأفضل - سريع وذكي
+        'meta-llama/llama-3.3-70b-instruct', // ✅ قوي جداً
+        'deepseek/deepseek-r1',             // ✅ للتفكير العميق
+        'meta-llama/llama-4-maverick',      // ✅ جديد
+        'mistralai/mistral-large-2411',     // ✅ ممتاز
+        'qwen/qwen-2.5-72b-instruct'        // ✅ قوي للعربية
     ];
     
     const modelToUse = config.model || freeModels[0];
     
-    // استدعاء OpenRouter API
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    // استدعاء GitHub Models API
+    const response = await fetch('https://models.github.ai/inference/chat/completions', {
         method: 'POST',
         headers: {
-            'Authorization': `Bearer ${config.apiKey}`,
+            'Authorization': `Bearer ${config.apiKey}`,  // GitHub Personal Access Token
             'Content-Type': 'application/json',
-            'HTTP-Referer': 'https://miqdad-bot.com',
-            'X-Title': 'Miqdad Bot'
+            'Accept': 'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2022-11-28'
         },
         body: JSON.stringify({
             model: modelToUse,
@@ -290,7 +290,7 @@ async function callOpenRouterAPI(userMessage, config, userId, recentMessages) {
 
     if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`OpenRouter API error: ${response.status} - ${errorText}`);
+        throw new Error(`GitHub Models API error: ${response.status} - ${errorText}`);
     }
 
     const data = await response.json();
