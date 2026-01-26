@@ -263,7 +263,7 @@ async function callOpenRouterAPI(userMessage, config, userId, recentMessages) {
         'meta-llama/llama-3.2-3b-instruct:free',      // Llama 3.2 - سريع ومجاني
         'google/gemma-2-9b-it:free',                  // Gemma 2 - من Google
         'microsoft/phi-3-mini-128k-instruct:free',    // Phi-3 - من Microsoft
-        'qwen/qwen-2-7b-instruct:free'               // Qwen - قوي للعربية
+        'deepseek/deepseek-r1:free'               // Qwen - قوي للعربية
     ];
     
     const modelToUse = config.model || freeModels[0];
