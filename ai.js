@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════
-// 🧠 ملف الذكاء الاصطناعي - ai.js (مع Hugging Face - محدث)
+// 🧠 ملف الذكاء الاصطناعي - ai.js (مع OpenRouter - مجاني 100%)
 // ═══════════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════════
@@ -192,7 +192,7 @@ function buildPersonalityPrompt() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🤖 دالة الذكاء الاصطناعي - مع Hugging Face الجديد
+// 🤖 دالة الذكاء الاصطناعي - مع OpenRouter (مجاني 100%)
 // ═══════════════════════════════════════════════════════════
 
 async function getAIResponse(userMessage, config, userId = 'default', recentMessages = []) {
@@ -207,12 +207,12 @@ async function getAIResponse(userMessage, config, userId = 'default', recentMess
         let lastError = null;
         for (let attempt = 1; attempt <= 3; attempt++) {
             try {
-                return await callHuggingFaceAPI(userMessage, config, userId, recentMessages);
+                return await callOpenRouterAPI(userMessage, config, userId, recentMessages);
             } catch (error) {
                 lastError = error;
-                if (error.message.includes('429') || error.message.includes('503') || error.message.includes('loading')) {
-                    console.log(`⚠️ Rate limit/Loading - محاولة ${attempt}/3 بعد ${attempt * 3}ث...`);
-                    await new Promise(resolve => setTimeout(resolve, attempt * 3000));
+                if (error.message.includes('429') || error.message.includes('503')) {
+                    console.log(`⚠️ Rate limit - محاولة ${attempt}/3 بعد ${attempt * 2}ث...`);
+                    await new Promise(resolve => setTimeout(resolve, attempt * 2000));
                 } else {
                     throw error;
                 }
@@ -226,28 +226,27 @@ async function getAIResponse(userMessage, config, userId = 'default', recentMess
     }
 }
 
-async function callHuggingFaceAPI(userMessage, config, userId, recentMessages) {
+async function callOpenRouterAPI(userMessage, config, userId, recentMessages) {
     // جلب الذاكرة القديمة
     const oldMemory = getMemory(userId);
     
-    // بناء الرسائل بصيغة chat
-    const messages = [];
-    
-    // إضافة system prompt
-    messages.push({
-        role: "system",
-        content: buildPersonalityPrompt()
-    });
+    // بناء الرسائل بصيغة OpenAI
+    const messages = [
+        {
+            role: 'system',
+            content: buildPersonalityPrompt()
+        }
+    ];
     
     // إضافة الذاكرة القديمة
     if (oldMemory.length > 0) {
         oldMemory.forEach(m => {
             messages.push({
-                role: "user",
+                role: 'user',
                 content: m.user
             });
             messages.push({
-                role: "assistant",
+                role: 'assistant',
                 content: m.assistant
             });
         });
@@ -255,76 +254,48 @@ async function callHuggingFaceAPI(userMessage, config, userId, recentMessages) {
     
     // إضافة الرسالة الحالية
     messages.push({
-        role: "user",
+        role: 'user',
         content: userMessage
     });
     
-    // ⭐ استخدام Hugging Face Router الجديد
-    // نماذج chat مجانية ومتاحة
-    const modelToUse = config.model || 'mistralai/Mistral-7B-Instruct-v0.2';
+    // ⭐ نماذج مجانية على OpenRouter (مضمونة 100%)
+    const freeModels = [
+        'meta-llama/llama-3.2-3b-instruct:free',      // Llama 3.2 - سريع ومجاني
+        'google/gemma-2-9b-it:free',                  // Gemma 2 - من Google
+        'microsoft/phi-3-mini-128k-instruct:free',    // Phi-3 - من Microsoft
+        'qwen/qwen-2-7b-instruct:free'               // Qwen - قوي للعربية
+    ];
     
-    const response = await fetch('https://api-inference.huggingface.co/models/' + modelToUse, {
+    const modelToUse = config.model || freeModels[0];
+    
+    // استدعاء OpenRouter API
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: {
             'Authorization': `Bearer ${config.apiKey}`,
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'HTTP-Referer': 'https://your-app.com',  // اختياري
+            'X-Title': 'Miqdad Bot'  // اختياري
         },
         body: JSON.stringify({
-            inputs: messages.map(m => {
-                if (m.role === 'system') return m.content;
-                if (m.role === 'user') return `المستخدم: ${m.content}`;
-                return `مقداد: ${m.content}`;
-            }).join('\n\n') + '\n\nمقداد:',
-            parameters: {
-                max_new_tokens: Math.min(config.maxTokens || 150, 300),
-                temperature: config.temperature || 0.7,
-                top_p: 0.9,
-                do_sample: true,
-                return_full_text: false,
-                stop: ['\nالمستخدم:', '\n\n']
-            },
-            options: {
-                use_cache: false,
-                wait_for_model: true
-            }
+            model: modelToUse,
+            messages: messages,
+            max_tokens: config.maxTokens || 200,
+            temperature: config.temperature || 0.7
         })
     });
 
     if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`Hugging Face API error: ${response.status} - ${errorText}`);
+        throw new Error(`OpenRouter API error: ${response.status} - ${errorText}`);
     }
 
     const data = await response.json();
-    let reply = '';
-    
-    // معالجة الرد
-    if (Array.isArray(data)) {
-        if (data[0]?.generated_text) {
-            reply = data[0].generated_text;
-        } else {
-            reply = JSON.stringify(data[0]);
-        }
-    } else if (data.generated_text) {
-        reply = data.generated_text;
-    } else if (typeof data === 'string') {
-        reply = data;
-    } else {
-        reply = JSON.stringify(data);
-    }
+    let reply = data.choices[0].message.content.trim();
     
     // تنظيف الرد
-    reply = reply.trim();
     reply = reply.replace(/\[.*?\]/g, '');
     reply = reply.replace(/\(.*?\)/g, '');
-    reply = reply.replace(/^مقداد:\s*/i, '');
-    reply = reply.replace(/^المستخدم:.*$/gm, '');
-    
-    // أخذ أول جملة فقط
-    const firstLine = reply.split('\n')[0].trim();
-    if (firstLine.length > 10) {
-        reply = firstLine;
-    }
     
     // تصحيح اللهجة تلقائياً
     reply = reply.replace(/\bما أعرف\b/g, 'ما عارف');
@@ -334,11 +305,6 @@ async function callHuggingFaceAPI(userMessage, config, userId, recentMessages) {
     reply = reply.replace(/\bالآن\b/g, 'ساي');
     
     reply = reply.trim();
-    
-    // لو الرد فاضي
-    if (!reply || reply.length < 2) {
-        reply = "تمام";
-    }
     
     console.log(`✅ رد AI: ${reply}`);
     
