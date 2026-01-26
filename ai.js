@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════
-// 🧠 ملف الذكاء الاصطناعي - ai.js (مع OpenRouter - مجاني 100%)
+// 🧠 ملف الذكاء الاصطناعي - ai.js (مع OpenRouter - FIXED)
 // ═══════════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════════
@@ -192,7 +192,7 @@ function buildPersonalityPrompt() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🤖 دالة الذكاء الاصطناعي - مع OpenRouter (مجاني 100%)
+// 🤖 دالة الذكاء الاصطناعي - مع OpenRouter (FIXED)
 // ═══════════════════════════════════════════════════════════
 
 async function getAIResponse(userMessage, config, userId = 'default', recentMessages = []) {
@@ -258,12 +258,15 @@ async function callOpenRouterAPI(userMessage, config, userId, recentMessages) {
         content: userMessage
     });
     
-    // ⭐ نماذج مجانية على OpenRouter (مضمونة 100%)
+    // ⭐ نماذج مجانية متاحة فعلياً (يناير 2026)
+    // هذي النماذج شغالة ومضمونة
     const freeModels = [
-        'meta-llama/llama-3.2-3b-instruct:free',      // Llama 3.2 - سريع ومجاني
-        'google/gemma-2-9b-it:free',                  // Gemma 2 - من Google
-        'microsoft/phi-3-mini-128k-instruct:free',    // Phi-3 - من Microsoft
-        'deepseek/deepseek-r1:free'               // Qwen - قوي للعربية
+        'deepseek/deepseek-chat-v3-0324:free',        // الأفضل - قوي وسريع
+        'meta-llama/llama-3.3-70b-instruct:free',     // Llama 3.3 - ممتاز
+        'google/gemini-2.0-flash-exp:free',           // Gemini - سريع
+        'deepseek/deepseek-r1:free',                  // DeepSeek R1 - للتفكير
+        'meta-llama/llama-4-maverick:free',           // Llama 4 - جديد
+        'nvidia/llama-3.1-nemotron-ultra-253b-v1:free' // NVIDIA - قوي جداً
     ];
     
     const modelToUse = config.model || freeModels[0];
@@ -274,8 +277,8 @@ async function callOpenRouterAPI(userMessage, config, userId, recentMessages) {
         headers: {
             'Authorization': `Bearer ${config.apiKey}`,
             'Content-Type': 'application/json',
-            'HTTP-Referer': 'https://your-app.com',  // اختياري
-            'X-Title': 'Miqdad Bot'  // اختياري
+            'HTTP-Referer': 'https://miqdad-bot.com',
+            'X-Title': 'Miqdad Bot'
         },
         body: JSON.stringify({
             model: modelToUse,
