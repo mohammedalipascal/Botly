@@ -383,6 +383,12 @@ async function callGitHubModelsAPI(userMessage, config, userId, recentMessages) 
     const data = await response.json();
     let reply = data.choices[0].message.content.trim();
     
+    // حذف تفكير النموذج (<think>...</think> أو أي tags تانية)
+    reply = reply.replace(/<think>[\s\S]*?<\/think>/gi, '');
+    reply = reply.replace(/<thinking>[\s\S]*?<\/thinking>/gi, '');
+    reply = reply.replace(/\*\*Thought:\*\*[\s\S]*?(?=\n\n|\n[A-Z]|$)/gi, '');
+    reply = reply.replace(/\*\*Think:\*\*[\s\S]*?(?=\n\n|\n[A-Z]|$)/gi, '');
+    
     // تنظيف الرد
     reply = reply.replace(/\[.*?\]/g, '');
     reply = reply.replace(/\(.*?\)/g, '');
