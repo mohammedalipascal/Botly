@@ -35,8 +35,10 @@ const CONFIG = {
     blockedContacts: process.env.BLOCKED_CONTACTS ? process.env.BLOCKED_CONTACTS.split(',').map(c => c.trim()) : []
 };
 
+// ⭐ حالة الـ AI (منفصلة عن الـ CONFIG لتبقى بعد إعادة الاتصال)
+let AI_ENABLED = process.env.AI_ENABLED === 'true';
+
 const AI_CONFIG = {
-    enabled: process.env.AI_ENABLED === 'true',
     apiKey: process.env.AI_API_KEY || '',
     model: process.env.AI_MODEL || 'llama-3.3-70b-versatile',
     maxTokens: parseInt(process.env.AI_MAX_TOKENS) || 500,
@@ -47,7 +49,7 @@ console.log('\n⚙️ ═══════ إعدادات البوت ═══�
 console.log(`📱 اسم البوت: ${CONFIG.botName}`);
 console.log(`👤 المالك: ${CONFIG.botOwner}`);
 console.log(`👥 الرد في المجموعات: ${CONFIG.replyInGroups ? '✅' : '❌'}`);
-console.log(`🤖 AI: ${AI_CONFIG.enabled ? '✅ مفعّل' : '❌ معطّل'}`);
+console.log(`🤖 AI: ${AI_ENABLED ? '✅ مفعّل' : '❌ معطّل'}`);
 console.log(`📁 ملف الجلسة: ${CONFIG.sessionFile}`);
 console.log('═══════════════════════════════════\n');
 
@@ -262,7 +264,7 @@ async function startBot() {
                 console.log(`   متصل بواتساب بنجاح! 🎉`);
                 console.log(`   البوت: ${CONFIG.botName}`);
                 console.log(`   الرقم: ${sock.user?.id?.split(':')[0] || '---'}`);
-                console.log(`   AI: ${AI_CONFIG.enabled ? '✅' : '❌'}`);
+                console.log(`   AI: ${AI_ENABLED ? '✅' : '❌'}`);
                 console.log('════════════════════════════════════\n');
                 
                 reconnectAttempts = 0;
@@ -315,13 +317,13 @@ async function startBot() {
                     console.log('='.repeat(50));
                     
                     if (messageText.trim() === '/تشغيل') {
-                        AI_CONFIG.enabled = true;
+                        AI_ENABLED = true;
                         console.log('✅ AI تم تشغيله بواسطة الأدمن\n');
                         return;
                     }
                     
                     if (messageText.trim() === '/توقف') {
-                        AI_CONFIG.enabled = false;
+                        AI_ENABLED = false;
                         console.log('⏸️ AI تم إيقافه بواسطة الأدمن\n');
                         return;
                     }
@@ -388,8 +390,8 @@ async function startBot() {
                 const recentMessages = getUserMemory(sender);
 
                 try {
-                    if (AI_CONFIG.enabled) {
-                        const aiResponse = await getAIResponse(messageText, AI_CONFIG, sender, recentMessages);
+                    if (AI_ENABLED) {
+                        const aiResponse = await getAIResponse(messageText, {...AI_CONFIG, enabled: true}, sender, recentMessages);
                         
                         if (aiResponse) {
                             await sock.sendMessage(sender, { text: aiResponse }, { quoted: msg });
