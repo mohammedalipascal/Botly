@@ -160,8 +160,13 @@ function cleanProcessedMessages() {
 }
 
 // ⭐ دالة للتحقق من صلاحيات الأدمن
-function isAdmin(senderId) {
-    return senderId === CONFIG.adminNumber;
+function isAdmin(msg) {
+    // استخراج الرقم من participant أو من remoteJid
+    const participant = msg.key.participant || msg.key.remoteJid;
+    const adminPhone = '249962204268';
+    
+    // التحقق من أن الرسالة من رقم الأدمن
+    return participant && participant.includes(adminPhone);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -335,21 +340,15 @@ async function startBot() {
                 cleanProcessedMessages();
 
                 // ⭐ معالجة أوامر الأدمن
-                if (isAdmin(sender)) {
+                if (isAdmin(msg)) {
                     if (messageText.trim() === '/تشغيل') {
                         AI_CONFIG.enabled = true;
-                        await sock.sendMessage(sender, { 
-                            text: '✅ تم تشغيل الـ AI بنجاح!' 
-                        }, { quoted: msg });
                         console.log('✅ AI تم تشغيله بواسطة الأدمن\n');
                         return;
                     }
                     
                     if (messageText.trim() === '/توقف') {
                         AI_CONFIG.enabled = false;
-                        await sock.sendMessage(sender, { 
-                            text: '⏸️ تم إيقاف الـ AI بنجاح!' 
-                        }, { quoted: msg });
                         console.log('⏸️ AI تم إيقافه بواسطة الأدمن\n');
                         return;
                     }
