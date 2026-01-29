@@ -35,8 +35,36 @@ const CONFIG = {
     blockedContacts: process.env.BLOCKED_CONTACTS ? process.env.BLOCKED_CONTACTS.split(',').map(c => c.trim()) : []
 };
 
-// ⭐ حالة الـ AI (منفصلة عن الـ CONFIG لتبقى بعد إعادة الاتصال)
-let AI_ENABLED = process.env.AI_ENABLED === 'true';
+// ═══════════════════════════════════════════════════════════
+// 💾 حفظ حالة الـ AI في ملف (حل جذري نهائي)
+// ═══════════════════════════════════════════════════════════
+
+const AI_STATE_FILE = path.join(__dirname, 'ai_state.json');
+
+function loadAIState() {
+    try {
+        if (fs.existsSync(AI_STATE_FILE)) {
+            const data = fs.readFileSync(AI_STATE_FILE, 'utf-8');
+            const state = JSON.parse(data);
+            return state.enabled || false;
+        }
+    } catch (error) {
+        console.log('⚠️ خطأ في قراءة حالة AI، استخدام القيمة الافتراضية');
+    }
+    // لو الملف مو موجود، القيمة الافتراضية: false (متوقف)
+    return false;
+}
+
+function saveAIState(enabled) {
+    try {
+        fs.writeFileSync(AI_STATE_FILE, JSON.stringify({ enabled }), 'utf-8');
+    } catch (error) {
+        console.error('❌ خطأ في حفظ حالة AI:', error.message);
+    }
+}
+
+// ⭐ تحميل حالة الـ AI من الملف (تبقى حتى بعد restart)
+let AI_ENABLED = loadAIState();
 
 const AI_CONFIG = {
     apiKey: process.env.AI_API_KEY || '',
@@ -318,12 +346,14 @@ async function startBot() {
                     
                     if (messageText.trim() === '/تشغيل') {
                         AI_ENABLED = true;
+                        saveAIState(true); // ⭐ حفظ الحالة في الملف
                         console.log('✅ AI تم تشغيله بواسطة الأدمن\n');
                         return;
                     }
                     
                     if (messageText.trim() === '/توقف') {
                         AI_ENABLED = false;
+                        saveAIState(false); // ⭐ حفظ الحالة في الملف
                         console.log('⏸️ AI تم إيقافه بواسطة الأدمن\n');
                         return;
                     }
