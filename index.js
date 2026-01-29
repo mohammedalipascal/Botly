@@ -347,6 +347,10 @@ async function startBot() {
                     if (messageText.trim() === '/تشغيل') {
                         AI_ENABLED = true;
                         saveAIState(true); // ⭐ حفظ الحالة في الملف
+                        // ⭐ تفاعل بعلامة ✅
+                        await sock.sendMessage(sender, {
+                            react: { text: '✅', key: msg.key }
+                        });
                         console.log('✅ AI تم تشغيله بواسطة الأدمن\n');
                         return;
                     }
@@ -354,6 +358,10 @@ async function startBot() {
                     if (messageText.trim() === '/توقف') {
                         AI_ENABLED = false;
                         saveAIState(false); // ⭐ حفظ الحالة في الملف
+                        // ⭐ تفاعل بعلامة 🛑
+                        await sock.sendMessage(sender, {
+                            react: { text: '🛑', key: msg.key }
+                        });
                         console.log('⏸️ AI تم إيقافه بواسطة الأدمن\n');
                         return;
                     }
