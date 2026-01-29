@@ -27,7 +27,8 @@ const CONFIG = {
     ownerNumber: process.env.OWNER_NUMBER ? process.env.OWNER_NUMBER + '@s.whatsapp.net' : null,
     showIgnoredMessages: process.env.SHOW_IGNORED_MESSAGES === 'true',
     logLevel: process.env.LOG_LEVEL || 'silent',
-    sessionFile: process.env.SESSION_FILE || 'session.json'
+    sessionFile: process.env.SESSION_FILE || 'session.json',
+    adminNumber: '249962204268@s.whatsapp.net' // ⭐ رقم الأدمن
 };
 
 const AI_CONFIG = {
@@ -156,6 +157,11 @@ function cleanProcessedMessages() {
             processedMessages.delete(iterator.next().value);
         }
     }
+}
+
+// ⭐ دالة للتحقق من صلاحيات الأدمن
+function isAdmin(senderId) {
+    return senderId === CONFIG.adminNumber;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -327,6 +333,27 @@ async function startBot() {
 
                 processedMessages.add(messageId);
                 cleanProcessedMessages();
+
+                // ⭐ معالجة أوامر الأدمن
+                if (isAdmin(sender)) {
+                    if (messageText.trim() === '/تشغيل') {
+                        AI_CONFIG.enabled = true;
+                        await sock.sendMessage(sender, { 
+                            text: '✅ تم تشغيل الـ AI بنجاح!' 
+                        }, { quoted: msg });
+                        console.log('✅ AI تم تشغيله بواسطة الأدمن\n');
+                        return;
+                    }
+                    
+                    if (messageText.trim() === '/توقف') {
+                        AI_CONFIG.enabled = false;
+                        await sock.sendMessage(sender, { 
+                            text: '⏸️ تم إيقاف الـ AI بنجاح!' 
+                        }, { quoted: msg });
+                        console.log('⏸️ AI تم إيقافه بواسطة الأدمن\n');
+                        return;
+                    }
+                }
 
                 // ⭐ حفظ الرسالة في الذاكرة المؤقتة
                 addToUserMemory(sender, messageText);
