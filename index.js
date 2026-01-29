@@ -358,17 +358,14 @@ async function startBot() {
                 const recentMessages = getUserMemory(sender);
 
                 try {
-                    let replyText;
-                    
                     if (AI_CONFIG.enabled) {
                         const aiResponse = await getAIResponse(messageText, AI_CONFIG, sender, recentMessages);
-                        replyText = aiResponse || `أهلين`;
-                    } else {
-                        replyText = `أهلين`;
+                        
+                        if (aiResponse) {
+                            await sock.sendMessage(sender, { text: aiResponse }, { quoted: msg });
+                            console.log('✅ تم الرد\n');
+                        }
                     }
-
-                    await sock.sendMessage(sender, { text: replyText }, { quoted: msg });
-                    console.log('✅ تم الرد\n');
                     
                 } catch (error) {
                     console.error('❌ خطأ في الرد:', error.message);
