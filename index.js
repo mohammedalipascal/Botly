@@ -28,7 +28,7 @@ const CONFIG = {
     showIgnoredMessages: process.env.SHOW_IGNORED_MESSAGES === 'true',
     logLevel: process.env.LOG_LEVEL || 'silent',
     sessionFile: process.env.SESSION_FILE || 'session.json',
-    adminNumber: '249962204268@s.whatsapp.net' // ⭐ رقم الأدمن
+    adminNumber: '201055855030@s.whatsapp.net' // ⭐ رقم الأدمن
 };
 
 const AI_CONFIG = {
