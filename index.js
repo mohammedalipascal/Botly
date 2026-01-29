@@ -159,24 +159,6 @@ function cleanProcessedMessages() {
     }
 }
 
-// ⭐ دالة للتحقق من صلاحيات الأدمن
-function isAdmin(msg) {
-    const adminPhone = '249962204268';
-    const adminLid = '252355702448348'; // ⭐ الـ LID الخاص بك
-    
-    // التحقق من participant للرسائل في المجموعات أو الرسائل لنفسك
-    if (msg.key.participant) {
-        return msg.key.participant.includes(adminPhone) || msg.key.participant.includes(adminLid);
-    }
-    
-    // التحقق من remoteJid للرسائل الشخصية
-    if (msg.key.remoteJid) {
-        return msg.key.remoteJid.includes(adminPhone) || msg.key.remoteJid.includes(adminLid);
-    }
-    
-    return false;
-}
-
 // ═══════════════════════════════════════════════════════════
 // 🤖 بدء البوت
 // ═══════════════════════════════════════════════════════════
@@ -308,11 +290,41 @@ async function startBot() {
                 if (type !== 'notify') return;
                 
                 const msg = messages[0];
-                if (!msg || !msg.message || msg.key.fromMe) return;
+                if (!msg || !msg.message) return;
                 
                 const sender = msg.key.remoteJid;
                 const messageId = msg.key.id;
                 const isGroup = sender.endsWith('@g.us');
+                
+                // ⭐ استخراج نص الرسالة
+                const messageText = 
+                    msg.message.conversation ||
+                    msg.message.extendedTextMessage?.text ||
+                    msg.message.imageMessage?.caption ||
+                    msg.message.videoMessage?.caption || '';
+                
+                // ⭐ فحص أوامر الأدمن أولاً (حتى لو fromMe)
+                if (msg.key.fromMe && (messageText.trim() === '/تشغيل' || messageText.trim() === '/توقف')) {
+                    console.log('\n' + '='.repeat(50));
+                    console.log(`📩 👤 أدمن: ${sender}`);
+                    console.log(`📝 ${messageText}`);
+                    console.log('='.repeat(50));
+                    
+                    if (messageText.trim() === '/تشغيل') {
+                        AI_CONFIG.enabled = true;
+                        console.log('✅ AI تم تشغيله بواسطة الأدمن\n');
+                        return;
+                    }
+                    
+                    if (messageText.trim() === '/توقف') {
+                        AI_CONFIG.enabled = false;
+                        console.log('⏸️ AI تم إيقافه بواسطة الأدمن\n');
+                        return;
+                    }
+                }
+                
+                // ⭐ تجاهل باقي الرسائل من نفسك
+                if (msg.key.fromMe) return;
                 
                 if (sender.endsWith('@newsletter')) {
                     if (CONFIG.showIgnoredMessages) {
@@ -330,12 +342,6 @@ async function startBot() {
                 
                 const messageType = Object.keys(msg.message)[0];
                 if (['protocolMessage', 'senderKeyDistributionMessage', 'reactionMessage'].includes(messageType)) return;
-                
-                const messageText = 
-                    msg.message.conversation ||
-                    msg.message.extendedTextMessage?.text ||
-                    msg.message.imageMessage?.caption ||
-                    msg.message.videoMessage?.caption || '';
 
                 if (!messageText.trim()) return;
 
@@ -346,21 +352,6 @@ async function startBot() {
 
                 processedMessages.add(messageId);
                 cleanProcessedMessages();
-
-                // ⭐ معالجة أوامر الأدمن
-                if (isAdmin(msg)) {
-                    if (messageText.trim() === '/تشغيل') {
-                        AI_CONFIG.enabled = true;
-                        console.log('✅ AI تم تشغيله بواسطة الأدمن\n');
-                        return;
-                    }
-                    
-                    if (messageText.trim() === '/توقف') {
-                        AI_CONFIG.enabled = false;
-                        console.log('⏸️ AI تم إيقافه بواسطة الأدمن\n');
-                        return;
-                    }
-                }
 
                 // ⭐ حفظ الرسالة في الذاكرة المؤقتة
                 addToUserMemory(sender, messageText);
