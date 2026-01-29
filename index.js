@@ -161,12 +161,20 @@ function cleanProcessedMessages() {
 
 // ⭐ دالة للتحقق من صلاحيات الأدمن
 function isAdmin(msg) {
-    // استخراج الرقم من participant أو من remoteJid
-    const participant = msg.key.participant || msg.key.remoteJid;
     const adminPhone = '249962204268';
+    const adminLid = '252355702448348'; // ⭐ الـ LID الخاص بك
     
-    // التحقق من أن الرسالة من رقم الأدمن
-    return participant && participant.includes(adminPhone);
+    // التحقق من participant للرسائل في المجموعات أو الرسائل لنفسك
+    if (msg.key.participant) {
+        return msg.key.participant.includes(adminPhone) || msg.key.participant.includes(adminLid);
+    }
+    
+    // التحقق من remoteJid للرسائل الشخصية
+    if (msg.key.remoteJid) {
+        return msg.key.remoteJid.includes(adminPhone) || msg.key.remoteJid.includes(adminLid);
+    }
+    
+    return false;
 }
 
 // ═══════════════════════════════════════════════════════════
