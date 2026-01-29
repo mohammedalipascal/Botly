@@ -28,7 +28,11 @@ const CONFIG = {
     showIgnoredMessages: process.env.SHOW_IGNORED_MESSAGES === 'true',
     logLevel: process.env.LOG_LEVEL || 'silent',
     sessionFile: process.env.SESSION_FILE || 'session.json',
-    adminNumber: '249962204268@s.whatsapp.net' // ⭐ رقم الأدمن
+    adminNumber: '249962204268@s.whatsapp.net', // ⭐ رقم الأدمن
+    // ⭐ القروبات المسموح الرد فيها (افصلها بفاصلة)
+    allowedGroups: process.env.ALLOWED_GROUPS ? process.env.ALLOWED_GROUPS.split(',').map(g => g.trim()) : [],
+    // ⭐ الأرقام المحظورة (افصلها بفاصلة)
+    blockedContacts: process.env.BLOCKED_CONTACTS ? process.env.BLOCKED_CONTACTS.split(',').map(c => c.trim()) : []
 };
 
 const AI_CONFIG = {
@@ -333,7 +337,33 @@ async function startBot() {
                     return;
                 }
                 
-                if (isGroup && !CONFIG.replyInGroups) return;
+                // ⭐ فحص الأرقام المحظورة
+                if (CONFIG.blockedContacts.length > 0) {
+                    const isBlocked = CONFIG.blockedContacts.some(blocked => sender.includes(blocked));
+                    if (isBlocked) {
+                        if (CONFIG.showIgnoredMessages) {
+                            console.log('⏭️ رقم محظور - متجاهل');
+                        }
+                        return;
+                    }
+                }
+                
+                // ⭐ فحص القروبات المسموحة
+                if (isGroup) {
+                    if (!CONFIG.replyInGroups) return;
+                    
+                    // لو في قروبات مسموحة محددة، تحقق منها
+                    if (CONFIG.allowedGroups.length > 0) {
+                        const isAllowed = CONFIG.allowedGroups.some(groupId => sender.includes(groupId));
+                        if (!isAllowed) {
+                            if (CONFIG.showIgnoredMessages) {
+                                console.log('⏭️ قروب غير مسموح - متجاهل');
+                            }
+                            return;
+                        }
+                    }
+                }
+                
                 if (sender === 'status@broadcast') return;
                 if (processedMessages.has(messageId)) return;
                 
