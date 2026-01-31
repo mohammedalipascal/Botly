@@ -40,6 +40,8 @@ const CONFIG = {
 // ═══════════════════════════════════════════════════════════
 
 const AI_STATE_FILE = path.join(__dirname, 'ai_state.json');
+const BAN_LIST_FILE = path.join(__dirname, 'ban_list.json');
+const ALLOWED_GROUPS_FILE = path.join(__dirname, 'allowed_groups.json');
 
 function loadAIState() {
     try {
@@ -63,8 +65,52 @@ function saveAIState(enabled) {
     }
 }
 
+// ⭐ قائمة المحظورين
+function loadBanList() {
+    try {
+        if (fs.existsSync(BAN_LIST_FILE)) {
+            const data = fs.readFileSync(BAN_LIST_FILE, 'utf-8');
+            return JSON.parse(data);
+        }
+    } catch (error) {
+        console.log('⚠️ خطأ في قراءة قائمة الحظر');
+    }
+    return [];
+}
+
+function saveBanList(list) {
+    try {
+        fs.writeFileSync(BAN_LIST_FILE, JSON.stringify(list), 'utf-8');
+    } catch (error) {
+        console.error('❌ خطأ في حفظ قائمة الحظر:', error.message);
+    }
+}
+
+// ⭐ المجموعات المسموحة (من الأوامر)
+function loadAllowedGroupsList() {
+    try {
+        if (fs.existsSync(ALLOWED_GROUPS_FILE)) {
+            const data = fs.readFileSync(ALLOWED_GROUPS_FILE, 'utf-8');
+            return JSON.parse(data);
+        }
+    } catch (error) {
+        console.log('⚠️ خطأ في قراءة قائمة المجموعات المسموحة');
+    }
+    return [];
+}
+
+function saveAllowedGroupsList(list) {
+    try {
+        fs.writeFileSync(ALLOWED_GROUPS_FILE, JSON.stringify(list), 'utf-8');
+    } catch (error) {
+        console.error('❌ خطأ في حفظ قائمة المجموعات:', error.message);
+    }
+}
+
 // ⭐ تحميل حالة الـ AI من الملف (تبقى حتى بعد restart)
 let AI_ENABLED = loadAIState();
+let BANNED_USERS = loadBanList();
+let ALLOWED_GROUPS_LIST = loadAllowedGroupsList();
 
 const AI_CONFIG = {
     apiKey: process.env.AI_API_KEY || '',
@@ -285,6 +331,15 @@ async function startBot() {
                     return;
                 }
                 
+                if (statusCode === 500) {
+                    console.log('⚠️ خطأ 500 - إعادة الاتصال بعد 10 ثوانٍ...\n');
+                    isReconnecting = true;
+                    await delay(10000);
+                    isReconnecting = false;
+                    reconnectWithDelay(10000);
+                    return;
+                }
+                
                 reconnectWithDelay();
                 
             } else if (connection === 'open') {
@@ -338,7 +393,8 @@ async function startBot() {
                     msg.message.videoMessage?.caption || '';
                 
                 // ⭐ فحص أوامر الأدمن أولاً (حتى لو fromMe)
-                if (msg.key.fromMe && (messageText.trim() === '/تشغيل' || messageText.trim() === '/توقف')) {
+                const adminCommands = ['/تشغيل', '/توقف', '/ban', '/unban', '/سماح', '/منع'];
+                if (msg.key.fromMe && adminCommands.includes(messageText.trim())) {
                     console.log('\n' + '='.repeat(50));
                     console.log(`📩 👤 أدمن: ${sender}`);
                     console.log(`📝 ${messageText}`);
@@ -365,8 +421,56 @@ async function startBot() {
                         console.log('⏸️ AI تم إيقافه بواسطة الأدمن\n');
                         return;
                     }
+                    
+                    if (messageText.trim() === '/ban') {
+                        if (!BANNED_USERS.includes(sender)) {
+                            BANNED_USERS.push(sender);
+                            saveBanList(BANNED_USERS);
+                        }
+                        await sock.sendMessage(sender, {
+                            react: { text: '✅', key: msg.key }
+                        });
+                        console.log(`🚫 تم حظر: ${sender}\n`);
+                        return;
+                    }
+                    
+                    if (messageText.trim() === '/unban') {
+                        BANNED_USERS = BANNED_USERS.filter(u => u !== sender);
+                        saveBanList(BANNED_USERS);
+                        await sock.sendMessage(sender, {
+                            react: { text: '✅', key: msg.key }
+                        });
+                        console.log(`✅ تم إلغاء الحظر: ${sender}\n`);
+                        return;
+                    }
+                    
+                    if (messageText.trim() === '/سماح') {
+                        if (isGroup) {
+                            if (!ALLOWED_GROUPS_LIST.includes(sender)) {
+                                ALLOWED_GROUPS_LIST.push(sender);
+                                saveAllowedGroupsList(ALLOWED_GROUPS_LIST);
+                            }
+                            await sock.sendMessage(sender, {
+                                text: 'تم السماح للبوت بالتحدث داخل المجموعة'
+                            }, { quoted: msg });
+                            console.log(`✅ تم السماح للمجموعة: ${sender}\n`);
+                        }
+                        return;
+                    }
+                    
+                    if (messageText.trim() === '/منع') {
+                        if (isGroup) {
+                            ALLOWED_GROUPS_LIST = ALLOWED_GROUPS_LIST.filter(g => g !== sender);
+                            saveAllowedGroupsList(ALLOWED_GROUPS_LIST);
+                            await sock.sendMessage(sender, {
+                                text: 'تم منع البوت من التحدث داخل المجموعة'
+                            }, { quoted: msg });
+                            console.log(`🚫 تم منع المجموعة: ${sender}\n`);
+                        }
+                        return;
+                    }
                 }
-                
+                                
                 // ⭐ تجاهل باقي الرسائل من نفسك
                 if (msg.key.fromMe) return;
                 
@@ -377,12 +481,20 @@ async function startBot() {
                     return;
                 }
                 
-                // ⭐ فحص الأرقام المحظورة
+                // ⭐ فحص قائمة المحظورين (من الأوامر)
+                if (BANNED_USERS.includes(sender)) {
+                    if (CONFIG.showIgnoredMessages) {
+                        console.log('⏭️ مستخدم محظور - متجاهل');
+                    }
+                    return;
+                }
+                
+                // ⭐ فحص الأرقام المحظورة (من ENV)
                 if (CONFIG.blockedContacts.length > 0) {
                     const isBlocked = CONFIG.blockedContacts.some(blocked => sender.includes(blocked));
                     if (isBlocked) {
                         if (CONFIG.showIgnoredMessages) {
-                            console.log('⏭️ رقم محظور - متجاهل');
+                            console.log('⏭️ رقم محظور من ENV - متجاهل');
                         }
                         return;
                     }
@@ -390,14 +502,22 @@ async function startBot() {
                 
                 // ⭐ فحص القروبات المسموحة
                 if (isGroup) {
-                    if (!CONFIG.replyInGroups) return;
+                    // لو REPLY_IN_GROUPS = false، تحقق من قائمة المجموعات المسموحة
+                    if (!CONFIG.replyInGroups) {
+                        if (!ALLOWED_GROUPS_LIST.includes(sender)) {
+                            if (CONFIG.showIgnoredMessages) {
+                                console.log('⏭️ مجموعة غير مسموحة - متجاهل');
+                            }
+                            return;
+                        }
+                    }
                     
-                    // لو في قروبات مسموحة محددة، تحقق منها
+                    // لو في قروبات مسموحة محددة في ENV، تحقق منها
                     if (CONFIG.allowedGroups.length > 0) {
                         const isAllowed = CONFIG.allowedGroups.some(groupId => sender.includes(groupId));
                         if (!isAllowed) {
                             if (CONFIG.showIgnoredMessages) {
-                                console.log('⏭️ قروب غير مسموح - متجاهل');
+                                console.log('⏭️ قروب غير مسموح في ENV - متجاهل');
                             }
                             return;
                         }
