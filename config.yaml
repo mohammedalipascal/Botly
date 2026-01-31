@@ -1,3 +1,7 @@
+# ═══════════════════════════════════════════════════════════
+# Upsun Configuration - WhatsApp Bot (Long-Running)
+# ═══════════════════════════════════════════════════════════
+
 applications:
   whatsapp-bot:
     source:
@@ -5,13 +9,10 @@ applications:
     
     type: nodejs:20
     
-    # ⭐ إضافة runtime
-    runtime:
-      sizing_hints:
-        request_memory: 10
-    
+    # ⭐ Web configuration - مهم للـ long-running process
     web:
       commands:
+        # ⭐ هذا هو اللي بيشغل البوت
         start: "node index.js"
       
       upstream:
@@ -23,7 +24,11 @@ applications:
           root: ""
           passthru: true
           allow: false
+      
+      # ⭐ مهم: خلي الـ process يشتغل حتى لو ما في requests
+      move_to_cgroup: false
     
+    # التخزين الدائم
     mounts:
       auth_info:
         source: storage
@@ -32,6 +37,7 @@ applications:
         source: storage
         source_path: logs
     
+    # أوامر البناء والنشر
     hooks:
       build: |
         set -e
@@ -42,16 +48,32 @@ applications:
       deploy: |
         set -e
         echo "🚀 Deploying WhatsApp Bot..."
+        
+        # ⭐ فحص المتغيرات المطلوبة
+        if [ -z "$SESSION_FILE" ]; then
+          echo "❌ SESSION_FILE not set!"
+          exit 1
+        fi
+        
+        if [ -z "$AI_API_KEY" ]; then
+          echo "⚠️  AI_API_KEY not set - AI will be disabled"
+        fi
+        
         echo "✅ Deployment successful!"
-      
-      post_deploy: |
-        echo "🔍 Checking bot status..."
-        ps aux | grep node || echo "⚠️ Node process not found"
+        echo "📝 Environment:"
+        echo "   - NODE_ENV: $NODE_ENV"
+        echo "   - PORT: $PORT"
+        echo "   - SESSION_FILE: $SESSION_FILE"
     
+    # متغيرات البيئة
     variables:
       env:
         NODE_ENV: production
         PORT: 8080
+
+# ═══════════════════════════════════════════════════════════
+# Routes Configuration
+# ═══════════════════════════════════════════════════════════
 
 routes:
   "https://{default}/":
