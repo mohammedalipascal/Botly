@@ -1,0 +1,63 @@
+# ═══════════════════════════════════════════════════════════
+# Upsun/Platform.sh Configuration - WhatsApp Bot
+# ═══════════════════════════════════════════════════════════
+
+name: whatsapp-bot
+
+type: nodejs:20
+
+disk: 1024
+
+# الاعتماديات
+dependencies:
+  nodejs:
+    npm: "*"
+
+# Web configuration
+web:
+  commands:
+    start: "node index.js"
+  
+  upstream:
+    socket_family: tcp
+    protocol: http
+  
+  locations:
+    "/":
+      root: ""
+      passthru: true
+      allow: false
+
+# Mounts (persistent storage)
+mounts:
+  'auth_info':
+    source: local
+    source_path: auth_info
+  'logs':
+    source: local
+    source_path: logs
+
+# Hooks
+hooks:
+  build: |
+    set -e
+    echo "Installing dependencies..."
+    npm install --production
+    echo "Build complete!"
+  
+  deploy: |
+    set -e
+    echo "WhatsApp Bot deployed successfully!"
+
+# Environment variables
+variables:
+  env:
+    NODE_ENV: 'production'
+
+# Relationships (إذا كنت تحتاج قاعدة بيانات)
+# relationships:
+#   database: "db:mysql"
+```
+
+---
+
