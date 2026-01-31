@@ -306,11 +306,19 @@ async function startBot() {
                     return;
                 }
                 
-                if (statusCode === DisconnectReason.badSession || 
-                    statusCode === DisconnectReason.loggedOut ||
+                if (statusCode === DisconnectReason.loggedOut ||
                     statusCode === 401 || statusCode === 403) {
                     console.error('❌ الجلسة غير صالحة!\n');
                     process.exit(1);
+                }
+                
+                if (statusCode === DisconnectReason.badSession || statusCode === 500) {
+                    console.log('⚠️ خطأ 500/badSession - إعادة الاتصال بعد 10 ثوانٍ...\n');
+                    isReconnecting = true;
+                    await delay(10000);
+                    isReconnecting = false;
+                    reconnectWithDelay(10000);
+                    return;
                 }
                 
                 if (statusCode === 440 || statusCode === DisconnectReason.connectionReplaced) {
@@ -328,15 +336,6 @@ async function startBot() {
                     await delay(5000);
                     isReconnecting = false;
                     reconnectWithDelay(5000);
-                    return;
-                }
-                
-                if (statusCode === 500) {
-                    console.log('⚠️ خطأ 500 - إعادة الاتصال بعد 10 ثوانٍ...\n');
-                    isReconnecting = true;
-                    await delay(10000);
-                    isReconnecting = false;
-                    reconnectWithDelay(10000);
                     return;
                 }
                 
@@ -393,7 +392,7 @@ async function startBot() {
                     msg.message.videoMessage?.caption || '';
                 
                 // ⭐ فحص أوامر الأدمن أولاً (حتى لو fromMe)
-                const adminCommands = ['/تشغيل', '/توقف', '/ban', '/unban', '/سماح', '/منع'];
+                const adminCommands = ['/تشغيل', '/توقف', '/ban', '/unban'];
                 if (msg.key.fromMe && adminCommands.includes(messageText.trim())) {
                     console.log('\n' + '='.repeat(50));
                     console.log(`📩 👤 أدمن: ${sender}`);
@@ -443,30 +442,34 @@ async function startBot() {
                         console.log(`✅ تم إلغاء الحظر: ${sender}\n`);
                         return;
                     }
+                }
+                
+                // ⭐ فحص أوامر المجموعات (قبل تجاهل fromMe للسماح بها في المجموعات)
+                if (msg.key.fromMe && isGroup && (messageText.trim() === '/سماح' || messageText.trim() === '/منع')) {
+                    console.log('\n' + '='.repeat(50));
+                    console.log(`📩 👥 أدمن في مجموعة: ${sender}`);
+                    console.log(`📝 ${messageText}`);
+                    console.log('='.repeat(50));
                     
                     if (messageText.trim() === '/سماح') {
-                        if (isGroup) {
-                            if (!ALLOWED_GROUPS_LIST.includes(sender)) {
-                                ALLOWED_GROUPS_LIST.push(sender);
-                                saveAllowedGroupsList(ALLOWED_GROUPS_LIST);
-                            }
-                            await sock.sendMessage(sender, {
-                                text: 'تم السماح للبوت بالتحدث داخل المجموعة'
-                            }, { quoted: msg });
-                            console.log(`✅ تم السماح للمجموعة: ${sender}\n`);
+                        if (!ALLOWED_GROUPS_LIST.includes(sender)) {
+                            ALLOWED_GROUPS_LIST.push(sender);
+                            saveAllowedGroupsList(ALLOWED_GROUPS_LIST);
                         }
+                        await sock.sendMessage(sender, {
+                            text: 'تم السماح للبوت بالتحدث داخل المجموعة'
+                        }, { quoted: msg });
+                        console.log(`✅ تم السماح للمجموعة: ${sender}\n`);
                         return;
                     }
                     
                     if (messageText.trim() === '/منع') {
-                        if (isGroup) {
-                            ALLOWED_GROUPS_LIST = ALLOWED_GROUPS_LIST.filter(g => g !== sender);
-                            saveAllowedGroupsList(ALLOWED_GROUPS_LIST);
-                            await sock.sendMessage(sender, {
-                                text: 'تم منع البوت من التحدث داخل المجموعة'
-                            }, { quoted: msg });
-                            console.log(`🚫 تم منع المجموعة: ${sender}\n`);
-                        }
+                        ALLOWED_GROUPS_LIST = ALLOWED_GROUPS_LIST.filter(g => g !== sender);
+                        saveAllowedGroupsList(ALLOWED_GROUPS_LIST);
+                        await sock.sendMessage(sender, {
+                            text: 'تم منع البوت من التحدث داخل المجموعة'
+                        }, { quoted: msg });
+                        console.log(`🚫 تم منع المجموعة: ${sender}\n`);
                         return;
                     }
                 }
