@@ -375,14 +375,18 @@ async function startBot() {
         
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
             try {
+                console.log(`🔍 [DEBUG] Message received - type: ${type}`);
                 if (type !== 'notify') return;
                 
                 const msg = messages[0];
+                console.log(`🔍 [DEBUG] Message exists: ${!!msg}, has message: ${!!msg?.message}`);
                 if (!msg || !msg.message) return;
                 
                 const sender = msg.key.remoteJid;
                 const messageId = msg.key.id;
                 const isGroup = sender.endsWith('@g.us');
+                
+                console.log(`🔍 [DEBUG] Sender: ${sender}, isGroup: ${isGroup}, fromMe: ${msg.key.fromMe}`);
                 
                 // ⭐ استخراج نص الرسالة
                 const messageText = 
@@ -391,11 +395,11 @@ async function startBot() {
                     msg.message.imageMessage?.caption ||
                     msg.message.videoMessage?.caption || '';
                 
+                console.log(`🔍 [DEBUG] Message text: "${messageText}"`);
+                
                 // ⭐ Debug: طباعة معلومات الرسالة
                 if (msg.key.fromMe && isGroup) {
-                    console.log(`🔍 [DEBUG] رسالة من الأدمن في مجموعة: ${sender}`);
-                    console.log(`🔍 [DEBUG] النص: "${messageText}"`);
-                    console.log(`🔍 [DEBUG] fromMe: ${msg.key.fromMe}, isGroup: ${isGroup}`);
+                    console.log(`🔍 [DEBUG] ✅ رسالة من الأدمن في مجموعة!`);
                 }
                 
                 // ⭐ فحص أوامر الأدمن أولاً (حتى لو fromMe)
