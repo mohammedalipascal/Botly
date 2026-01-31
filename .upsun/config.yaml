@@ -1,0 +1,73 @@
+# ═══════════════════════════════════════════════════════════
+# Upsun Configuration - WhatsApp Bot
+# ═══════════════════════════════════════════════════════════
+
+applications:
+  whatsapp-bot:
+    # نوع التطبيق
+    source:
+      root: /
+    
+    # Node.js version
+    type: nodejs:20
+    
+    # مساحة القرص
+    disk: 1024
+    
+    # إعدادات الويب
+    web:
+      commands:
+        start: "node index.js"
+      
+      upstream:
+        socket_family: tcp
+        protocol: http
+      
+      locations:
+        "/":
+          root: ""
+          passthru: true
+          allow: false
+    
+    # التخزين الدائم
+    mounts:
+      auth_info:
+        source: local
+        source_path: auth_info
+      logs:
+        source: local
+        source_path: logs
+    
+    # أوامر البناء والنشر
+    hooks:
+      build: |
+        set -e
+        echo "📦 Installing dependencies..."
+        npm ci --only=production
+        echo "✅ Build complete!"
+      
+      deploy: |
+        set -e
+        echo "🚀 Deploying WhatsApp Bot..."
+        echo "✅ Deployment successful!"
+    
+    # متغيرات البيئة
+    variables:
+      env:
+        NODE_ENV: production
+        PORT: 8080
+
+# ═══════════════════════════════════════════════════════════
+# Routes Configuration
+# ═══════════════════════════════════════════════════════════
+
+routes:
+  "https://{default}/":
+    type: upstream
+    upstream: "whatsapp-bot:http"
+    cache:
+      enabled: false
+  
+  "https://www.{default}/":
+    type: redirect
+    to: "https://{default}/"
