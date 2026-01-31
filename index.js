@@ -23,7 +23,7 @@ const CONFIG = {
     botOwner: process.env.BOT_OWNER || 'مقداد',
     prefix: process.env.PREFIX || '!',
     port: process.env.PORT || 8080,
-    replyInGroups: false, // ⭐ دائماً false - استخدم /سماح للمجموعات
+    replyInGroups: true, // ⭐ دائماً false - استخدم /سماح للمجموعات
     ownerNumber: process.env.OWNER_NUMBER ? process.env.OWNER_NUMBER + '@s.whatsapp.net' : null,
     showIgnoredMessages: process.env.SHOW_IGNORED_MESSAGES === 'true',
     logLevel: process.env.LOG_LEVEL || 'silent',
