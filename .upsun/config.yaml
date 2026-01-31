@@ -11,11 +11,6 @@ applications:
     # Node.js version
     type: nodejs:20
     
-    # ⭐ Resources (بدل disk)
-    resources:
-      base_memory: 512
-      memory_ratio: 1024
-    
     # إعدادات الويب
     web:
       commands:
