@@ -11,8 +11,10 @@ applications:
     # Node.js version
     type: nodejs:20
     
-    # مساحة القرص
-    disk: 1024
+    # ⭐ Resources (بدل disk)
+    resources:
+      base_memory: 512
+      memory_ratio: 1024
     
     # إعدادات الويب
     web:
@@ -32,10 +34,10 @@ applications:
     # التخزين الدائم
     mounts:
       auth_info:
-        source: local
+        source: storage
         source_path: auth_info
       logs:
-        source: local
+        source: storage
         source_path: logs
     
     # أوامر البناء والنشر
