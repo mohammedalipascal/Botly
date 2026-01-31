@@ -23,13 +23,13 @@ const CONFIG = {
     botOwner: process.env.BOT_OWNER || 'مقداد',
     prefix: process.env.PREFIX || '!',
     port: process.env.PORT || 8080,
-    replyInGroups: process.env.REPLY_IN_GROUPS === 'true',
+    replyInGroups: false, // ⭐ دائماً false - استخدم /سماح للمجموعات
     ownerNumber: process.env.OWNER_NUMBER ? process.env.OWNER_NUMBER + '@s.whatsapp.net' : null,
     showIgnoredMessages: process.env.SHOW_IGNORED_MESSAGES === 'true',
     logLevel: process.env.LOG_LEVEL || 'silent',
     sessionFile: process.env.SESSION_FILE || 'session.json',
     adminNumber: '249962204268@s.whatsapp.net', // ⭐ رقم الأدمن
-    // ⭐ القروبات المسموح الرد فيها (افصلها بفاصلة)
+    // ⭐ القروبات المسموح الرد فيها من ENV (افصلها بفاصلة)
     allowedGroups: process.env.ALLOWED_GROUPS ? process.env.ALLOWED_GROUPS.split(',').map(g => g.trim()) : [],
     // ⭐ الأرقام المحظورة (افصلها بفاصلة)
     blockedContacts: process.env.BLOCKED_CONTACTS ? process.env.BLOCKED_CONTACTS.split(',').map(c => c.trim()) : []
@@ -503,24 +503,22 @@ async function startBot() {
                     }
                 }
                 
-                // ⭐ فحص القروبات المسموحة
+                // ⭐ فحص المجموعات: البوت لا يرد في أي مجموعة إلا المسموحة بأمر /سماح
                 if (isGroup) {
-                    // لو REPLY_IN_GROUPS = false، تحقق من قائمة المجموعات المسموحة
-                    if (!CONFIG.replyInGroups) {
-                        if (!ALLOWED_GROUPS_LIST.includes(sender)) {
+                    // تحقق من قائمة المجموعات المسموحة (من الأوامر)
+                    if (!ALLOWED_GROUPS_LIST.includes(sender)) {
+                        // تحقق من قائمة ENV كبديل
+                        if (CONFIG.allowedGroups.length > 0) {
+                            const isAllowedInEnv = CONFIG.allowedGroups.some(groupId => sender.includes(groupId));
+                            if (!isAllowedInEnv) {
+                                if (CONFIG.showIgnoredMessages) {
+                                    console.log('⏭️ مجموعة غير مسموحة - متجاهل');
+                                }
+                                return;
+                            }
+                        } else {
                             if (CONFIG.showIgnoredMessages) {
                                 console.log('⏭️ مجموعة غير مسموحة - متجاهل');
-                            }
-                            return;
-                        }
-                    }
-                    
-                    // لو في قروبات مسموحة محددة في ENV، تحقق منها
-                    if (CONFIG.allowedGroups.length > 0) {
-                        const isAllowed = CONFIG.allowedGroups.some(groupId => sender.includes(groupId));
-                        if (!isAllowed) {
-                            if (CONFIG.showIgnoredMessages) {
-                                console.log('⏭️ قروب غير مسموح في ENV - متجاهل');
                             }
                             return;
                         }
