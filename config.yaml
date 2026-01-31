@@ -1,0 +1,54 @@
+# ═══════════════════════════════════════════════════════════
+# Upsun Configuration - WhatsApp Bot
+# ═══════════════════════════════════════════════════════════
+
+applications:
+  app:
+    # Application settings
+    type: 'nodejs:20'
+    
+    # Build process
+    build:
+      flavor: none
+    
+    # Hooks
+    hooks:
+      build: |
+        npm install
+      deploy: |
+        echo "Deployment successful"
+    
+    # Web configuration
+    web:
+      commands:
+        start: "node index.js"
+      locations:
+        "/":
+          passthru: true
+          allow: false
+    
+    # Mounts (persistent storage)
+    mounts:
+      'auth_info':
+        source: local
+        source_path: auth_info
+      'logs':
+        source: local
+        source_path: logs
+    
+    # Disk space
+    disk: 512
+    
+    # Environment variables
+    variables:
+      env:
+        NODE_ENV: 'production'
+
+# Routes
+routes:
+  "https://{default}/":
+    type: upstream
+    upstream: "app:http"
+  "https://www.{default}/":
+    type: redirect
+    to: "https://{default}/"
