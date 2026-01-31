@@ -391,6 +391,13 @@ async function startBot() {
                     msg.message.imageMessage?.caption ||
                     msg.message.videoMessage?.caption || '';
                 
+                // ⭐ Debug: طباعة معلومات الرسالة
+                if (msg.key.fromMe && isGroup) {
+                    console.log(`🔍 [DEBUG] رسالة من الأدمن في مجموعة: ${sender}`);
+                    console.log(`🔍 [DEBUG] النص: "${messageText}"`);
+                    console.log(`🔍 [DEBUG] fromMe: ${msg.key.fromMe}, isGroup: ${isGroup}`);
+                }
+                
                 // ⭐ فحص أوامر الأدمن أولاً (حتى لو fromMe)
                 const adminCommands = ['/تشغيل', '/توقف', '/ban', '/unban'];
                 if (msg.key.fromMe && adminCommands.includes(messageText.trim())) {
