@@ -1,54 +1,65 @@
-# ═══════════════════════════════════════════════════════════
-# Upsun Configuration - WhatsApp Bot
-# ═══════════════════════════════════════════════════════════
-
 applications:
-  app:
-    # Application settings
-    type: 'nodejs:20'
+  whatsapp-bot:
+    source:
+      root: /
     
-    # Build process
-    build:
-      flavor: none
+    type: nodejs:20
     
-    # Hooks
-    hooks:
-      build: |
-        npm install
-      deploy: |
-        echo "Deployment successful"
+    # ⭐ إضافة runtime
+    runtime:
+      sizing_hints:
+        request_memory: 10
     
-    # Web configuration
     web:
       commands:
         start: "node index.js"
+      
+      upstream:
+        socket_family: tcp
+        protocol: http
+      
       locations:
         "/":
+          root: ""
           passthru: true
           allow: false
     
-    # Mounts (persistent storage)
     mounts:
-      'auth_info':
-        source: local
+      auth_info:
+        source: storage
         source_path: auth_info
-      'logs':
-        source: local
+      logs:
+        source: storage
         source_path: logs
     
-    # Disk space
-    disk: 512
+    hooks:
+      build: |
+        set -e
+        echo "📦 Installing dependencies..."
+        npm ci --only=production
+        echo "✅ Build complete!"
+      
+      deploy: |
+        set -e
+        echo "🚀 Deploying WhatsApp Bot..."
+        echo "✅ Deployment successful!"
+      
+      post_deploy: |
+        echo "🔍 Checking bot status..."
+        ps aux | grep node || echo "⚠️ Node process not found"
     
-    # Environment variables
     variables:
       env:
-        NODE_ENV: 'production'
+        NODE_ENV: production
+        PORT: 8080
 
-# Routes
 routes:
   "https://{default}/":
     type: upstream
-    upstream: "app:http"
+    upstream: "whatsapp-bot:http"
+    cache:
+      enabled: false
+  
   "https://www.{default}/":
     type: redirect
     to: "https://{default}/"
