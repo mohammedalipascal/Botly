@@ -1,3 +1,7 @@
+# ═══════════════════════════════════════════════════════════
+# .gitignore - WhatsApp Bot
+# ═══════════════════════════════════════════════════════════
+
 # Dependencies
 node_modules/
 package-lock.json
@@ -30,3 +34,22 @@ Thumbs.db
 # Build files
 dist/
 build/
+
+# Session data (local only)
+SESSION_DATA.txt
+QR_LINK.txt
+
+# ═══════════════════════════════════════════════════════════
+# IMPORTANT: Allow these files/folders
+# ═══════════════════════════════════════════════════════════
+
+# Allow Upsun configuration
+!.upsun/
+!.upsun/config.yaml
+
+# Allow Platform.sh configuration
+!.platform.app.yaml
+!.platform/
+
+# Allow session file for deployment
+!session.json
