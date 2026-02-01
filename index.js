@@ -392,12 +392,20 @@ async function startBot() {
                     msg.message.videoMessage?.caption || '';
                 
                 // ⭐ فحص أوامر الأدمن أولاً (حتى لو fromMe)
-                const adminCommands = ['/تشغيل', '/توقف', '/ban', '/unban'];
+                const adminCommands = ['/تشغيل', '/توقف', '/ban', '/unban', '/id'];
                 if (msg.key.fromMe && adminCommands.includes(messageText.trim())) {
                     console.log('\n' + '='.repeat(50));
                     console.log(`📩 👤 أدمن: ${sender}`);
                     console.log(`📝 ${messageText}`);
                     console.log('='.repeat(50));
+                    
+                    if (messageText.trim() === '/id') {
+                        await sock.sendMessage(sender, {
+                            text: `📋 معلومات:\n\nChat ID:\n${sender}\n\n${isGroup ? '👥 هذه مجموعة' : '👤 هذه محادثة خاصة'}`
+                        }, { quoted: msg });
+                        console.log(`📋 تم إرسال ID: ${sender}\n`);
+                        return;
+                    }
                     
                     if (messageText.trim() === '/تشغيل') {
                         AI_ENABLED = true;
@@ -444,19 +452,49 @@ async function startBot() {
                     }
                 }
                 
-                // ⭐ فحص أوامر المجموعات (يجب أن تُرسل داخل المجموعة نفسها)
-                // في المجموعات، fromMe يكون false، لذا نتحقق من participant
+                // ⭐ فحص أوامر المجموعات 
+                // طريقة 1: إرسال الأمر في المجموعة نفسها (يتطلب فك تشفير صحيح)
                 const isAdminInGroup = isGroup && msg.key.participant && msg.key.participant.includes('249962204268');
+                // طريقة 2: إرسال الأمر في محادثة خاصة مع ID المجموعة
                 const isAdminDirect = msg.key.fromMe;
                 
-                // Debug log
+                // Debug log للمجموعات
                 if (isGroup && (messageText.trim() === '/سماح' || messageText.trim() === '/منع')) {
                     console.log(`🔍 [DEBUG] Group command detected!`);
                     console.log(`🔍 [DEBUG] participant: ${msg.key.participant}`);
                     console.log(`🔍 [DEBUG] isAdminInGroup: ${isAdminInGroup}`);
-                    console.log(`🔍 [DEBUG] isAdminDirect: ${isAdminDirect}`);
                 }
                 
+                // ⭐ الطريقة البديلة: أرسل "سماح GROUP_ID" في محادثة خاصة
+                if (isAdminDirect && !isGroup && messageText.trim().startsWith('سماح ')) {
+                    const groupId = messageText.trim().substring(5).trim();
+                    if (groupId.endsWith('@g.us')) {
+                        if (!ALLOWED_GROUPS_LIST.includes(groupId)) {
+                            ALLOWED_GROUPS_LIST.push(groupId);
+                            saveAllowedGroupsList(ALLOWED_GROUPS_LIST);
+                        }
+                        await sock.sendMessage(sender, {
+                            text: `✅ تم السماح للمجموعة:\n${groupId}`
+                        }, { quoted: msg });
+                        console.log(`✅ تم السماح للمجموعة: ${groupId}\n`);
+                        return;
+                    }
+                }
+                
+                if (isAdminDirect && !isGroup && messageText.trim().startsWith('منع ')) {
+                    const groupId = messageText.trim().substring(4).trim();
+                    if (groupId.endsWith('@g.us')) {
+                        ALLOWED_GROUPS_LIST = ALLOWED_GROUPS_LIST.filter(g => g !== groupId);
+                        saveAllowedGroupsList(ALLOWED_GROUPS_LIST);
+                        await sock.sendMessage(sender, {
+                            text: `🚫 تم منع المجموعة:\n${groupId}`
+                        }, { quoted: msg });
+                        console.log(`🚫 تم منع المجموعة: ${groupId}\n`);
+                        return;
+                    }
+                }
+                
+                // الطريقة الأصلية (في المجموعة نفسها)
                 if ((isAdminInGroup || isAdminDirect) && (messageText.trim() === '/سماح' || messageText.trim() === '/منع')) {
                     if (!isGroup) {
                         // لو الأمر مرسول خارج مجموعة، تجاهله
