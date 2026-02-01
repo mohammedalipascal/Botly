@@ -449,6 +449,14 @@ async function startBot() {
                 const isAdminInGroup = isGroup && msg.key.participant && msg.key.participant.includes('249962204268');
                 const isAdminDirect = msg.key.fromMe;
                 
+                // Debug log
+                if (isGroup && (messageText.trim() === '/سماح' || messageText.trim() === '/منع')) {
+                    console.log(`🔍 [DEBUG] Group command detected!`);
+                    console.log(`🔍 [DEBUG] participant: ${msg.key.participant}`);
+                    console.log(`🔍 [DEBUG] isAdminInGroup: ${isAdminInGroup}`);
+                    console.log(`🔍 [DEBUG] isAdminDirect: ${isAdminDirect}`);
+                }
+                
                 if ((isAdminInGroup || isAdminDirect) && (messageText.trim() === '/سماح' || messageText.trim() === '/منع')) {
                     if (!isGroup) {
                         // لو الأمر مرسول خارج مجموعة، تجاهله
