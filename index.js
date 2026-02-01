@@ -23,7 +23,7 @@ const CONFIG = {
     botOwner: process.env.BOT_OWNER || 'مقداد',
     prefix: process.env.PREFIX || '!',
     port: process.env.PORT || 8080,
-    replyInGroups: true, // ⭐ دائماً false - استخدم /سماح للمجموعات
+    replyInGroups: false, // ⭐ دائماً false - استخدم /سماح للمجموعات
     ownerNumber: process.env.OWNER_NUMBER ? process.env.OWNER_NUMBER + '@s.whatsapp.net' : null,
     showIgnoredMessages: process.env.SHOW_IGNORED_MESSAGES === 'true',
     logLevel: process.env.LOG_LEVEL || 'silent',
@@ -375,18 +375,14 @@ async function startBot() {
         
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
             try {
-                console.log(`🔍 [DEBUG] Message received - type: ${type}`);
                 if (type !== 'notify') return;
                 
                 const msg = messages[0];
-                console.log(`🔍 [DEBUG] Message exists: ${!!msg}, has message: ${!!msg?.message}`);
                 if (!msg || !msg.message) return;
                 
                 const sender = msg.key.remoteJid;
                 const messageId = msg.key.id;
                 const isGroup = sender.endsWith('@g.us');
-                
-                console.log(`🔍 [DEBUG] Sender: ${sender}, isGroup: ${isGroup}, fromMe: ${msg.key.fromMe}`);
                 
                 // ⭐ استخراج نص الرسالة
                 const messageText = 
@@ -394,13 +390,6 @@ async function startBot() {
                     msg.message.extendedTextMessage?.text ||
                     msg.message.imageMessage?.caption ||
                     msg.message.videoMessage?.caption || '';
-                
-                console.log(`🔍 [DEBUG] Message text: "${messageText}"`);
-                
-                // ⭐ Debug: طباعة معلومات الرسالة
-                if (msg.key.fromMe && isGroup) {
-                    console.log(`🔍 [DEBUG] ✅ رسالة من الأدمن في مجموعة!`);
-                }
                 
                 // ⭐ فحص أوامر الأدمن أولاً (حتى لو fromMe)
                 const adminCommands = ['/تشغيل', '/توقف', '/ban', '/unban'];
@@ -456,7 +445,11 @@ async function startBot() {
                 }
                 
                 // ⭐ فحص أوامر المجموعات (يجب أن تُرسل داخل المجموعة نفسها)
-                if (msg.key.fromMe && (messageText.trim() === '/سماح' || messageText.trim() === '/منع')) {
+                // في المجموعات، fromMe يكون false، لذا نتحقق من participant
+                const isAdminInGroup = isGroup && msg.key.participant && msg.key.participant.includes('249962204268');
+                const isAdminDirect = msg.key.fromMe;
+                
+                if ((isAdminInGroup || isAdminDirect) && (messageText.trim() === '/سماح' || messageText.trim() === '/منع')) {
                     if (!isGroup) {
                         // لو الأمر مرسول خارج مجموعة، تجاهله
                         console.log('⚠️ أمر /سماح أو /منع يجب أن يُرسل داخل المجموعة\n');
