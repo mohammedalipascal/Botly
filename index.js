@@ -457,9 +457,12 @@ async function startBot() {
                 }
                 
                 // ⭐ فحص أوامر المجموعات 
-                // طريقة 1: إرسال الأمر في المجموعة نفسها (يتطلب فك تشفير صحيح)
-                const isAdminInGroup = isGroup && msg.key.participant && msg.key.participant.includes('249962204268');
-                // طريقة 2: إرسال الأمر في محادثة خاصة مع ID المجموعة
+                // في المجموعات، participant قد يكون LID أو رقم هاتف
+                // نحتاج التحقق من كلاهما
+                const isAdminInGroup = isGroup && msg.key.participant && (
+                    msg.key.participant.includes('249962204268') || // رقم الهاتف
+                    msg.key.participant.includes('231211024814174') // ⭐ الـ LID الخاص بك
+                );
                 const isAdminDirect = msg.key.fromMe;
                 
                 // Debug log للمجموعات
@@ -467,6 +470,7 @@ async function startBot() {
                     console.log(`🔍 [DEBUG] Group command detected!`);
                     console.log(`🔍 [DEBUG] participant: ${msg.key.participant}`);
                     console.log(`🔍 [DEBUG] isAdminInGroup: ${isAdminInGroup}`);
+                    console.log(`🔍 [DEBUG] isAdminDirect: ${isAdminDirect}`);
                 }
                 
                 // ⭐ الطريقة البديلة: أرسل "سماح GROUP_ID" في محادثة خاصة
