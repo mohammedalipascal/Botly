@@ -274,11 +274,15 @@ async function startBot() {
                 return { conversation: '' };
             },
             
-            // ⭐ إعدادات لتقليل مشاكل الجلسات
+            // ⭐ إعدادات لتقليل مشاكل الجلسات وحل Bad MAC Error
             retryRequestDelayMs: 250,
             maxMsgRetryCount: 5,
             msgRetryCounterMap: {},
             connectTimeoutMs: 60000,
+            
+            // ⭐ تفعيل إعادة المزامنة التلقائية
+            syncFullHistory: false,
+            fireInitQueries: true,
             
             // ⭐ تقليل التحذيرات
             shouldIgnoreJid: (jid) => jid.endsWith('@newsletter')
