@@ -417,6 +417,14 @@ async function getAIResponse(userMessage, config, userId = 'default', recentMess
 }
 
 async function callGitHubModelsAPI(userMessage, config, userId, recentMessages) {
+    // ⭐ لو في keyManager متاح استخدمه بدل config.apiKey
+    if (config.apiKey === '__USE_KEY_MANAGER__' && global.keyManager) {
+        const key = global.keyManager.getCurrentKey();
+        if (!key) {
+            throw new Error('كل الـ API Keys نفدت الحصة اليومية - حاول غداً');
+        }
+        config = { ...config, apiKey: key };
+    }
     // جلب الذاكرة القديمة
     const oldMemory = getMemory(userId);
     
@@ -517,6 +525,11 @@ async function callGitHubModelsAPI(userMessage, config, userId, recentMessages) 
     reply = reply.trim();
     
     console.log(`✅ رد AI: ${reply}`);
+    
+    // ⭐ زيادة عدد الاستخدام في KeyManager بعد كل رد ناجح
+    if (global.keyManager) {
+        global.keyManager.incrementUsage();
+    }
     
     // حفظ في الذاكرة
     addToMemory(userId, userMessage, reply);
