@@ -11,6 +11,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { getAIResponse } = require('./ai');
+const { KeyManager } = require('./keyManager');
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -111,11 +112,16 @@ function saveAllowedGroupsList(list) {
 let AI_ENABLED = loadAIState();
 let BANNED_USERS = loadBanList();
 let ALLOWED_GROUPS_LIST = loadAllowedGroupsList();
+global.keyManager = new KeyManager();
 
 const AI_CONFIG = {
-    apiKey: process.env.AI_API_KEY || '',
-    model: process.env.AI_MODEL || 'llama-3.3-70b-versatile',
-    maxTokens: parseInt(process.env.AI_MAX_TOKENS) || 500,
+    // لو في أكتر من key واحد → استخدم KeyManager
+    // لو في key واحد بس → استخدمه مباشر
+    apiKey: global.keyManager && require('./keyManager').API_KEYS?.length > 1
+        ? '__USE_KEY_MANAGER__'
+        : (process.env.AI_API_KEY_1 || process.env.AI_API_KEY || ''),
+    model: process.env.AI_MODEL || 'openai/gpt-4o-mini',
+    maxTokens: parseInt(process.env.AI_MAX_TOKENS) || 200,
     temperature: parseFloat(process.env.AI_TEMPERATURE) || 0.7
 };
 
@@ -123,7 +129,7 @@ console.log('\n⚙️ ═══════ إعدادات البوت ═══�
 console.log(`📱 اسم البوت: ${CONFIG.botName}`);
 console.log(`👤 المالك: ${CONFIG.botOwner}`);
 console.log(`👥 الرد في المجموعات: ${CONFIG.replyInGroups ? '✅' : '❌'}`);
-console.log(`🤖 AI: ${AI_ENABLED ? '✅ مفعّل' : '❌ معطّل'}`);
+console.log(`   AI: ${AI_ENABLED ? '✅' : '❌'} | Key: #${global.keyManager?.state?.currentKeyIndex + 1 || 1}/${require('./keyManager').API_KEYS?.length || 1}`);
 console.log(`📁 ملف الجلسة: ${CONFIG.sessionFile}`);
 console.log('═══════════════════════════════════\n');
 
