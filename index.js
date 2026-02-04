@@ -11,7 +11,6 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { getAIResponse } = require('./ai');
-const { KeyManager } = require('./keyManager');
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -112,16 +111,11 @@ function saveAllowedGroupsList(list) {
 let AI_ENABLED = loadAIState();
 let BANNED_USERS = loadBanList();
 let ALLOWED_GROUPS_LIST = loadAllowedGroupsList();
-global.keyManager = new KeyManager();
 
 const AI_CONFIG = {
-    // لو في أكتر من key واحد → استخدم KeyManager
-    // لو في key واحد بس → استخدمه مباشر
-    apiKey: global.keyManager && require('./keyManager').API_KEYS?.length > 1
-        ? '__USE_KEY_MANAGER__'
-        : (process.env.AI_API_KEY_1 || process.env.AI_API_KEY || ''),
-    model: process.env.AI_MODEL || 'openai/gpt-4o-mini',
-    maxTokens: parseInt(process.env.AI_MAX_TOKENS) || 200,
+    apiKey: process.env.AI_API_KEY || '',
+    model: process.env.AI_MODEL || 'llama-3.3-70b-versatile',
+    maxTokens: parseInt(process.env.AI_MAX_TOKENS) || 500,
     temperature: parseFloat(process.env.AI_TEMPERATURE) || 0.7
 };
 
@@ -129,7 +123,7 @@ console.log('\n⚙️ ═══════ إعدادات البوت ═══�
 console.log(`📱 اسم البوت: ${CONFIG.botName}`);
 console.log(`👤 المالك: ${CONFIG.botOwner}`);
 console.log(`👥 الرد في المجموعات: ${CONFIG.replyInGroups ? '✅' : '❌'}`);
-console.log(`   AI: ${AI_ENABLED ? '✅' : '❌'} | Key: #${global.keyManager?.state?.currentKeyIndex + 1 || 1}/${require('./keyManager').API_KEYS?.length || 1}`);
+console.log(`🤖 AI: ${AI_ENABLED ? '✅ مفعّل' : '❌ معطّل'}`);
 console.log(`📁 ملف الجلسة: ${CONFIG.sessionFile}`);
 console.log('═══════════════════════════════════\n');
 
@@ -213,6 +207,26 @@ let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 5;
 let globalSock = null;
 let isReconnecting = false;
+
+// ⭐ كشف البوت المعلق (متصل لكن لا يستقبل رسائل)
+let lastMessageTime = Date.now();
+const HEARTBEAT_INTERVAL = 10 * 60 * 1000; // 10 دقائق
+
+setInterval(() => {
+    const timeSinceLastMessage = Date.now() - lastMessageTime;
+    
+    // لو مر أكثر من 15 دقيقة بدون رسائل، قد يكون البوت معلق
+    if (globalSock && timeSinceLastMessage > 15 * 60 * 1000) {
+        console.log('⚠️ تحذير: لم يتم استقبال رسائل منذ 15 دقيقة');
+        console.log('🔄 قد يكون البوت معلق - سيتم المراقبة...\n');
+        
+        // لو مر 30 دقيقة، أعد التشغيل
+        if (timeSinceLastMessage > 30 * 60 * 1000) {
+            console.log('❌ البوت معلق! إعادة تشغيل...\n');
+            process.exit(1); // Clever Cloud سيعيد التشغيل تلقائياً
+        }
+    }
+}, HEARTBEAT_INTERVAL);
 
 // ⭐ ذاكرة مؤقتة لآخر 5 رسائل لكل مستخدم
 const userMemory = new Map();
@@ -323,12 +337,23 @@ async function startBot() {
                 }
                 
                 if (statusCode === DisconnectReason.badSession || statusCode === 500) {
-                    console.log('⚠️ خطأ 500/badSession - إعادة الاتصال بعد 10 ثوانٍ...\n');
+                    console.log('⚠️ خطأ 500/badSession - إعادة تشغيل كاملة...\n');
+                    
+                    // ⭐ إعادة تشغيل كاملة بدلاً من reconnect جزئي
+                    if (globalSock) {
+                        try {
+                            globalSock.end(undefined);
+                        } catch (e) {}
+                        globalSock = null;
+                    }
+                    
                     isReconnecting = true;
                     await delay(10000);
                     isReconnecting = false;
-                    reconnectWithDelay(10000);
-                    return;
+                    
+                    // ⭐ إعادة تشغيل كاملة
+                    reconnectAttempts = 0;
+                    return startBot();
                 }
                 
                 if (statusCode === 440 || statusCode === DisconnectReason.connectionReplaced) {
@@ -385,6 +410,9 @@ async function startBot() {
         
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
             try {
+                // ⭐ تحديث وقت آخر رسالة (للكشف عن البوت المعلق)
+                lastMessageTime = Date.now();
+                
                 if (type !== 'notify') return;
                 
                 const msg = messages[0];
@@ -576,22 +604,25 @@ async function startBot() {
                 // ⭐ فحص المجموعات: البوت لا يرد في أي مجموعة إلا المسموحة بأمر /سماح
                 if (isGroup) {
                     // تحقق من قائمة المجموعات المسموحة (من الأوامر)
-                    if (!ALLOWED_GROUPS_LIST.includes(sender)) {
-                        // تحقق من قائمة ENV كبديل
-                        if (CONFIG.allowedGroups.length > 0) {
-                            const isAllowedInEnv = CONFIG.allowedGroups.some(groupId => sender.includes(groupId));
-                            if (!isAllowedInEnv) {
-                                if (CONFIG.showIgnoredMessages) {
-                                    console.log('⏭️ مجموعة غير مسموحة - متجاهل');
-                                }
-                                return;
-                            }
-                        } else {
-                            if (CONFIG.showIgnoredMessages) {
-                                console.log('⏭️ مجموعة غير مسموحة - متجاهل');
-                            }
-                            return;
+                    const isAllowedByCommand = ALLOWED_GROUPS_LIST.includes(sender);
+                    
+                    // تحقق من قائمة ENV
+                    const isAllowedByEnv = CONFIG.allowedGroups.length > 0 && 
+                                          CONFIG.allowedGroups.some(groupId => sender.includes(groupId));
+                    
+                    // Debug
+                    console.log(`🔍 [GROUP CHECK] ${sender}`);
+                    console.log(`🔍 isAllowedByCommand: ${isAllowedByCommand}`);
+                    console.log(`🔍 isAllowedByEnv: ${isAllowedByEnv}`);
+                    console.log(`🔍 ALLOWED_GROUPS_LIST: ${JSON.stringify(ALLOWED_GROUPS_LIST)}`);
+                    console.log(`🔍 CONFIG.allowedGroups: ${JSON.stringify(CONFIG.allowedGroups)}`);
+                    
+                    // لو المجموعة مش مسموحة لا بالأوامر ولا بالـ ENV
+                    if (!isAllowedByCommand && !isAllowedByEnv) {
+                        if (CONFIG.showIgnoredMessages) {
+                            console.log('⏭️ مجموعة غير مسموحة - متجاهل');
                         }
+                        return;
                     }
                 }
                 
