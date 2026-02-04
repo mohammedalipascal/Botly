@@ -11,6 +11,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { getAIResponse } = require('./ai');
+const islamicModule = require('./islamicModule'); // ⭐ إضافة القسم الإسلامي
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -124,6 +125,7 @@ console.log(`📱 اسم البوت: ${CONFIG.botName}`);
 console.log(`👤 المالك: ${CONFIG.botOwner}`);
 console.log(`👥 الرد في المجموعات: ${CONFIG.replyInGroups ? '✅' : '❌'}`);
 console.log(`🤖 AI: ${AI_ENABLED ? '✅ مفعّل' : '❌ معطّل'}`);
+console.log(`📿 القسم الإسلامي: ${islamicModule.isEnabled() ? '✅ مفعّل' : '❌ معطّل'}`); // ⭐ إضافة
 console.log(`📁 ملف الجلسة: ${CONFIG.sessionFile}`);
 console.log('═══════════════════════════════════\n');
 
@@ -382,11 +384,17 @@ async function startBot() {
                 console.log(`   البوت: ${CONFIG.botName}`);
                 console.log(`   الرقم: ${sock.user?.id?.split(':')[0] || '---'}`);
                 console.log(`   AI: ${AI_ENABLED ? '✅' : '❌'}`);
+                console.log(`   القسم الإسلامي: ${islamicModule.isEnabled() ? '✅' : '❌'}`); // ⭐ إضافة
                 console.log('════════════════════════════════════\n');
                 
                 reconnectAttempts = 0;
                 isReconnecting = false;
                 processedMessages.clear();
+                
+                // ⭐ بدء القسم الإسلامي
+                if (islamicModule.isEnabled()) {
+                    islamicModule.startIslamicSchedule(sock);
+                }
                 
                 if (CONFIG.ownerNumber) {
                     try {
@@ -571,6 +579,10 @@ async function startBot() {
                         return;
                     }
                 }
+                
+                // ⭐ معالجة أوامر القسم الإسلامي
+                const isIslamicCommand = await islamicModule.handleIslamicCommand(sock, msg, messageText, sender);
+                if (isIslamicCommand) return;
                                 
                 // ⭐ تجاهل باقي الرسائل من نفسك
                 if (msg.key.fromMe) return;
@@ -692,12 +704,14 @@ function reconnectWithDelay(customDelay = null) {
 
 process.on('SIGINT', () => {
     console.log('\n👋 إيقاف...\n');
+    islamicModule.stopIslamicSchedule(); // ⭐ إيقاف الجدولة عند الإغلاق
     server.close();
     process.exit(0);
 });
 
 process.on('SIGTERM', () => {
     console.log('\n👋 إيقاف...\n');
+    islamicModule.stopIslamicSchedule(); // ⭐ إيقاف الجدولة عند الإغلاق
     server.close();
     process.exit(0);
 });
