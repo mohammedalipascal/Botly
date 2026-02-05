@@ -10,7 +10,7 @@ const P = require('pino');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const NodeCache = require('node-cache'); // ⭐ مهم جداً لحل Bad MAC!
+const NodeCache = require('node-cache');
 const { getAIResponse } = require('./ai');
 const islamicModule = require('./islamicModule');
 
@@ -205,22 +205,8 @@ const MAX_RECONNECT_ATTEMPTS = 5;
 let globalSock = null;
 let isReconnecting = false;
 
-let lastMessageTime = Date.now();
-const HEARTBEAT_INTERVAL = 10 * 60 * 1000;
-
-setInterval(() => {
-    const timeSinceLastMessage = Date.now() - lastMessageTime;
-    
-    if (globalSock && timeSinceLastMessage > 15 * 60 * 1000) {
-        console.log('⚠️ تحذير: لم يتم استقبال رسائل منذ 15 دقيقة');
-        console.log('🔄 قد يكون البوت معلق - سيتم المراقبة...\n');
-        
-        if (timeSinceLastMessage > 30 * 60 * 1000) {
-            console.log('❌ البوت معلق! إعادة تشغيل...\n');
-            process.exit(1);
-        }
-    }
-}, HEARTBEAT_INTERVAL);
+// ⭐ تم حذف نظام مراقبة "البوت المعلق" بالكامل
+// البوت سيبقى يعمل بدون إعادة تشغيل تلقائية
 
 const userMemory = new Map();
 const MAX_MEMORY_PER_USER = 5;
@@ -267,7 +253,6 @@ async function startBot() {
         
         const { state, saveCreds } = await useMultiFileAuthState('auth_info');
         
-        // ⭐⭐⭐ المفتاح لحل Bad MAC Error! ⭐⭐⭐
         const msgRetryCounterCache = new NodeCache();
         
         const sock = makeWASocket({
@@ -281,7 +266,6 @@ async function startBot() {
                 keys: makeCacheableSignalKeyStore(state.keys, P({ level: 'silent' }))
             },
             
-            // ⭐⭐⭐ إعدادات مطابقة تماماً لمولد الجلسة ⭐⭐⭐
             markOnlineOnConnect: true,
             generateHighQualityLinkPreview: true,
             syncFullHistory: false,
@@ -290,7 +274,6 @@ async function startBot() {
             connectTimeoutMs: 60000,
             keepAliveIntervalMs: 10000,
             
-            // ⭐⭐⭐ هذا هو المفتاح الأساسي لحل Bad MAC! ⭐⭐⭐
             msgRetryCounterCache,
             
             getMessage: async (key) => {
@@ -306,15 +289,11 @@ async function startBot() {
         
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
             try {
-                lastMessageTime = Date.now();
-                
-                // ⭐⭐⭐ تنظيف cache كما في مولد الجلسة ⭐⭐⭐
+                // ⭐ تنظيف cache
                 if (msgRetryCounterCache) {
                     try {
                         msgRetryCounterCache.flushAll();
-                    } catch (e) {
-                        // تجاهل الأخطاء
-                    }
+                    } catch (e) {}
                 }
                 
                 if (type !== 'notify') return;
