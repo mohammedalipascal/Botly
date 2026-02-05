@@ -310,7 +310,11 @@ async function startBot() {
                 
                 // ⭐⭐⭐ تنظيف cache كما في مولد الجلسة ⭐⭐⭐
                 if (msgRetryCounterCache) {
-                    msgRetryCounterCache.clear();
+                    try {
+                        msgRetryCounterCache.flushAll();
+                    } catch (e) {
+                        // تجاهل الأخطاء
+                    }
                 }
                 
                 if (type !== 'notify') return;
