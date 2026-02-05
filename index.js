@@ -10,8 +10,9 @@ const P = require('pino');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const NodeCache = require('node-cache'); // ⭐ مهم جداً لحل Bad MAC!
 const { getAIResponse } = require('./ai');
-const islamicModule = require('./islamicModule'); // ⭐ إضافة القسم الإسلامي
+const islamicModule = require('./islamicModule');
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -24,20 +25,18 @@ const CONFIG = {
     botOwner: process.env.BOT_OWNER || 'مقداد',
     prefix: process.env.PREFIX || '!',
     port: process.env.PORT || 8080,
-    replyInGroups: false, // ⭐ دائماً false - استخدم /سماح للمجموعات
+    replyInGroups: false,
     ownerNumber: process.env.OWNER_NUMBER ? process.env.OWNER_NUMBER + '@s.whatsapp.net' : null,
     showIgnoredMessages: process.env.SHOW_IGNORED_MESSAGES === 'true',
     logLevel: process.env.LOG_LEVEL || 'silent',
     sessionFile: process.env.SESSION_FILE || 'session.json',
-    adminNumber: '249962204268@s.whatsapp.net', // ⭐ رقم الأدمن
-    // ⭐ القروبات المسموح الرد فيها من ENV (افصلها بفاصلة)
+    adminNumber: '249962204268@s.whatsapp.net',
     allowedGroups: process.env.ALLOWED_GROUPS ? process.env.ALLOWED_GROUPS.split(',').map(g => g.trim()) : [],
-    // ⭐ الأرقام المحظورة (افصلها بفاصلة)
     blockedContacts: process.env.BLOCKED_CONTACTS ? process.env.BLOCKED_CONTACTS.split(',').map(c => c.trim()) : []
 };
 
 // ═══════════════════════════════════════════════════════════
-// 💾 حفظ حالة الـ AI في ملف (حل جذري نهائي)
+// 💾 حفظ حالة الـ AI
 // ═══════════════════════════════════════════════════════════
 
 const AI_STATE_FILE = path.join(__dirname, 'ai_state.json');
@@ -52,9 +51,8 @@ function loadAIState() {
             return state.enabled || false;
         }
     } catch (error) {
-        console.log('⚠️ خطأ في قراءة حالة AI، استخدام القيمة الافتراضية');
+        console.log('⚠️ خطأ في قراءة حالة AI');
     }
-    // لو الملف مو موجود، القيمة الافتراضية: false (متوقف)
     return false;
 }
 
@@ -66,7 +64,6 @@ function saveAIState(enabled) {
     }
 }
 
-// ⭐ قائمة المحظورين
 function loadBanList() {
     try {
         if (fs.existsSync(BAN_LIST_FILE)) {
@@ -87,7 +84,6 @@ function saveBanList(list) {
     }
 }
 
-// ⭐ المجموعات المسموحة (من الأوامر)
 function loadAllowedGroupsList() {
     try {
         if (fs.existsSync(ALLOWED_GROUPS_FILE)) {
@@ -108,7 +104,6 @@ function saveAllowedGroupsList(list) {
     }
 }
 
-// ⭐ تحميل حالة الـ AI من الملف (تبقى حتى بعد restart)
 let AI_ENABLED = loadAIState();
 let BANNED_USERS = loadBanList();
 let ALLOWED_GROUPS_LIST = loadAllowedGroupsList();
@@ -125,7 +120,7 @@ console.log(`📱 اسم البوت: ${CONFIG.botName}`);
 console.log(`👤 المالك: ${CONFIG.botOwner}`);
 console.log(`👥 الرد في المجموعات: ${CONFIG.replyInGroups ? '✅' : '❌'}`);
 console.log(`🤖 AI: ${AI_ENABLED ? '✅ مفعّل' : '❌ معطّل'}`);
-console.log(`📿 القسم الإسلامي: ${islamicModule.isEnabled() ? '✅ مفعّل' : '❌ معطّل'}`); // ⭐ إضافة
+console.log(`📿 القسم الإسلامي: ${islamicModule.isEnabled() ? '✅ مفعّل' : '❌ معطّل'}`);
 console.log(`📁 ملف الجلسة: ${CONFIG.sessionFile}`);
 console.log('═══════════════════════════════════\n');
 
@@ -210,27 +205,23 @@ const MAX_RECONNECT_ATTEMPTS = 5;
 let globalSock = null;
 let isReconnecting = false;
 
-// ⭐ كشف البوت المعلق (متصل لكن لا يستقبل رسائل)
 let lastMessageTime = Date.now();
-const HEARTBEAT_INTERVAL = 10 * 60 * 1000; // 10 دقائق
+const HEARTBEAT_INTERVAL = 10 * 60 * 1000;
 
 setInterval(() => {
     const timeSinceLastMessage = Date.now() - lastMessageTime;
     
-    // لو مر أكثر من 15 دقيقة بدون رسائل، قد يكون البوت معلق
     if (globalSock && timeSinceLastMessage > 15 * 60 * 1000) {
         console.log('⚠️ تحذير: لم يتم استقبال رسائل منذ 15 دقيقة');
         console.log('🔄 قد يكون البوت معلق - سيتم المراقبة...\n');
         
-        // لو مر 30 دقيقة، أعد التشغيل
         if (timeSinceLastMessage > 30 * 60 * 1000) {
             console.log('❌ البوت معلق! إعادة تشغيل...\n');
-            process.exit(1); // Clever Cloud سيعيد التشغيل تلقائياً
+            process.exit(1);
         }
     }
 }, HEARTBEAT_INTERVAL);
 
-// ⭐ ذاكرة مؤقتة لآخر 5 رسائل لكل مستخدم
 const userMemory = new Map();
 const MAX_MEMORY_PER_USER = 5;
 
@@ -276,150 +267,51 @@ async function startBot() {
         
         const { state, saveCreds } = await useMultiFileAuthState('auth_info');
         
+        // ⭐⭐⭐ المفتاح لحل Bad MAC Error! ⭐⭐⭐
+        const msgRetryCounterCache = new NodeCache();
+        
         const sock = makeWASocket({
             version,
+            logger: P({ level: 'silent' }),
+            printQRInTerminal: false,
+            browser: ["Ubuntu", "Chrome", "20.0.04"],
+            
             auth: {
                 creds: state.creds,
                 keys: makeCacheableSignalKeyStore(state.keys, P({ level: 'silent' }))
             },
-            printQRInTerminal: false,
-            logger: P({ level: 'fatal' }),
-            browser: ['Ubuntu', 'Chrome', '20.0.04'],
             
-            syncFullHistory: false,
+            // ⭐⭐⭐ إعدادات مطابقة تماماً لمولد الجلسة ⭐⭐⭐
             markOnlineOnConnect: true,
-            emitOwnEvents: false,
-            generateHighQualityLinkPreview: false,
+            generateHighQualityLinkPreview: true,
+            syncFullHistory: false,
             
-            defaultQueryTimeoutMs: undefined,
+            defaultQueryTimeoutMs: 60000,
+            connectTimeoutMs: 60000,
+            keepAliveIntervalMs: 10000,
+            
+            // ⭐⭐⭐ هذا هو المفتاح الأساسي لحل Bad MAC! ⭐⭐⭐
+            msgRetryCounterCache,
+            
             getMessage: async (key) => {
                 return { conversation: '' };
             },
             
-            // ⭐ إعدادات لتقليل مشاكل الجلسات وحل Bad MAC Error
-            retryRequestDelayMs: 250,
-            maxMsgRetryCount: 5,
-            msgRetryCounterMap: {},
-            connectTimeoutMs: 60000,
-            
-            // ⭐ تفعيل إعادة المزامنة التلقائية
-            syncFullHistory: false,
-            fireInitQueries: true,
-            
-            // ⭐ تقليل التحذيرات
             shouldIgnoreJid: (jid) => jid.endsWith('@newsletter')
         });
 
         globalSock = sock;
 
         sock.ev.on('creds.update', saveCreds);
-
-        sock.ev.on('connection.update', async (update) => {
-            const { connection, lastDisconnect, qr } = update;
-            
-            if (qr) {
-                console.error('\n❌ خطأ: تم طلب QR!\n');
-                process.exit(1);
-            }
-            
-            if (connection === 'close') {
-                const statusCode = lastDisconnect?.error?.output?.statusCode;
-                
-                console.log(`\n❌ الاتصال مغلق - كود: ${statusCode}\n`);
-                
-                if (isReconnecting) {
-                    console.log('⏭️ إعادة اتصال جارية...\n');
-                    return;
-                }
-                
-                if (statusCode === DisconnectReason.loggedOut ||
-                    statusCode === 401 || statusCode === 403) {
-                    console.error('❌ الجلسة غير صالحة!\n');
-                    process.exit(1);
-                }
-                
-                if (statusCode === DisconnectReason.badSession || statusCode === 500) {
-                    console.log('⚠️ خطأ 500/badSession - إعادة تشغيل كاملة...\n');
-                    
-                    // ⭐ إعادة تشغيل كاملة بدلاً من reconnect جزئي
-                    if (globalSock) {
-                        try {
-                            globalSock.end(undefined);
-                        } catch (e) {}
-                        globalSock = null;
-                    }
-                    
-                    isReconnecting = true;
-                    await delay(10000);
-                    isReconnecting = false;
-                    
-                    // ⭐ إعادة تشغيل كاملة
-                    reconnectAttempts = 0;
-                    return startBot();
-                }
-                
-                if (statusCode === 440 || statusCode === DisconnectReason.connectionReplaced) {
-                    console.log('⚠️ خطأ 440 - انتظار 15 ثانية...\n');
-                    isReconnecting = true;
-                    await delay(15000);
-                    isReconnecting = false;
-                    reconnectWithDelay(15000);
-                    return;
-                }
-                
-                if (statusCode === 515) {
-                    console.log('⚠️ خطأ 515 - انتظار 5 ثوانٍ...\n');
-                    isReconnecting = true;
-                    await delay(5000);
-                    isReconnecting = false;
-                    reconnectWithDelay(5000);
-                    return;
-                }
-                
-                reconnectWithDelay();
-                
-            } else if (connection === 'open') {
-                console.log('✅ ════════════════════════════════════');
-                console.log(`   متصل بواتساب بنجاح! 🎉`);
-                console.log(`   البوت: ${CONFIG.botName}`);
-                console.log(`   الرقم: ${sock.user?.id?.split(':')[0] || '---'}`);
-                console.log(`   AI: ${AI_ENABLED ? '✅' : '❌'}`);
-                console.log(`   القسم الإسلامي: ${islamicModule.isEnabled() ? '✅' : '❌'}`); // ⭐ إضافة
-                console.log('════════════════════════════════════\n');
-                
-                reconnectAttempts = 0;
-                isReconnecting = false;
-                processedMessages.clear();
-                
-                // ⭐ بدء القسم الإسلامي
-                if (islamicModule.isEnabled()) {
-                    islamicModule.startIslamicSchedule(sock);
-                }
-                
-                if (CONFIG.ownerNumber) {
-                    try {
-                        await delay(3000);
-                        await sock.sendMessage(CONFIG.ownerNumber, {
-                            text: `✅ *${CONFIG.botName} متصل*\n\n📱 ${sock.user.id.split(':')[0]}\n⏰ ${new Date().toLocaleString('ar-EG')}`
-                        });
-                    } catch (e) {
-                        console.log('⚠️ لم يتم إرسال إشعار\n');
-                    }
-                }
-                
-            } else if (connection === 'connecting') {
-                console.log('🔄 جاري الاتصال...');
-            }
-        });
-
-        // ═══════════════════════════════════════════════════════════
-        // 💬 معالجة الرسائل
-        // ═══════════════════════════════════════════════════════════
         
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
             try {
-                // ⭐ تحديث وقت آخر رسالة (للكشف عن البوت المعلق)
                 lastMessageTime = Date.now();
+                
+                // ⭐⭐⭐ تنظيف cache كما في مولد الجلسة ⭐⭐⭐
+                if (msgRetryCounterCache) {
+                    msgRetryCounterCache.clear();
+                }
                 
                 if (type !== 'notify') return;
                 
@@ -430,14 +322,12 @@ async function startBot() {
                 const messageId = msg.key.id;
                 const isGroup = sender.endsWith('@g.us');
                 
-                // ⭐ استخراج نص الرسالة
                 const messageText = 
                     msg.message.conversation ||
                     msg.message.extendedTextMessage?.text ||
                     msg.message.imageMessage?.caption ||
                     msg.message.videoMessage?.caption || '';
                 
-                // ⭐ فحص أوامر الأدمن أولاً (حتى لو fromMe)
                 const adminCommands = ['/تشغيل', '/توقف', '/ban', '/unban', '/id'];
                 if (msg.key.fromMe && adminCommands.includes(messageText.trim())) {
                     console.log('\n' + '='.repeat(50));
@@ -455,8 +345,7 @@ async function startBot() {
                     
                     if (messageText.trim() === '/تشغيل') {
                         AI_ENABLED = true;
-                        saveAIState(true); // ⭐ حفظ الحالة في الملف
-                        // ⭐ تفاعل بعلامة ✅
+                        saveAIState(true);
                         await sock.sendMessage(sender, {
                             react: { text: '✅', key: msg.key }
                         });
@@ -466,8 +355,7 @@ async function startBot() {
                     
                     if (messageText.trim() === '/توقف') {
                         AI_ENABLED = false;
-                        saveAIState(false); // ⭐ حفظ الحالة في الملف
-                        // ⭐ تفاعل بعلامة 🛑
+                        saveAIState(false);
                         await sock.sendMessage(sender, {
                             react: { text: '🛑', key: msg.key }
                         });
@@ -498,24 +386,12 @@ async function startBot() {
                     }
                 }
                 
-                // ⭐ فحص أوامر المجموعات 
-                // في المجموعات، participant قد يكون LID أو رقم هاتف
-                // نحتاج التحقق من كلاهما
                 const isAdminInGroup = isGroup && msg.key.participant && (
-                    msg.key.participant.includes('249962204268') || // رقم الهاتف
-                    msg.key.participant.includes('231211024814174') // ⭐ الـ LID الخاص بك
+                    msg.key.participant.includes('249962204268') ||
+                    msg.key.participant.includes('231211024814174')
                 );
                 const isAdminDirect = msg.key.fromMe;
                 
-                // Debug log للمجموعات
-                if (isGroup && (messageText.trim() === '/سماح' || messageText.trim() === '/منع')) {
-                    console.log(`🔍 [DEBUG] Group command detected!`);
-                    console.log(`🔍 [DEBUG] participant: ${msg.key.participant}`);
-                    console.log(`🔍 [DEBUG] isAdminInGroup: ${isAdminInGroup}`);
-                    console.log(`🔍 [DEBUG] isAdminDirect: ${isAdminDirect}`);
-                }
-                
-                // ⭐ الطريقة البديلة: أرسل "سماح GROUP_ID" في محادثة خاصة
                 if (isAdminDirect && !isGroup && messageText.trim().startsWith('سماح ')) {
                     const groupId = messageText.trim().substring(5).trim();
                     if (groupId.endsWith('@g.us')) {
@@ -544,10 +420,8 @@ async function startBot() {
                     }
                 }
                 
-                // الطريقة الأصلية (في المجموعة نفسها)
                 if ((isAdminInGroup || isAdminDirect) && (messageText.trim() === '/سماح' || messageText.trim() === '/منع')) {
                     if (!isGroup) {
-                        // لو الأمر مرسول خارج مجموعة، تجاهله
                         console.log('⚠️ أمر /سماح أو /منع يجب أن يُرسل داخل المجموعة\n');
                         return;
                     }
@@ -580,11 +454,9 @@ async function startBot() {
                     }
                 }
                 
-                // ⭐ معالجة أوامر القسم الإسلامي
                 const isIslamicCommand = await islamicModule.handleIslamicCommand(sock, msg, messageText, sender);
                 if (isIslamicCommand) return;
                                 
-                // ⭐ تجاهل باقي الرسائل من نفسك
                 if (msg.key.fromMe) return;
                 
                 if (sender.endsWith('@newsletter')) {
@@ -594,7 +466,6 @@ async function startBot() {
                     return;
                 }
                 
-                // ⭐ فحص قائمة المحظورين (من الأوامر)
                 if (BANNED_USERS.includes(sender)) {
                     if (CONFIG.showIgnoredMessages) {
                         console.log('⏭️ مستخدم محظور - متجاهل');
@@ -602,7 +473,6 @@ async function startBot() {
                     return;
                 }
                 
-                // ⭐ فحص الأرقام المحظورة (من ENV)
                 if (CONFIG.blockedContacts.length > 0) {
                     const isBlocked = CONFIG.blockedContacts.some(blocked => sender.includes(blocked));
                     if (isBlocked) {
@@ -613,23 +483,11 @@ async function startBot() {
                     }
                 }
                 
-                // ⭐ فحص المجموعات: البوت لا يرد في أي مجموعة إلا المسموحة بأمر /سماح
                 if (isGroup) {
-                    // تحقق من قائمة المجموعات المسموحة (من الأوامر)
                     const isAllowedByCommand = ALLOWED_GROUPS_LIST.includes(sender);
-                    
-                    // تحقق من قائمة ENV
                     const isAllowedByEnv = CONFIG.allowedGroups.length > 0 && 
                                           CONFIG.allowedGroups.some(groupId => sender.includes(groupId));
                     
-                    // Debug
-                    console.log(`🔍 [GROUP CHECK] ${sender}`);
-                    console.log(`🔍 isAllowedByCommand: ${isAllowedByCommand}`);
-                    console.log(`🔍 isAllowedByEnv: ${isAllowedByEnv}`);
-                    console.log(`🔍 ALLOWED_GROUPS_LIST: ${JSON.stringify(ALLOWED_GROUPS_LIST)}`);
-                    console.log(`🔍 CONFIG.allowedGroups: ${JSON.stringify(CONFIG.allowedGroups)}`);
-                    
-                    // لو المجموعة مش مسموحة لا بالأوامر ولا بالـ ENV
                     if (!isAllowedByCommand && !isAllowedByEnv) {
                         if (CONFIG.showIgnoredMessages) {
                             console.log('⏭️ مجموعة غير مسموحة - متجاهل');
@@ -657,7 +515,6 @@ async function startBot() {
                 processedMessages.add(messageId);
                 cleanProcessedMessages();
 
-                // ⭐ حفظ الرسالة في الذاكرة المؤقتة
                 addToUserMemory(sender, messageText);
                 const recentMessages = getUserMemory(sender);
 
@@ -677,6 +534,101 @@ async function startBot() {
                 
             } catch (error) {
                 console.error('❌ خطأ في معالجة الرسالة:', error);
+            }
+        });
+
+        sock.ev.on('connection.update', async (update) => {
+            const { connection, lastDisconnect, qr } = update;
+            
+            if (qr) {
+                console.error('\n❌ خطأ: تم طلب QR!\n');
+                process.exit(1);
+            }
+            
+            if (connection === 'close') {
+                const statusCode = lastDisconnect?.error?.output?.statusCode;
+                
+                console.log(`\n❌ الاتصال مغلق - كود: ${statusCode}\n`);
+                
+                if (isReconnecting) {
+                    console.log('⏭️ إعادة اتصال جارية...\n');
+                    return;
+                }
+                
+                if (statusCode === DisconnectReason.loggedOut ||
+                    statusCode === 401 || statusCode === 403) {
+                    console.error('❌ الجلسة غير صالحة!\n');
+                    process.exit(1);
+                }
+                
+                if (statusCode === DisconnectReason.badSession || statusCode === 500) {
+                    console.log('⚠️ خطأ 500/badSession - إعادة تشغيل كاملة...\n');
+                    
+                    if (globalSock) {
+                        try {
+                            globalSock.end(undefined);
+                        } catch (e) {}
+                        globalSock = null;
+                    }
+                    
+                    isReconnecting = true;
+                    await delay(10000);
+                    isReconnecting = false;
+                    
+                    reconnectAttempts = 0;
+                    return startBot();
+                }
+                
+                if (statusCode === 440 || statusCode === DisconnectReason.connectionReplaced) {
+                    console.log('⚠️ خطأ 440 - انتظار 15 ثانية...\n');
+                    isReconnecting = true;
+                    await delay(15000);
+                    isReconnecting = false;
+                    reconnectWithDelay(15000);
+                    return;
+                }
+                
+                if (statusCode === 515) {
+                    console.log('⚠️ خطأ 515 - انتظار 5 ثوانٍ...\n');
+                    isReconnecting = true;
+                    await delay(5000);
+                    isReconnecting = false;
+                    reconnectWithDelay(5000);
+                    return;
+                }
+                
+                reconnectWithDelay();
+                
+            } else if (connection === 'open') {
+                console.log('✅ ════════════════════════════════════');
+                console.log(`   متصل بواتساب بنجاح! 🎉`);
+                console.log(`   البوت: ${CONFIG.botName}`);
+                console.log(`   الرقم: ${sock.user?.id?.split(':')[0] || '---'}`);
+                console.log(`   AI: ${AI_ENABLED ? '✅' : '❌'}`);
+                console.log(`   القسم الإسلامي: ${islamicModule.isEnabled() ? '✅' : '❌'}`);
+                console.log('════════════════════════════════════\n');
+                
+                reconnectAttempts = 0;
+                isReconnecting = false;
+                processedMessages.clear();
+                
+                if (islamicModule.isEnabled()) {
+                    islamicModule.startIslamicSchedule(sock);
+                }
+                
+                if (CONFIG.ownerNumber) {
+                    try {
+                        await delay(3000);
+                        await sock.sendMessage(CONFIG.ownerNumber, {
+                            text: `✅ *${CONFIG.botName} متصل*\n\n📱 ${sock.user.id.split(':')[0]}\n⏰ ${new Date().toLocaleString('ar-EG')}`
+                        });
+                    } catch (e) {
+                        console.log('⚠️ لم يتم إرسال إشعار\n');
+                    }
+                }
+                
+            } else if (connection === 'connecting') {
+                console.log('🔄 جاري الاتصال...');
             }
         });
 
@@ -704,14 +656,14 @@ function reconnectWithDelay(customDelay = null) {
 
 process.on('SIGINT', () => {
     console.log('\n👋 إيقاف...\n');
-    islamicModule.stopIslamicSchedule(); // ⭐ إيقاف الجدولة عند الإغلاق
+    islamicModule.stopIslamicSchedule();
     server.close();
     process.exit(0);
 });
 
 process.on('SIGTERM', () => {
     console.log('\n👋 إيقاف...\n');
-    islamicModule.stopIslamicSchedule(); // ⭐ إيقاف الجدولة عند الإغلاق
+    islamicModule.stopIslamicSchedule();
     server.close();
     process.exit(0);
 });
