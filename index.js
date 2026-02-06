@@ -25,11 +25,13 @@ const CONFIG = {
     ownerNumber: process.env.OWNER_NUMBER ? process.env.OWNER_NUMBER + '@s.whatsapp.net' : null,
     showIgnoredMessages: process.env.SHOW_IGNORED_MESSAGES === 'true',
     logLevel: process.env.LOG_LEVEL || 'silent',
-    sessionFile: process.env.SESSION_FILE || 'session.json',
     adminNumber: '249962204268@s.whatsapp.net',
     allowedGroups: process.env.ALLOWED_GROUPS ? process.env.ALLOWED_GROUPS.split(',').map(g => g.trim()) : [],
     blockedContacts: process.env.BLOCKED_CONTACTS ? process.env.BLOCKED_CONTACTS.split(',').map(c => c.trim()) : []
 };
+
+// ⭐⭐⭐ ENV للجلسة ⭐⭐⭐
+const SESSION_DATA_ENV = process.env.SESSION_DATA || '';
 
 const AI_STATE_FILE = path.join(__dirname, 'ai_state.json');
 const BAN_LIST_FILE = path.join(__dirname, 'ban_list.json');
@@ -113,7 +115,7 @@ console.log(`👤 المالك: ${CONFIG.botOwner}`);
 console.log(`👥 الرد في المجموعات: ${CONFIG.replyInGroups ? '✅' : '❌'}`);
 console.log(`🤖 AI: ${AI_ENABLED ? '✅ مفعّل' : '❌ معطّل'}`);
 console.log(`📿 القسم الإسلامي: ${islamicModule.isEnabled() ? '✅ مفعّل' : '❌ معطّل'}`);
-console.log(`📁 ملف الجلسة: ${CONFIG.sessionFile}`);
+console.log(`💾 الجلسة: ${SESSION_DATA_ENV ? 'ENV ✅' : 'session.json'}`);
 console.log('═══════════════════════════════════\n');
 
 let requestCount = 0;
@@ -141,18 +143,71 @@ setInterval(() => {
     }).on('error', () => {});
 }, 5 * 60 * 1000);
 
-function loadSessionFromFile() {
+// ⭐⭐⭐ تحديث ENV على Clever Cloud ⭐⭐⭐
+async function updateCleverCloudEnv(sessionDataBase64) {
     try {
-        console.log(`🔐 تحميل الجلسة من: ${CONFIG.sessionFile}...`);
+        const updateUrl = process.env.CC_ENVIRON_UPDATE_URL;
+        const updateToken = process.env.CC_ENVIRON_UPDATE_TOKEN;
         
-        const sessionPath = path.join(__dirname, CONFIG.sessionFile);
-        
-        if (!fs.existsSync(sessionPath)) {
-            throw new Error(`ملف الجلسة غير موجود: ${CONFIG.sessionFile}`);
+        if (!updateUrl || !updateToken) {
+            console.log('⚠️ CC_ENVIRON_UPDATE_URL أو CC_ENVIRON_UPDATE_TOKEN غير موجود');
+            return false;
         }
         
-        const fileContent = fs.readFileSync(sessionPath, 'utf-8').trim();
-        const sessionData = JSON.parse(fileContent);
+        const response = await fetch(updateUrl, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${updateToken}`
+            },
+            body: JSON.stringify({
+                SESSION_DATA: sessionDataBase64
+            })
+        });
+        
+        if (response.ok) {
+            console.log('✅ تم تحديث SESSION_DATA في Clever Cloud ENV');
+            return true;
+        } else {
+            console.log('⚠️ فشل تحديث ENV:', response.status);
+            return false;
+        }
+    } catch (error) {
+        console.log('⚠️ خطأ في تحديث ENV:', error.message);
+        return false;
+    }
+}
+
+// ⭐⭐⭐ حفظ الجلسة المُحدّثة في ENV ⭐⭐⭐
+async function saveSessionToEnv() {
+    try {
+        const authPath = path.join(__dirname, 'auth_info');
+        if (!fs.existsSync(authPath)) return;
+        
+        const sessionFiles = {};
+        const files = fs.readdirSync(authPath);
+        
+        for (const file of files) {
+            const filePath = path.join(authPath, file);
+            if (fs.statSync(filePath).isFile()) {
+                sessionFiles[file] = fs.readFileSync(filePath, 'utf-8');
+            }
+        }
+        
+        const sessionDataBase64 = Buffer.from(JSON.stringify(sessionFiles)).toString('base64');
+        
+        // تحديث ENV على Clever Cloud
+        await updateCleverCloudEnv(sessionDataBase64);
+        
+    } catch (error) {
+        console.error('❌ خطأ في حفظ الجلسة:', error.message);
+    }
+}
+
+// ⭐⭐⭐ تحميل الجلسة من ENV أو session.json ⭐⭐⭐
+function loadSessionFromEnv() {
+    try {
+        console.log('🔐 تحميل الجلسة...\n');
         
         const authPath = path.join(__dirname, 'auth_info');
         if (fs.existsSync(authPath)) {
@@ -160,6 +215,27 @@ function loadSessionFromFile() {
         }
         fs.mkdirSync(authPath, { recursive: true });
         
+        let sessionData;
+        
+        // ⭐ أولوية للـ ENV
+        if (SESSION_DATA_ENV) {
+            console.log('📦 تحميل من SESSION_DATA ENV...');
+            const sessionJson = Buffer.from(SESSION_DATA_ENV, 'base64').toString('utf-8');
+            sessionData = JSON.parse(sessionJson);
+        } else {
+            // الرجوع لـ session.json
+            console.log('📦 تحميل من session.json...');
+            const sessionPath = path.join(__dirname, 'session.json');
+            
+            if (!fs.existsSync(sessionPath)) {
+                throw new Error('لا يوجد SESSION_DATA في ENV ولا session.json!');
+            }
+            
+            const fileContent = fs.readFileSync(sessionPath, 'utf-8').trim();
+            sessionData = JSON.parse(fileContent);
+        }
+        
+        // كتابة الملفات
         for (const [filename, content] of Object.entries(sessionData)) {
             fs.writeFileSync(path.join(authPath, filename), content);
         }
@@ -217,7 +293,7 @@ async function startBot() {
     try {
         console.log('🚀 بدء البوت...\n');
         
-        loadSessionFromFile();
+        loadSessionFromEnv();
         
         const { version, isLatest } = await fetchLatestBaileysVersion();
         console.log(`📦 Baileys v${version.join('.')}, أحدث: ${isLatest ? '✅' : '⚠️'}\n`);
@@ -228,7 +304,7 @@ async function startBot() {
         
         const sock = makeWASocket({
             version,
-            logger: P({ level: 'fatal' }), // ⭐ تجاهل أخطاء Bad MAC في logs
+            logger: P({ level: 'fatal' }),
             printQRInTerminal: false,
             browser: ["Ubuntu", "Chrome", "20.0.04"],
             
@@ -256,7 +332,11 @@ async function startBot() {
 
         globalSock = sock;
 
-        sock.ev.on('creds.update', saveCreds);
+        // ⭐⭐⭐ حفظ في ENV عند كل تحديث ⭐⭐⭐
+        sock.ev.on('creds.update', async () => {
+            await saveCreds();
+            await saveSessionToEnv(); // ⭐ حفظ في ENV
+        });
         
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
             try {
@@ -275,10 +355,9 @@ async function startBot() {
                 const messageId = msg.key.id;
                 const isGroup = sender.endsWith('@g.us');
                 
-                // ⭐⭐⭐ تجاهل الرسائل القديمة قبل بدء البوت ⭐⭐⭐
                 const messageTime = msg.messageTimestamp * 1000;
                 if (messageTime < botStartTime - 60000) {
-                    return; // تجاهل الرسائل القديمة تماماً
+                    return;
                 }
                 
                 const messageText = 
@@ -456,12 +535,7 @@ async function startBot() {
                 }
                 
                 if (sender === 'status@broadcast') return;
-                
-                // ⭐⭐⭐ منع معالجة نفس الرسالة مرتين ⭐⭐⭐
-                if (processedMessages.has(messageId)) {
-                    return; // تجاهل الرسائل المُعالجة مسبقاً
-                }
-                
+                if (processedMessages.has(messageId)) return;
                 if (Date.now() - messageTime > 60000) return;
                 
                 const messageType = Object.keys(msg.message)[0];
@@ -474,7 +548,6 @@ async function startBot() {
                 console.log(`📝 ${messageText}`);
                 console.log('='.repeat(50));
 
-                // ⭐ إضافة لقائمة المُعالج فوراً لمنع التكرار
                 processedMessages.add(messageId);
                 cleanProcessedMessages();
 
@@ -496,7 +569,6 @@ async function startBot() {
                 }
                 
             } catch (error) {
-                // ⭐ تجاهل أخطاء Bad MAC تماماً
                 if (!error.message.includes('Bad MAC')) {
                     console.error('❌ خطأ في معالجة الرسالة:', error.message);
                 }
@@ -535,7 +607,11 @@ async function startBot() {
                 console.log('════════════════════════════════════\n');
                 
                 processedMessages.clear();
-                botStartTime = Date.now(); // ⭐ تحديث وقت البدء
+                botStartTime = Date.now();
+                
+                // ⭐ حفظ الجلسة في ENV فور الاتصال
+                await delay(2000);
+                await saveSessionToEnv();
                 
                 if (islamicModule.isEnabled()) {
                     islamicModule.startIslamicSchedule(sock);
@@ -579,5 +655,12 @@ process.on('SIGTERM', () => {
     server.close();
     process.exit(0);
 });
+
+// ⭐ حفظ دوري كل 5 دقائق
+setInterval(async () => {
+    if (globalSock) {
+        await saveSessionToEnv();
+    }
+}, 5 * 60 * 1000);
 
 startBot();
