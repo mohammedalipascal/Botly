@@ -248,10 +248,6 @@ const EVENING_ATHKAR = [
     }
 ];
 
-// ═══════════════════════════════════════════════════════════
-// 📁 حفظ حالة القسم الإسلامي وترتيب الأذكار
-// ═══════════════════════════════════════════════════════════
-
 const ISLAMIC_STATE_FILE = path.join(__dirname, 'islamic_state.json');
 
 function loadIslamicState() {
@@ -278,14 +274,9 @@ function saveIslamicState(enabled, currentIndex) {
     }
 }
 
-// تحميل الحالة
 let islamicState = loadIslamicState();
 let ISLAMIC_MODULE_ENABLED = islamicState.enabled;
 let CURRENT_THIKR_INDEX = islamicState.currentIndex;
-
-// ═══════════════════════════════════════════════════════════
-// 📿 دالة إرسال ذكر واحد
-// ═══════════════════════════════════════════════════════════
 
 async function sendSingleThikr(sock, type) {
     try {
@@ -301,7 +292,6 @@ async function sendSingleThikr(sock, type) {
             return;
         }
         
-        // اختيار الذكر المناسب حسب النوع والترتيب
         const athkarArray = type === 'morning' ? MORNING_ATHKAR : EVENING_ATHKAR;
         const thikr = athkarArray[CURRENT_THIKR_INDEX];
         
@@ -312,12 +302,13 @@ async function sendSingleThikr(sock, type) {
         
         await sock.sendMessage(targetGroup, {
             text: thikr.text
+        }, {
+            ephemeralExpiration: 0
         });
         
         const athkarType = type === 'morning' ? 'الصباح' : 'المساء';
         console.log(`✅ تم إرسال ذكر ${athkarType} #${CURRENT_THIKR_INDEX + 1} - ${new Date().toLocaleString('ar-EG', { timeZone: 'Africa/Cairo' })}`);
         
-        // تحديث الفهرس
         CURRENT_THIKR_INDEX = (CURRENT_THIKR_INDEX + 1) % athkarArray.length;
         saveIslamicState(ISLAMIC_MODULE_ENABLED, CURRENT_THIKR_INDEX);
         
@@ -325,10 +316,6 @@ async function sendSingleThikr(sock, type) {
         console.error('❌ خطأ في إرسال الذكر:', error.message);
     }
 }
-
-// ═══════════════════════════════════════════════════════════
-// ⏰ جدولة الأذكار (توقيت القاهرة)
-// ═══════════════════════════════════════════════════════════
 
 let morningJob1 = null;
 let morningJob2 = null;
@@ -341,7 +328,6 @@ function startIslamicSchedule(sock) {
         return;
     }
     
-    // ⭐ ذكر الصباح الأول - 6:50 صباحاً بتوقيت القاهرة
     morningJob1 = cron.schedule('50 6 * * *', async () => {
         console.log('\n🌅 حان وقت ذكر الصباح الأول (6:50 ص)...');
         await sendSingleThikr(sock, 'morning');
@@ -350,7 +336,6 @@ function startIslamicSchedule(sock) {
         timezone: "Africa/Cairo"
     });
     
-    // ⭐ ذكر الصباح الثاني - 7:00 صباحاً بتوقيت القاهرة
     morningJob2 = cron.schedule('0 7 * * *', async () => {
         console.log('\n🌅 حان وقت ذكر الصباح الثاني (7:00 ص)...');
         await sendSingleThikr(sock, 'morning');
@@ -359,7 +344,6 @@ function startIslamicSchedule(sock) {
         timezone: "Africa/Cairo"
     });
     
-    // ⭐ ذكر المساء الأول - 3:50 عصراً بتوقيت القاهرة
     eveningJob1 = cron.schedule('50 15 * * *', async () => {
         console.log('\n🌇 حان وقت ذكر المساء الأول (3:50 م)...');
         await sendSingleThikr(sock, 'evening');
@@ -368,7 +352,6 @@ function startIslamicSchedule(sock) {
         timezone: "Africa/Cairo"
     });
     
-    // ⭐ ذكر المساء الثاني - 4:00 عصراً بتوقيت القاهرة
     eveningJob2 = cron.schedule('0 16 * * *', async () => {
         console.log('\n🌇 حان وقت ذكر المساء الثاني (4:00 م)...');
         await sendSingleThikr(sock, 'evening');
@@ -404,25 +387,17 @@ function stopIslamicSchedule() {
     console.log('⏸️ تم إيقاف جدولة الأذكار\n');
 }
 
-// ═══════════════════════════════════════════════════════════
-// 🎛️ معالجة أوامر القسم الإسلامي
-// ═══════════════════════════════════════════════════════════
-
 async function handleIslamicCommand(sock, msg, messageText, sender) {
     const command = messageText.trim();
-    
-    // فقط الأدمن يمكنه التحكم
     const isAdmin = msg.key.fromMe || sender === process.env.ADMIN_NUMBER;
     
     if (!isAdmin) {
-        return false; // ليس أمر إسلامي أو ليس أدمن
+        return false;
     }
     
     if (command === '/اسلام') {
         ISLAMIC_MODULE_ENABLED = true;
         saveIslamicState(true, CURRENT_THIKR_INDEX);
-        
-        // إيقاف الجدولة القديمة وبدء واحدة جديدة
         stopIslamicSchedule();
         startIslamicSchedule(sock);
         
@@ -441,7 +416,6 @@ async function handleIslamicCommand(sock, msg, messageText, sender) {
     if (command === '/اسلام_ايقاف') {
         ISLAMIC_MODULE_ENABLED = false;
         saveIslamicState(false, CURRENT_THIKR_INDEX);
-        
         stopIslamicSchedule();
         
         await sock.sendMessage(sender, {
@@ -456,7 +430,6 @@ async function handleIslamicCommand(sock, msg, messageText, sender) {
         return true;
     }
     
-    // أمر إرسال يدوي للذكر (للاختبار)
     if (command === '/ذكر_صباح') {
         await sendSingleThikr(sock, 'morning');
         await sock.sendMessage(sender, {
@@ -473,7 +446,6 @@ async function handleIslamicCommand(sock, msg, messageText, sender) {
         return true;
     }
     
-    // أمر إعادة تعيين الترتيب
     if (command === '/اسلام_اعادة') {
         CURRENT_THIKR_INDEX = 0;
         saveIslamicState(ISLAMIC_MODULE_ENABLED, 0);
@@ -486,7 +458,6 @@ async function handleIslamicCommand(sock, msg, messageText, sender) {
         return true;
     }
     
-    // أمر عرض حالة الترتيب
     if (command === '/اسلام_حالة') {
         await sock.sendMessage(sender, {
             text: `📊 *حالة القسم الإسلامي*\n\n✅ الحالة: ${ISLAMIC_MODULE_ENABLED ? 'مفعّل' : 'معطّل'}\n📍 الذكر الحالي: #${CURRENT_THIKR_INDEX + 1}\n📚 إجمالي الأذكار: ${MORNING_ATHKAR.length}`
@@ -494,12 +465,8 @@ async function handleIslamicCommand(sock, msg, messageText, sender) {
         return true;
     }
     
-    return false; // ليس أمر إسلامي
+    return false;
 }
-
-// ═══════════════════════════════════════════════════════════
-// 📤 تصدير الوحدة
-// ═══════════════════════════════════════════════════════════
 
 module.exports = {
     handleIslamicCommand,
