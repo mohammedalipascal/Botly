@@ -16,10 +16,6 @@ const islamicModule = require('./islamicModule');
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// ═══════════════════════════════════════════════════════════
-// 🔧 الإعدادات
-// ═══════════════════════════════════════════════════════════
-
 const CONFIG = {
     botName: process.env.BOT_NAME || 'Botly',
     botOwner: process.env.BOT_OWNER || 'مقداد',
@@ -34,10 +30,6 @@ const CONFIG = {
     allowedGroups: process.env.ALLOWED_GROUPS ? process.env.ALLOWED_GROUPS.split(',').map(g => g.trim()) : [],
     blockedContacts: process.env.BLOCKED_CONTACTS ? process.env.BLOCKED_CONTACTS.split(',').map(c => c.trim()) : []
 };
-
-// ═══════════════════════════════════════════════════════════
-// 💾 حفظ حالة الـ AI
-// ═══════════════════════════════════════════════════════════
 
 const AI_STATE_FILE = path.join(__dirname, 'ai_state.json');
 const BAN_LIST_FILE = path.join(__dirname, 'ban_list.json');
@@ -124,10 +116,6 @@ console.log(`📿 القسم الإسلامي: ${islamicModule.isEnabled() ? '�
 console.log(`📁 ملف الجلسة: ${CONFIG.sessionFile}`);
 console.log('═══════════════════════════════════\n');
 
-// ═══════════════════════════════════════════════════════════
-// 🌐 HTTP Server + Keep-Alive
-// ═══════════════════════════════════════════════════════════
-
 let requestCount = 0;
 
 const server = http.createServer((req, res) => {
@@ -149,13 +137,9 @@ server.listen(CONFIG.port, () => {
 setInterval(() => {
     const url = `http://localhost:${CONFIG.port}`;
     http.get(url, (res) => {
-        console.log(`💓 Keep-alive ping: ${res.statusCode}`);
+        console.log(`💓 Keep-alive: ${res.statusCode}`);
     }).on('error', () => {});
 }, 5 * 60 * 1000);
-
-// ═══════════════════════════════════════════════════════════
-// 💾 تحميل الجلسة
-// ═══════════════════════════════════════════════════════════
 
 function loadSessionFromFile() {
     try {
@@ -194,19 +178,9 @@ function loadSessionFromFile() {
     }
 }
 
-// ═══════════════════════════════════════════════════════════
-// 📊 متغيرات + ذاكرة مؤقتة
-// ═══════════════════════════════════════════════════════════
-
 const processedMessages = new Set();
 const MAX_PROCESSED_CACHE = 1000;
-let reconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 5;
 let globalSock = null;
-let isReconnecting = false;
-
-// ⭐ تم حذف نظام مراقبة "البوت المعلق" بالكامل
-// البوت سيبقى يعمل بدون إعادة تشغيل تلقائية
 
 const userMemory = new Map();
 const MAX_MEMORY_PER_USER = 5;
@@ -237,10 +211,6 @@ function cleanProcessedMessages() {
         }
     }
 }
-
-// ═══════════════════════════════════════════════════════════
-// 🤖 بدء البوت
-// ═══════════════════════════════════════════════════════════
 
 async function startBot() {
     try {
@@ -289,7 +259,6 @@ async function startBot() {
         
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
             try {
-                // ⭐ تنظيف cache
                 if (msgRetryCounterCache) {
                     try {
                         msgRetryCounterCache.flushAll();
@@ -533,54 +502,14 @@ async function startBot() {
                 
                 console.log(`\n❌ الاتصال مغلق - كود: ${statusCode}\n`);
                 
-                if (isReconnecting) {
-                    console.log('⏭️ إعادة اتصال جارية...\n');
-                    return;
-                }
-                
                 if (statusCode === DisconnectReason.loggedOut ||
                     statusCode === 401 || statusCode === 403) {
-                    console.error('❌ الجلسة غير صالحة!\n');
+                    console.error('❌ الجلسة غير صالحة - يجب إنشاء جلسة جديدة!\n');
                     process.exit(1);
                 }
                 
-                if (statusCode === DisconnectReason.badSession || statusCode === 500) {
-                    console.log('⚠️ خطأ 500/badSession - إعادة تشغيل كاملة...\n');
-                    
-                    if (globalSock) {
-                        try {
-                            globalSock.end(undefined);
-                        } catch (e) {}
-                        globalSock = null;
-                    }
-                    
-                    isReconnecting = true;
-                    await delay(10000);
-                    isReconnecting = false;
-                    
-                    reconnectAttempts = 0;
-                    return startBot();
-                }
-                
-                if (statusCode === 440 || statusCode === DisconnectReason.connectionReplaced) {
-                    console.log('⚠️ خطأ 440 - انتظار 15 ثانية...\n');
-                    isReconnecting = true;
-                    await delay(15000);
-                    isReconnecting = false;
-                    reconnectWithDelay(15000);
-                    return;
-                }
-                
-                if (statusCode === 515) {
-                    console.log('⚠️ خطأ 515 - انتظار 5 ثوانٍ...\n');
-                    isReconnecting = true;
-                    await delay(5000);
-                    isReconnecting = false;
-                    reconnectWithDelay(5000);
-                    return;
-                }
-                
-                reconnectWithDelay();
+                console.log(`⚠️ خطأ ${statusCode} - سيتم إعادة التشغيل بواسطة Clever Cloud\n`);
+                process.exit(1);
                 
             } else if (connection === 'open') {
                 console.log('✅ ════════════════════════════════════');
@@ -591,8 +520,6 @@ async function startBot() {
                 console.log(`   القسم الإسلامي: ${islamicModule.isEnabled() ? '✅' : '❌'}`);
                 console.log('════════════════════════════════════\n');
                 
-                reconnectAttempts = 0;
-                isReconnecting = false;
                 processedMessages.clear();
                 
                 if (islamicModule.isEnabled()) {
@@ -619,22 +546,9 @@ async function startBot() {
         
     } catch (error) {
         console.error('❌ خطأ في بدء البوت:', error);
-        await delay(10000);
-        reconnectWithDelay(10000);
-    }
-}
-
-function reconnectWithDelay(customDelay = null) {
-    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-        console.error('❌ فشل بعد عدة محاولات\n');
+        console.log('⚠️ سيتم إعادة التشغيل بواسطة Clever Cloud\n');
         process.exit(1);
     }
-    
-    reconnectAttempts++;
-    const delayTime = customDelay || (5000 * reconnectAttempts);
-    
-    console.log(`🔄 إعادة المحاولة بعد ${delayTime/1000}ث (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})\n`);
-    setTimeout(startBot, delayTime);
 }
 
 process.on('SIGINT', () => {
