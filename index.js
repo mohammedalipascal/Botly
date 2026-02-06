@@ -141,6 +141,30 @@ setInterval(() => {
     }).on('error', () => {});
 }, 5 * 60 * 1000);
 
+// ⭐⭐⭐ دالة حفظ session.json المُحدّث ديناميكياً ⭐⭐⭐
+function saveUpdatedSession() {
+    try {
+        const authPath = path.join(__dirname, 'auth_info');
+        if (!fs.existsSync(authPath)) return;
+        
+        const sessionFiles = {};
+        const files = fs.readdirSync(authPath);
+        
+        for (const file of files) {
+            const filePath = path.join(authPath, file);
+            if (fs.statSync(filePath).isFile()) {
+                sessionFiles[file] = fs.readFileSync(filePath, 'utf-8');
+            }
+        }
+        
+        fs.writeFileSync(CONFIG.sessionFile, JSON.stringify(sessionFiles, null, 2));
+        console.log('💾 تم تحديث session.json');
+        
+    } catch (error) {
+        console.error('❌ خطأ في حفظ session.json:', error.message);
+    }
+}
+
 function loadSessionFromFile() {
     try {
         console.log(`🔐 تحميل الجلسة من: ${CONFIG.sessionFile}...`);
@@ -255,7 +279,11 @@ async function startBot() {
 
         globalSock = sock;
 
-        sock.ev.on('creds.update', saveCreds);
+        // ⭐⭐⭐ حفظ session.json عند كل تحديث ⭐⭐⭐
+        sock.ev.on('creds.update', async () => {
+            await saveCreds();
+            saveUpdatedSession(); // ⭐ حفظ session.json المُحدّث
+        });
         
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
             try {
@@ -522,6 +550,10 @@ async function startBot() {
                 
                 processedMessages.clear();
                 
+                // ⭐⭐⭐ حفظ session.json فور الاتصال ⭐⭐⭐
+                await delay(2000);
+                saveUpdatedSession();
+                
                 if (islamicModule.isEnabled()) {
                     islamicModule.startIslamicSchedule(sock);
                 }
@@ -553,6 +585,7 @@ async function startBot() {
 
 process.on('SIGINT', () => {
     console.log('\n👋 إيقاف...\n');
+    saveUpdatedSession(); // ⭐ حفظ قبل الإيقاف
     islamicModule.stopIslamicSchedule();
     server.close();
     process.exit(0);
@@ -560,9 +593,17 @@ process.on('SIGINT', () => {
 
 process.on('SIGTERM', () => {
     console.log('\n👋 إيقاف...\n');
+    saveUpdatedSession(); // ⭐ حفظ قبل الإيقاف
     islamicModule.stopIslamicSchedule();
     server.close();
     process.exit(0);
 });
+
+// ⭐⭐⭐ حفظ session.json دورياً كل 5 دقائق ⭐⭐⭐
+setInterval(() => {
+    if (globalSock) {
+        saveUpdatedSession();
+    }
+}, 5 * 60 * 1000);
 
 startBot();
