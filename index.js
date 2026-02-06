@@ -141,30 +141,6 @@ setInterval(() => {
     }).on('error', () => {});
 }, 5 * 60 * 1000);
 
-// ⭐⭐⭐ دالة حفظ session.json المُحدّث ديناميكياً ⭐⭐⭐
-function saveUpdatedSession() {
-    try {
-        const authPath = path.join(__dirname, 'auth_info');
-        if (!fs.existsSync(authPath)) return;
-        
-        const sessionFiles = {};
-        const files = fs.readdirSync(authPath);
-        
-        for (const file of files) {
-            const filePath = path.join(authPath, file);
-            if (fs.statSync(filePath).isFile()) {
-                sessionFiles[file] = fs.readFileSync(filePath, 'utf-8');
-            }
-        }
-        
-        fs.writeFileSync(CONFIG.sessionFile, JSON.stringify(sessionFiles, null, 2));
-        console.log('💾 تم تحديث session.json');
-        
-    } catch (error) {
-        console.error('❌ خطأ في حفظ session.json:', error.message);
-    }
-}
-
 function loadSessionFromFile() {
     try {
         console.log(`🔐 تحميل الجلسة من: ${CONFIG.sessionFile}...`);
@@ -205,6 +181,7 @@ function loadSessionFromFile() {
 const processedMessages = new Set();
 const MAX_PROCESSED_CACHE = 1000;
 let globalSock = null;
+let botStartTime = Date.now();
 
 const userMemory = new Map();
 const MAX_MEMORY_PER_USER = 5;
@@ -251,13 +228,13 @@ async function startBot() {
         
         const sock = makeWASocket({
             version,
-            logger: P({ level: 'silent' }),
+            logger: P({ level: 'fatal' }), // ⭐ تجاهل أخطاء Bad MAC في logs
             printQRInTerminal: false,
             browser: ["Ubuntu", "Chrome", "20.0.04"],
             
             auth: {
                 creds: state.creds,
-                keys: makeCacheableSignalKeyStore(state.keys, P({ level: 'silent' }))
+                keys: makeCacheableSignalKeyStore(state.keys, P({ level: 'fatal' }))
             },
             
             markOnlineOnConnect: true,
@@ -279,11 +256,7 @@ async function startBot() {
 
         globalSock = sock;
 
-        // ⭐⭐⭐ حفظ session.json عند كل تحديث ⭐⭐⭐
-        sock.ev.on('creds.update', async () => {
-            await saveCreds();
-            saveUpdatedSession(); // ⭐ حفظ session.json المُحدّث
-        });
+        sock.ev.on('creds.update', saveCreds);
         
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
             try {
@@ -301,6 +274,12 @@ async function startBot() {
                 const sender = msg.key.remoteJid;
                 const messageId = msg.key.id;
                 const isGroup = sender.endsWith('@g.us');
+                
+                // ⭐⭐⭐ تجاهل الرسائل القديمة قبل بدء البوت ⭐⭐⭐
+                const messageTime = msg.messageTimestamp * 1000;
+                if (messageTime < botStartTime - 60000) {
+                    return; // تجاهل الرسائل القديمة تماماً
+                }
                 
                 const messageText = 
                     msg.message.conversation ||
@@ -477,9 +456,12 @@ async function startBot() {
                 }
                 
                 if (sender === 'status@broadcast') return;
-                if (processedMessages.has(messageId)) return;
                 
-                const messageTime = msg.messageTimestamp * 1000;
+                // ⭐⭐⭐ منع معالجة نفس الرسالة مرتين ⭐⭐⭐
+                if (processedMessages.has(messageId)) {
+                    return; // تجاهل الرسائل المُعالجة مسبقاً
+                }
+                
                 if (Date.now() - messageTime > 60000) return;
                 
                 const messageType = Object.keys(msg.message)[0];
@@ -492,6 +474,7 @@ async function startBot() {
                 console.log(`📝 ${messageText}`);
                 console.log('='.repeat(50));
 
+                // ⭐ إضافة لقائمة المُعالج فوراً لمنع التكرار
                 processedMessages.add(messageId);
                 cleanProcessedMessages();
 
@@ -513,7 +496,10 @@ async function startBot() {
                 }
                 
             } catch (error) {
-                console.error('❌ خطأ في معالجة الرسالة:', error);
+                // ⭐ تجاهل أخطاء Bad MAC تماماً
+                if (!error.message.includes('Bad MAC')) {
+                    console.error('❌ خطأ في معالجة الرسالة:', error.message);
+                }
             }
         });
 
@@ -549,10 +535,7 @@ async function startBot() {
                 console.log('════════════════════════════════════\n');
                 
                 processedMessages.clear();
-                
-                // ⭐⭐⭐ حفظ session.json فور الاتصال ⭐⭐⭐
-                await delay(2000);
-                saveUpdatedSession();
+                botStartTime = Date.now(); // ⭐ تحديث وقت البدء
                 
                 if (islamicModule.isEnabled()) {
                     islamicModule.startIslamicSchedule(sock);
@@ -585,7 +568,6 @@ async function startBot() {
 
 process.on('SIGINT', () => {
     console.log('\n👋 إيقاف...\n');
-    saveUpdatedSession(); // ⭐ حفظ قبل الإيقاف
     islamicModule.stopIslamicSchedule();
     server.close();
     process.exit(0);
@@ -593,17 +575,9 @@ process.on('SIGINT', () => {
 
 process.on('SIGTERM', () => {
     console.log('\n👋 إيقاف...\n');
-    saveUpdatedSession(); // ⭐ حفظ قبل الإيقاف
     islamicModule.stopIslamicSchedule();
     server.close();
     process.exit(0);
 });
-
-// ⭐⭐⭐ حفظ session.json دورياً كل 5 دقائق ⭐⭐⭐
-setInterval(() => {
-    if (globalSock) {
-        saveUpdatedSession();
-    }
-}, 5 * 60 * 1000);
 
 startBot();
