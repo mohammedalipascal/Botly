@@ -1,8 +1,7 @@
 const cron = require('node-cron');
 const fs = require('fs');
 const path = require('path');
-const https = require('https');
-const http = require('http');
+const { fetchRandomFatwa, formatFatwaMessage } = require('./fatwaModule');
 
 // ═══════════════════════════════════════════════════════════
 // 📿 القسم الإسلامي - أذكار الصباح والمساء + فتاوى ابن باز
@@ -84,7 +83,14 @@ const MORNING_ATHKAR = [
 ━━━━━━━━━━━━━━━━━━━━━━
 من قالها حين يصبح فقد أدى شكر ذلك اليوم`
     },
+    {
+        text: `🌅 *ذكر الصباح*
 
+لا إِلَهَ إِلَّا اللهُ وَحْدَهُ لَا شَرِيكَ لَهُ، لَهُ الْمُلْكُ وَلَهُ الْحَمْدُ، وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ
+
+━━━━━━━━━━━━━━━━━━━━━━
+كُتِبَ لَهُ بِهِنَّ عَشْرُ حَسَنَاتٍ وَمُحِيَ بِهِنَّ عَنْهُ عَشْرُ سَيِّئَاتٍ وَرُفِعَ لَهُ بِهِنَّ عَشْرُ دَرَجَاتٍ وَكُنَّ لَهُ عَدْلَ عَتَاقَةِ أَرْبَعِ رِقَابٍ`
+    },
     {
         text: `🌅 *ذكر الصباح*
 
@@ -198,7 +204,14 @@ const EVENING_ATHKAR = [
 ━━━━━━━━━━━━━━━━━━━━━━
 من قالها حين يمسي فقد أدى شكر تلك الليلة`
     },
-    
+    {
+        text: `🌇 *ذكر المساء*
+
+لا إِلَهَ إِلَّا اللهُ وَحْدَهُ لَا شَرِيكَ لَهُ، لَهُ الْمُلْكُ وَلَهُ الْحَمْدُ، وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ
+
+━━━━━━━━━━━━━━━━━━━━━━
+كُتِبَ لَهُ بِهِنَّ عَشْرُ حَسَنَاتٍ وَمُحِيَ بِهِنَّ عَنْهُ عَشْرُ سَيِّئَاتٍ وَرُفِعَ لَهُ بِهِنَّ عَشْرُ دَرَجَاتٍ وَكُنَّ لَهُ عَدْلَ عَتَاقَةِ أَرْبَعِ رِقَابٍ`
+    },
     {
         text: `🌇 *ذكر المساء*
 
@@ -237,180 +250,7 @@ const EVENING_ATHKAR = [
 ];
 
 // ⭐⭐⭐ فتاوى ابن باز ⭐⭐⭐
-const FATWA_STATE_FILE = path.join(__dirname, 'fatwa_state.json');
-
-function loadFatwaState() {
-    try {
-        if (fs.existsSync(FATWA_STATE_FILE)) {
-            const data = fs.readFileSync(FATWA_STATE_FILE, 'utf-8');
-            return JSON.parse(data);
-        }
-    } catch (error) {
-        console.log('⚠️ خطأ في قراءة حالة الفتاوى');
-    }
-    return { usedFatwas: [], lastPage: 1 };
-}
-
-function saveFatwaState(state) {
-    try {
-        fs.writeFileSync(FATWA_STATE_FILE, JSON.stringify(state), 'utf-8');
-    } catch (error) {
-        console.error('❌ خطأ في حفظ حالة الفتاوى:', error.message);
-    }
-}
-
-let fatwaState = loadFatwaState();
-
-async function fetchRandomFatwa() {
-    return new Promise((resolve, reject) => {
-        // قائمة مُختارة من أرقام الفتاوى الصحيحة (من 1 إلى 35000)
-        // سنختار رقم عشوائي ونحاول جلبه
-        const maxAttempts = 10;
-        let attempts = 0;
-        
-        const tryFetch = () => {
-            if (attempts >= maxAttempts) {
-                reject(new Error('فشل جلب الفتوى بعد عدة محاولات'));
-                return;
-            }
-            
-            attempts++;
-            
-            // اختيار رقم فتوى عشوائي (الموقع يحتوي على آلاف الفتاوى)
-            const fatwaId = Math.floor(Math.random() * 35000) + 1;
-            const url = `https://binbaz.org.sa/fatwas/${fatwaId}`;
-            
-            console.log(`🔍 محاولة ${attempts}: جلب فتوى رقم ${fatwaId}...`);
-            
-            https.get(url, (res) => {
-                // إذا كانت الصفحة غير موجودة (404)، حاول مرة أخرى
-                if (res.statusCode === 404) {
-                    console.log(`⚠️ الفتوى ${fatwaId} غير موجودة، محاولة أخرى...`);
-                    tryFetch();
-                    return;
-                }
-                
-                if (res.statusCode !== 200) {
-                    console.log(`⚠️ خطأ ${res.statusCode}، محاولة أخرى...`);
-                    tryFetch();
-                    return;
-                }
-                
-                let data = '';
-                
-                res.on('data', (chunk) => {
-                    data += chunk;
-                });
-                
-                res.on('end', () => {
-                    try {
-                        // استخراج العنوان - عدة محاولات للعثور عليه
-                        let title = 'فتوى';
-                        
-                        // محاولة 1: من h1
-                        let titleMatch = data.match(/<h1[^>]*>(.*?)<\/h1>/i);
-                        if (titleMatch) {
-                            title = titleMatch[1].replace(/<[^>]+>/g, '').trim();
-                        } else {
-                            // محاولة 2: من title tag
-                            titleMatch = data.match(/<title>(.*?)<\/title>/i);
-                            if (titleMatch) {
-                                title = titleMatch[1].replace(/<[^>]+>/g, '').replace(/\s*-\s*موقع.*$/i, '').trim();
-                            }
-                        }
-                        
-                        // استخراج السؤال
-                        let question = '';
-                        const questionPatterns = [
-                            /<div[^>]*class="[^"]*question[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
-                            /<div[^>]*id="[^"]*question[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
-                            /<p[^>]*class="[^"]*question[^"]*"[^>]*>([\s\S]*?)<\/p>/i
-                        ];
-                        
-                        for (const pattern of questionPatterns) {
-                            const match = data.match(pattern);
-                            if (match) {
-                                question = match[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
-                                if (question.length > 50) break;
-                            }
-                        }
-                        
-                        // استخراج الجواب
-                        let answer = '';
-                        const answerPatterns = [
-                            /<div[^>]*class="[^"]*answer[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
-                            /<div[^>]*id="[^"]*answer[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
-                            /<div[^>]*class="[^"]*content[^"]*"[^>]*>([\s\S]*?)<\/div>/i
-                        ];
-                        
-                        for (const pattern of answerPatterns) {
-                            const match = data.match(pattern);
-                            if (match) {
-                                answer = match[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
-                                if (answer.length > 100) break;
-                            }
-                        }
-                        
-                        // إذا لم نجد الجواب، استخرج من body
-                        if (!answer || answer.length < 100) {
-                            const bodyMatch = data.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-                            if (bodyMatch) {
-                                const bodyText = bodyMatch[1]
-                                    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-                                    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-                                    .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '')
-                                    .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '')
-                                    .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '')
-                                    .replace(/<[^>]+>/g, ' ')
-                                    .replace(/\s+/g, ' ')
-                                    .replace(/&nbsp;/g, ' ')
-                                    .trim();
-                                
-                                // أخذ جزء معقول من النص
-                                if (bodyText.length > 200) {
-                                    answer = bodyText.substring(0, 1000);
-                                }
-                            }
-                        }
-                        
-                        // التحقق من وجود محتوى
-                        if (!answer || answer.length < 50) {
-                            console.log(`⚠️ الفتوى ${fatwaId} لا تحتوي على محتوى كافٍ، محاولة أخرى...`);
-                            tryFetch();
-                            return;
-                        }
-                        
-                        // تنظيف النصوص
-                        question = question.substring(0, 400).trim();
-                        answer = answer.substring(0, 1000).trim();
-                        
-                        // إضافة نقاط في النهاية إذا تم الاقتطاع
-                        if (question.length >= 400) question += '...';
-                        if (answer.length >= 1000) answer += '...';
-                        
-                        resolve({
-                            id: fatwaId,
-                            title: title,
-                            question: question || 'غير متوفر',
-                            answer: answer,
-                            url: url
-                        });
-                        
-                    } catch (error) {
-                        console.log(`⚠️ خطأ في معالجة الفتوى ${fatwaId}:`, error.message);
-                        tryFetch();
-                    }
-                });
-                
-            }).on('error', (error) => {
-                console.log(`⚠️ خطأ في الاتصال:`, error.message);
-                tryFetch();
-            });
-        };
-        
-        tryFetch();
-    });
-}
+// تم نقل منطق جلب الفتاوى إلى ملف fatwaModule.js منفصل
 
 async function sendFatwa(sock) {
     try {
@@ -429,34 +269,7 @@ async function sendFatwa(sock) {
         console.log('\n📚 جاري جلب فتوى من موقع ابن باز...');
         
         const fatwa = await fetchRandomFatwa();
-        
-        let message = `📚 *فتوى من موقع الشيخ ابن باز*
-رحمه الله تعالى
-
-━━━━━━━━━━━━━━━━━━━━━━
-
-*${fatwa.title}*
-
-━━━━━━━━━━━━━━━━━━━━━━`;
-
-        if (fatwa.question && fatwa.question !== 'غير متوفر') {
-            message += `
-
-*السؤال:*
-${fatwa.question}
-
-━━━━━━━━━━━━━━━━━━━━━━`;
-        }
-
-        message += `
-
-*الجواب:*
-${fatwa.answer}
-
-━━━━━━━━━━━━━━━━━━━━━━
-
-🔗 الرابط الكامل:
-${fatwa.url}`;
+        const message = formatFatwaMessage(fatwa);
         
         await sock.sendMessage(targetGroup, {
             text: message
