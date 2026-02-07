@@ -33,6 +33,9 @@ const CONFIG = {
 // ⭐⭐⭐ ENV للجلسة ⭐⭐⭐
 const SESSION_DATA_ENV = process.env.SESSION_DATA || '';
 
+// ⭐ متغيرات لإنشاء الجلسة
+let isGeneratingSession = false;
+
 const AI_STATE_FILE = path.join(__dirname, 'ai_state.json');
 const BAN_LIST_FILE = path.join(__dirname, 'ban_list.json');
 const ALLOWED_GROUPS_FILE = path.join(__dirname, 'allowed_groups.json');
@@ -204,6 +207,129 @@ async function saveSessionToEnv() {
     }
 }
 
+// ⭐⭐⭐ دوال إنشاء الجلسة ⭐⭐⭐
+function generateQRLinks(qrData) {
+    const encoded = encodeURIComponent(qrData);
+    return {
+        primary: `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encoded}`,
+        alternative: `https://chart.googleapis.com/chart?chs=500x500&cht=qr&chl=${encoded}`
+    };
+}
+
+function displayQRLinks(links, attempt) {
+    console.log('\n╔════════════════════════════════════════════════════════╗');
+    console.log(`║          📱 QR Code #${attempt} - امسحه الآن!                ║`);
+    console.log('╚════════════════════════════════════════════════════════╝\n');
+    
+    console.log('🔗 الروابط:');
+    console.log(`\n1️⃣ ${links.primary}\n`);
+    console.log(`2️⃣ ${links.alternative}\n`);
+    console.log('═'.repeat(60) + '\n');
+}
+
+async function generateNewSession() {
+    console.log('\n╔════════════════════════════════════════════════╗');
+    console.log('║   🔐 إنشاء جلسة جديدة - SESSION_DATA فارغ   ║');
+    console.log('╚════════════════════════════════════════════════╝\n');
+    
+    isGeneratingSession = true;
+    let qrAttempt = 0;
+    const MAX_QR_ATTEMPTS = 5;
+    
+    try {
+        const authPath = path.join(__dirname, 'auth_info');
+        if (fs.existsSync(authPath)) {
+            fs.rmSync(authPath, { recursive: true, force: true });
+        }
+        
+        const { version } = await fetchLatestBaileysVersion();
+        console.log(`📦 Baileys v${version.join('.')}\n`);
+        
+        const { state, saveCreds } = await useMultiFileAuthState('auth_info');
+        const msgRetryCounterCache = new NodeCache();
+        
+        const sock = makeWASocket({
+            version,
+            logger: P({ level: 'fatal' }),
+            printQRInTerminal: false,
+            browser: ["Ubuntu", "Chrome", "20.0.04"],
+            auth: {
+                creds: state.creds,
+                keys: makeCacheableSignalKeyStore(state.keys, P({ level: 'fatal' }))
+            },
+            markOnlineOnConnect: true,
+            syncFullHistory: false,
+            msgRetryCounterCache,
+            getMessage: async () => ({ conversation: '' })
+        });
+        
+        sock.ev.on('creds.update', saveCreds);
+        
+        sock.ev.on('connection.update', async (update) => {
+            const { connection, qr } = update;
+            
+            if (qr) {
+                qrAttempt++;
+                if (qrAttempt > MAX_QR_ATTEMPTS) {
+                    console.error('\n❌ تجاوز الحد الأقصى لـ QR\n');
+                    process.exit(1);
+                }
+                const links = generateQRLinks(qr);
+                displayQRLinks(links, qrAttempt);
+            }
+            
+            if (connection === 'open') {
+                console.log('\n✅ ════════════════════════════════════');
+                console.log('   🎉 متصل بنجاح!');
+                console.log(`   📱 ${sock.user.id.split(':')[0]}`);
+                console.log('════════════════════════════════════\n');
+                
+                console.log('⏳ انتظار 30 ثانية للمزامنة...\n');
+                await delay(30000);
+                
+                // حفظ في ENV
+                await saveSessionToEnv();
+                
+                console.log('\n✅ تم حفظ الجلسة في SESSION_DATA');
+                console.log('🔄 إعادة تشغيل البوت...\n');
+                
+                sock.end();
+                process.exit(0); // Clever Cloud سيعيد التشغيل تلقائياً
+            }
+        });
+        
+    } catch (error) {
+        console.error('❌ خطأ في إنشاء الجلسة:', error.message);
+        process.exit(1);
+    }
+}
+
+// ⭐⭐⭐ حفظ الجلسة المُحدّثة في ENV ⭐⭐⭐
+async function saveSessionToEnv() {
+    try {
+        const authPath = path.join(__dirname, 'auth_info');
+        if (!fs.existsSync(authPath)) return;
+        
+        const sessionFiles = {};
+        const files = fs.readdirSync(authPath);
+        
+        for (const file of files) {
+            const filePath = path.join(authPath, file);
+            if (fs.statSync(filePath).isFile()) {
+                sessionFiles[file] = fs.readFileSync(filePath, 'utf-8');
+            }
+        }
+        
+        const sessionDataBase64 = Buffer.from(JSON.stringify(sessionFiles)).toString('base64');
+        
+        // تحديث ENV على Clever Cloud
+        await updateCleverCloudEnv(sessionDataBase64);
+        
+    } catch (error) {
+        console.error('❌ خطأ في حفظ الجلسة:', error.message);
+    }
+}
+
 // ⭐⭐⭐ تحميل الجلسة من ENV أو session.json ⭐⭐⭐
 function loadSessionFromEnv() {
     try {
@@ -291,6 +417,12 @@ function cleanProcessedMessages() {
 
 async function startBot() {
     try {
+        // ⭐⭐⭐ التحقق من SESSION_DATA ⭐⭐⭐
+        if (!SESSION_DATA_ENV) {
+            console.log('⚠️ SESSION_DATA فارغ - سيتم إنشاء جلسة جديدة\n');
+            return await generateNewSession();
+        }
+        
         console.log('🚀 بدء البوت...\n');
         
         loadSessionFromEnv();
