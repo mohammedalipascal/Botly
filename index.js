@@ -272,8 +272,9 @@ async function generateNewSession(attemptNumber = 1) {
                     console.log(`   📱 ${sock.user.id.split(':')[0]}`);
                     console.log('════════════════════════════════════\n');
                     
-                    console.log('⏳ انتظار 10 ثواني للمزامنة الكاملة...\n');
-                    await delay(10000);
+                    console.log('⏳ انتظار 45 ثانية للمزامنة الكاملة...');
+                    console.log('💡 نصيحة: أرسل رسالة في أي مجموعة الآن!\n');
+                    await delay(45000);
                     
                     console.log('✅ تم حفظ الجلسة محلياً في auth_info/');
                     console.log('💡 الجلسة ستبقى على السيرفر\n');
@@ -348,8 +349,8 @@ async function startBot() {
                 await generateNewSession();
             } catch (error) {
                 console.error('❌ فشل إنشاء الجلسة:', error.message);
-                console.log('⏳ سيتم المحاولة مرة أخرى بعد 3 ثانية...\n');
-                await delay(3000);
+                console.log('⏳ سيتم المحاولة مرة أخرى بعد 60 ثانية...\n');
+                await delay(60000);
                 return startBot(); // إعادة المحاولة
             }
             
@@ -375,9 +376,9 @@ async function startBot() {
                 await generateNewSession();
             } catch (error) {
                 console.error('❌ فشل إنشاء الجلسة:', error.message);
-                console.log('⏳ سيتم المحاولة مرة أخرى بعد 3 ثانية...\n');
+                console.log('⏳ سيتم المحاولة مرة أخرى بعد 3 ثواني...\n');
                 await delay(3000);
-                return startBot();
+                return startBot(); // إعادة المحاولة
             }
             
             await delay(3000);
@@ -428,10 +429,13 @@ async function startBot() {
         
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
             try {
+                // ⭐ تنظيف cache بشكل صحيح لتجنب Bad MAC
                 if (msgRetryCounterCache) {
                     try {
                         msgRetryCounterCache.flushAll();
-                    } catch (e) {}
+                    } catch (e) {
+                        // تجاهل الأخطاء
+                    }
                 }
                 
                 if (type !== 'notify') return;
@@ -764,3 +768,4 @@ process.on('SIGTERM', () => {
 });
 
 startBot();
+
