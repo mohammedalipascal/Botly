@@ -348,8 +348,8 @@ async function startBot() {
                 await generateNewSession();
             } catch (error) {
                 console.error('❌ فشل إنشاء الجلسة:', error.message);
-                console.log('⏳ سيتم المحاولة مرة أخرى بعد 3 ثانية...\n');
-                await delay(3000);
+                console.log('⏳ سيتم المحاولة مرة أخرى بعد 60 ثانية...\n');
+                await delay(60000);
                 return startBot(); // إعادة المحاولة
             }
             
@@ -375,8 +375,8 @@ async function startBot() {
                 await generateNewSession();
             } catch (error) {
                 console.error('❌ فشل إنشاء الجلسة:', error.message);
-                console.log('⏳ سيتم المحاولة مرة أخرى بعد 60 ثانية...\n');
-                await delay(60000);
+                console.log('⏳ سيتم المحاولة مرة أخرى بعد 3 ثانية...\n');
+                await delay(3000);
                 return startBot();
             }
             
