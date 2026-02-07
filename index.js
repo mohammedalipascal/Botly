@@ -112,13 +112,17 @@ const AI_CONFIG = {
     temperature: parseFloat(process.env.AI_TEMPERATURE) || 0.7
 };
 
+// ⭐⭐⭐ التحقق من وجود جلسة محلية ⭐⭐⭐
+const authPath = path.join(__dirname, 'auth_info');
+const hasLocalSession = fs.existsSync(authPath) && fs.existsSync(path.join(authPath, 'creds.json'));
+
 console.log('\n⚙️ ═══════ إعدادات البوت ═══════');
 console.log(`📱 اسم البوت: ${CONFIG.botName}`);
 console.log(`👤 المالك: ${CONFIG.botOwner}`);
 console.log(`👥 الرد في المجموعات: ${CONFIG.replyInGroups ? '✅' : '❌'}`);
 console.log(`🤖 AI: ${AI_ENABLED ? '✅ مفعّل' : '❌ معطّل'}`);
 console.log(`📿 القسم الإسلامي: ${islamicModule.isEnabled() ? '✅ مفعّل' : '❌ معطّل'}`);
-console.log(`💾 الجلسة: ${SESSION_DATA_ENV ? 'ENV ✅' : '⚠️ فارغ - سيتم إنشاء جلسة جديدة'}`);
+console.log(`💾 الجلسة: ${hasLocalSession ? 'محلية ✅' : (SESSION_DATA_ENV ? 'ENV ✅' : '⚠️ فارغ - سيتم إنشاء جلسة جديدة')}`);
 console.log('═══════════════════════════════════\n');
 
 let requestCount = 0;
@@ -146,67 +150,6 @@ setInterval(() => {
     }).on('error', () => {});
 }, 5 * 60 * 1000);
 
-// ⭐⭐⭐ تحديث ENV على Clever Cloud ⭐⭐⭐
-async function updateCleverCloudEnv(sessionDataBase64) {
-    try {
-        const updateUrl = process.env.CC_ENVIRON_UPDATE_URL;
-        const updateToken = process.env.CC_ENVIRON_UPDATE_TOKEN;
-        
-        if (!updateUrl || !updateToken) {
-            console.log('⚠️ CC_ENVIRON_UPDATE_URL أو CC_ENVIRON_UPDATE_TOKEN غير موجود');
-            return false;
-        }
-        
-        const response = await fetch(updateUrl, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${updateToken}`
-            },
-            body: JSON.stringify({
-                SESSION_DATA: sessionDataBase64
-            })
-        });
-        
-        if (response.ok) {
-            console.log('✅ تم تحديث SESSION_DATA في Clever Cloud ENV');
-            return true;
-        } else {
-            console.log('⚠️ فشل تحديث ENV:', response.status);
-            return false;
-        }
-    } catch (error) {
-        console.log('⚠️ خطأ في تحديث ENV:', error.message);
-        return false;
-    }
-}
-
-// ⭐⭐⭐ حفظ الجلسة المُحدّثة في ENV ⭐⭐⭐
-async function saveSessionToEnv() {
-    try {
-        const authPath = path.join(__dirname, 'auth_info');
-        if (!fs.existsSync(authPath)) return;
-        
-        const sessionFiles = {};
-        const files = fs.readdirSync(authPath);
-        
-        for (const file of files) {
-            const filePath = path.join(authPath, file);
-            if (fs.statSync(filePath).isFile()) {
-                sessionFiles[file] = fs.readFileSync(filePath, 'utf-8');
-            }
-        }
-        
-        const sessionDataBase64 = Buffer.from(JSON.stringify(sessionFiles)).toString('base64');
-        
-        // تحديث ENV على Clever Cloud
-        await updateCleverCloudEnv(sessionDataBase64);
-        
-    } catch (error) {
-        console.error('❌ خطأ في حفظ الجلسة:', error.message);
-    }
-}
-
 // ⭐⭐⭐ دوال إنشاء الجلسة ⭐⭐⭐
 function generateQRLinks(qrData) {
     const encoded = encodeURIComponent(qrData);
@@ -229,7 +172,7 @@ function displayQRLinks(links, attempt) {
 
 async function generateNewSession() {
     console.log('\n╔════════════════════════════════════════════════╗');
-    console.log('║   🔐 إنشاء جلسة جديدة - SESSION_DATA فارغ   ║');
+    console.log('║   🔐 إنشاء جلسة جديدة - لا توجد جلسة      ║');
     console.log('╚════════════════════════════════════════════════╝\n');
     
     isGeneratingSession = true;
@@ -284,17 +227,18 @@ async function generateNewSession() {
                 console.log(`   📱 ${sock.user.id.split(':')[0]}`);
                 console.log('════════════════════════════════════\n');
                 
-                console.log('⏳ انتظار 30 ثانية للمزامنة...\n');
-                await delay(30000);
+                console.log('⏳ انتظار 5 ثواني للمزامنة...\n');
+                await delay(5000);
                 
-                // حفظ في ENV
-                await saveSessionToEnv();
-                
-                console.log('\n✅ تم حفظ الجلسة في SESSION_DATA');
-                console.log('🔄 إعادة تشغيل البوت...\n');
+                console.log('\n✅ تم حفظ الجلسة محلياً في auth_info/');
+                console.log('💡 الجلسة محفوظة - لن تحتاج QR مرة أخرى\n');
                 
                 sock.end();
-                process.exit(0); // Clever Cloud سيعيد التشغيل تلقائياً
+                
+                // بدء البوت مباشرة
+                console.log('🔄 بدء البوت...\n');
+                await delay(2000);
+                await startBot();
             }
         });
         
@@ -304,48 +248,41 @@ async function generateNewSession() {
     }
 }
 
-// ⭐⭐⭐ حفظ الجلسة المُحدّثة في ENV ⭐⭐⭐
-async function saveSessionToEnv() {
+// ⭐⭐⭐ تحميل الجلسة من ENV أو محلي ⭐⭐⭐
+function loadSessionFromEnv() {
     try {
         const authPath = path.join(__dirname, 'auth_info');
-        if (!fs.existsSync(authPath)) return;
         
-        const sessionFiles = {};
-        const files = fs.readdirSync(authPath);
-        
-        for (const file of files) {
-            const filePath = path.join(authPath, file);
-            if (fs.statSync(filePath).isFile()) {
-                sessionFiles[file] = fs.readFileSync(filePath, 'utf-8');
+        // التحقق من وجود جلسة محلية أولاً
+        if (fs.existsSync(authPath) && fs.existsSync(path.join(authPath, 'creds.json'))) {
+            console.log('🔐 تم العثور على جلسة محلية موجودة\n');
+            
+            try {
+                const creds = JSON.parse(fs.readFileSync(path.join(authPath, 'creds.json'), 'utf-8'));
+                if (creds.noiseKey) {
+                    console.log('✅ تم تحميل الجلسة المحلية بنجاح\n');
+                    return true;
+                }
+            } catch (e) {
+                console.log('⚠️ الجلسة المحلية تالفة، محاولة التحميل من ENV...\n');
             }
         }
         
-        const sessionDataBase64 = Buffer.from(JSON.stringify(sessionFiles)).toString('base64');
+        // إذا لم توجد جلسة محلية، حاول التحميل من ENV
+        if (!SESSION_DATA_ENV) {
+            throw new Error('لا توجد جلسة محلية ولا SESSION_DATA في ENV');
+        }
         
-        // تحديث ENV على Clever Cloud
-        await updateCleverCloudEnv(sessionDataBase64);
-        
-    } catch (error) {
-        console.error('❌ خطأ في حفظ الجلسة:', error.message);
-    }
-}
-
-// ⭐⭐⭐ تحميل الجلسة من ENV فقط ⭐⭐⭐
-function loadSessionFromEnv() {
-    try {
         console.log('🔐 تحميل الجلسة من SESSION_DATA ENV...\n');
         
-        const authPath = path.join(__dirname, 'auth_info');
         if (fs.existsSync(authPath)) {
             fs.rmSync(authPath, { recursive: true, force: true });
         }
         fs.mkdirSync(authPath, { recursive: true });
         
-        // ⭐ تحميل من ENV فقط
         const sessionJson = Buffer.from(SESSION_DATA_ENV, 'base64').toString('utf-8');
         const sessionData = JSON.parse(sessionJson);
         
-        // كتابة الملفات
         for (const [filename, content] of Object.entries(sessionData)) {
             fs.writeFileSync(path.join(authPath, filename), content);
         }
@@ -359,8 +296,8 @@ function loadSessionFromEnv() {
         return true;
         
     } catch (error) {
-        console.error(`❌ فشل تحميل الجلسة من ENV: ${error.message}\n`);
-        process.exit(1);
+        console.error(`❌ فشل تحميل الجلسة: ${error.message}\n`);
+        return false;
     }
 }
 
@@ -401,15 +338,15 @@ function cleanProcessedMessages() {
 
 async function startBot() {
     try {
-        // ⭐⭐⭐ التحقق من SESSION_DATA ⭐⭐⭐
-        if (!SESSION_DATA_ENV) {
-            console.log('⚠️ SESSION_DATA فارغ - سيتم إنشاء جلسة جديدة\n');
+        // ⭐⭐⭐ التحقق من وجود جلسة ⭐⭐⭐
+        const sessionLoaded = loadSessionFromEnv();
+        
+        if (!sessionLoaded) {
+            console.log('⚠️ لا توجد جلسة - سيتم إنشاء جلسة جديدة\n');
             return await generateNewSession();
         }
         
         console.log('🚀 بدء البوت...\n');
-        
-        loadSessionFromEnv();
         
         const { version, isLatest } = await fetchLatestBaileysVersion();
         console.log(`📦 Baileys v${version.join('.')}, أحدث: ${isLatest ? '✅' : '⚠️'}\n`);
@@ -448,11 +385,8 @@ async function startBot() {
 
         globalSock = sock;
 
-        // ⭐⭐⭐ حفظ في ENV عند كل تحديث ⭐⭐⭐
-        sock.ev.on('creds.update', async () => {
-            await saveCreds();
-            await saveSessionToEnv(); // ⭐ حفظ في ENV
-        });
+        // حفظ الجلسة محلياً عند كل تحديث
+        sock.ev.on('creds.update', saveCreds);
         
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
             try {
@@ -695,7 +629,8 @@ async function startBot() {
             const { connection, lastDisconnect, qr } = update;
             
             if (qr) {
-                console.error('\n❌ خطأ: تم طلب QR!\n');
+                console.error('\n❌ خطأ: تم طلب QR بعد تحميل الجلسة!\n');
+                console.error('⚠️ الجلسة المحلية تالفة - يجب حذف مجلد auth_info\n');
                 process.exit(1);
             }
             
@@ -706,11 +641,18 @@ async function startBot() {
                 
                 if (statusCode === DisconnectReason.loggedOut ||
                     statusCode === 401 || statusCode === 403) {
-                    console.error('❌ الجلسة غير صالحة - يجب إنشاء جلسة جديدة!\n');
+                    console.error('❌ الجلسة غير صالحة - حذف auth_info وإعادة التشغيل...\n');
+                    
+                    // حذف الجلسة التالفة
+                    const authPath = path.join(__dirname, 'auth_info');
+                    if (fs.existsSync(authPath)) {
+                        fs.rmSync(authPath, { recursive: true, force: true });
+                    }
+                    
                     process.exit(1);
                 }
                 
-                console.log(`⚠️ خطأ ${statusCode} - سيتم إعادة التشغيل بواسطة Clever Cloud\n`);
+                console.log(`⚠️ خطأ ${statusCode} - سيتم إعادة التشغيل\n`);
                 process.exit(1);
                 
             } else if (connection === 'open') {
@@ -724,10 +666,6 @@ async function startBot() {
                 
                 processedMessages.clear();
                 botStartTime = Date.now();
-                
-                // ⭐ حفظ الجلسة في ENV فور الاتصال
-                await delay(2000);
-                await saveSessionToEnv();
                 
                 if (islamicModule.isEnabled()) {
                     islamicModule.startIslamicSchedule(sock);
@@ -753,7 +691,7 @@ async function startBot() {
         
     } catch (error) {
         console.error('❌ خطأ في بدء البوت:', error);
-        console.log('⚠️ سيتم إعادة التشغيل بواسطة Clever Cloud\n');
+        console.log('⚠️ سيتم إعادة التشغيل\n');
         process.exit(1);
     }
 }
@@ -771,12 +709,5 @@ process.on('SIGTERM', () => {
     server.close();
     process.exit(0);
 });
-
-// ⭐ حفظ دوري كل 5 دقائق
-setInterval(async () => {
-    if (globalSock) {
-        await saveSessionToEnv();
-    }
-}, 5 * 60 * 1000);
 
 startBot();
