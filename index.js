@@ -10,6 +10,7 @@ const P = require('pino');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
 const NodeCache = require('node-cache');
 const { getAIResponse } = require('./ai');
 const islamicModule = require('./islamicModule');
@@ -29,12 +30,6 @@ const CONFIG = {
     allowedGroups: process.env.ALLOWED_GROUPS ? process.env.ALLOWED_GROUPS.split(',').map(g => g.trim()) : [],
     blockedContacts: process.env.BLOCKED_CONTACTS ? process.env.BLOCKED_CONTACTS.split(',').map(c => c.trim()) : []
 };
-
-// ⭐⭐⭐ ENV للجلسة ⭐⭐⭐
-const SESSION_DATA_ENV = process.env.SESSION_DATA || '';
-
-// ⭐ متغيرات لإنشاء الجلسة
-let isGeneratingSession = false;
 
 const AI_STATE_FILE = path.join(__dirname, 'ai_state.json');
 const BAN_LIST_FILE = path.join(__dirname, 'ban_list.json');
@@ -112,9 +107,9 @@ const AI_CONFIG = {
     temperature: parseFloat(process.env.AI_TEMPERATURE) || 0.7
 };
 
-// ⭐⭐⭐ التحقق من وجود جلسة محلية ⭐⭐⭐
+// ⭐⭐⭐ التحقق من وجود جلسة في الـ repo ⭐⭐⭐
 const authPath = path.join(__dirname, 'auth_info');
-const hasLocalSession = fs.existsSync(authPath) && fs.existsSync(path.join(authPath, 'creds.json'));
+const hasSession = fs.existsSync(authPath) && fs.existsSync(path.join(authPath, 'creds.json'));
 
 console.log('\n⚙️ ═══════ إعدادات البوت ═══════');
 console.log(`📱 اسم البوت: ${CONFIG.botName}`);
@@ -122,7 +117,7 @@ console.log(`👤 المالك: ${CONFIG.botOwner}`);
 console.log(`👥 الرد في المجموعات: ${CONFIG.replyInGroups ? '✅' : '❌'}`);
 console.log(`🤖 AI: ${AI_ENABLED ? '✅ مفعّل' : '❌ معطّل'}`);
 console.log(`📿 القسم الإسلامي: ${islamicModule.isEnabled() ? '✅ مفعّل' : '❌ معطّل'}`);
-console.log(`💾 الجلسة: ${hasLocalSession ? 'محلية ✅' : (SESSION_DATA_ENV ? 'ENV ✅' : '⚠️ فارغ - سيتم إنشاء جلسة جديدة')}`);
+console.log(`💾 الجلسة: ${hasSession ? 'موجودة في الـ repo ✅' : '⚠️ غير موجودة - سيتم إنشاء جلسة جديدة'}`);
 console.log('═══════════════════════════════════\n');
 
 let requestCount = 0;
@@ -150,6 +145,49 @@ setInterval(() => {
     }).on('error', () => {});
 }, 5 * 60 * 1000);
 
+// ⭐⭐⭐ حفظ الجلسة في Git ⭐⭐⭐
+async function saveSessionToGit() {
+    try {
+        console.log('\n📤 حفظ الجلسة في Git...');
+        
+        // إعداد Git
+        try {
+            execSync('git config user.email "bot@whatsapp.local"', { stdio: 'ignore' });
+            execSync('git config user.name "WhatsApp Bot"', { stdio: 'ignore' });
+        } catch (e) {
+            // Git config قد يكون موجود بالفعل
+        }
+        
+        // إضافة auth_info
+        execSync('git add auth_info/', { stdio: 'ignore' });
+        
+        // التحقق من وجود تغييرات
+        try {
+            execSync('git diff --cached --quiet', { stdio: 'ignore' });
+            console.log('⏭️ لا توجد تغييرات للحفظ\n');
+            return true;
+        } catch (e) {
+            // يوجد تغييرات - نكمل
+        }
+        
+        // Commit
+        const timestamp = new Date().toISOString();
+        execSync(`git commit -m "Update session: ${timestamp}"`, { stdio: 'ignore' });
+        
+        // Push
+        console.log('⏳ رفع التغييرات إلى GitHub...');
+        execSync('git push origin HEAD:main --force', { stdio: 'pipe' });
+        
+        console.log('✅ تم حفظ الجلسة في Git بنجاح!\n');
+        return true;
+        
+    } catch (error) {
+        console.error('❌ خطأ في حفظ الجلسة:', error.message);
+        console.log('⚠️ تأكد من إعداد Git credentials على Clever Cloud\n');
+        return false;
+    }
+}
+
 // ⭐⭐⭐ دوال إنشاء الجلسة ⭐⭐⭐
 function generateQRLinks(qrData) {
     const encoded = encodeURIComponent(qrData);
@@ -172,12 +210,12 @@ function displayQRLinks(links, attempt) {
 
 async function generateNewSession() {
     console.log('\n╔════════════════════════════════════════════════╗');
-    console.log('║   🔐 إنشاء جلسة جديدة - لا توجد جلسة      ║');
+    console.log('║      🔐 إنشاء جلسة جديدة                    ║');
     console.log('╚════════════════════════════════════════════════╝\n');
     
-    isGeneratingSession = true;
     let qrAttempt = 0;
     const MAX_QR_ATTEMPTS = 5;
+    let connectionResolved = false;
     
     try {
         const authPath = path.join(__dirname, 'auth_info');
@@ -208,96 +246,77 @@ async function generateNewSession() {
         
         sock.ev.on('creds.update', saveCreds);
         
-        sock.ev.on('connection.update', async (update) => {
-            const { connection, qr } = update;
-            
-            if (qr) {
-                qrAttempt++;
-                if (qrAttempt > MAX_QR_ATTEMPTS) {
-                    console.error('\n❌ تجاوز الحد الأقصى لـ QR\n');
-                    process.exit(1);
+        return new Promise((resolve, reject) => {
+            const timeoutId = setTimeout(() => {
+                if (!connectionResolved) {
+                    sock.end();
+                    reject(new Error('انتهى وقت الانتظار (5 دقائق)'));
                 }
-                const links = generateQRLinks(qr);
-                displayQRLinks(links, qrAttempt);
-            }
+            }, 5 * 60 * 1000);
             
-            if (connection === 'open') {
-                console.log('\n✅ ════════════════════════════════════');
-                console.log('   🎉 متصل بنجاح!');
-                console.log(`   📱 ${sock.user.id.split(':')[0]}`);
-                console.log('════════════════════════════════════\n');
+            sock.ev.on('connection.update', async (update) => {
+                const { connection, lastDisconnect, qr } = update;
                 
-                console.log('⏳ انتظار 5 ثواني للمزامنة...\n');
-                await delay(5000);
+                if (qr) {
+                    qrAttempt++;
+                    if (qrAttempt > MAX_QR_ATTEMPTS) {
+                        console.error('\n❌ تجاوز الحد الأقصى لمحاولات QR\n');
+                        connectionResolved = true;
+                        clearTimeout(timeoutId);
+                        sock.end();
+                        reject(new Error('تجاوز الحد الأقصى'));
+                        return;
+                    }
+                    const links = generateQRLinks(qr);
+                    displayQRLinks(links, qrAttempt);
+                }
                 
-                console.log('\n✅ تم حفظ الجلسة محلياً في auth_info/');
-                console.log('💡 الجلسة محفوظة - لن تحتاج QR مرة أخرى\n');
+                if (connection === 'close') {
+                    const statusCode = lastDisconnect?.error?.output?.statusCode;
+                    console.log(`\n❌ فشل الاتصال - كود: ${statusCode}\n`);
+                    connectionResolved = true;
+                    clearTimeout(timeoutId);
+                    sock.end();
+                    reject(new Error(`فشل الاتصال: ${statusCode}`));
+                }
                 
-                sock.end();
-                
-                // بدء البوت مباشرة
-                console.log('🔄 بدء البوت...\n');
-                await delay(2000);
-                await startBot();
-            }
+                if (connection === 'open') {
+                    connectionResolved = true;
+                    clearTimeout(timeoutId);
+                    
+                    console.log('\n✅ ════════════════════════════════════');
+                    console.log('   🎉 تم الاتصال بنجاح!');
+                    console.log(`   📱 ${sock.user.id.split(':')[0]}`);
+                    console.log('════════════════════════════════════\n');
+                    
+                    console.log('⏳ انتظار 10 ثواني للمزامنة الكاملة...\n');
+                    await delay(10000);
+                    
+                    console.log('💾 حفظ الجلسة في الـ repo...\n');
+                    
+                    sock.end();
+                    
+                    // حفظ في Git
+                    const saved = await saveSessionToGit();
+                    
+                    if (saved) {
+                        console.log('\n✅ ════════════════════════════════════');
+                        console.log('   🎉 تم حفظ الجلسة بنجاح!');
+                        console.log('   🔄 سيتم إعادة التشغيل...');
+                        console.log('════════════════════════════════════\n');
+                    } else {
+                        console.log('\n⚠️ لم يتم حفظ الجلسة في Git');
+                        console.log('⚠️ ولكن ستعمل حتى إعادة التشغيل التالية\n');
+                    }
+                    
+                    resolve();
+                }
+            });
         });
         
     } catch (error) {
         console.error('❌ خطأ في إنشاء الجلسة:', error.message);
-        process.exit(1);
-    }
-}
-
-// ⭐⭐⭐ تحميل الجلسة من ENV أو محلي ⭐⭐⭐
-function loadSessionFromEnv() {
-    try {
-        const authPath = path.join(__dirname, 'auth_info');
-        
-        // التحقق من وجود جلسة محلية أولاً
-        if (fs.existsSync(authPath) && fs.existsSync(path.join(authPath, 'creds.json'))) {
-            console.log('🔐 تم العثور على جلسة محلية موجودة\n');
-            
-            try {
-                const creds = JSON.parse(fs.readFileSync(path.join(authPath, 'creds.json'), 'utf-8'));
-                if (creds.noiseKey) {
-                    console.log('✅ تم تحميل الجلسة المحلية بنجاح\n');
-                    return true;
-                }
-            } catch (e) {
-                console.log('⚠️ الجلسة المحلية تالفة، محاولة التحميل من ENV...\n');
-            }
-        }
-        
-        // إذا لم توجد جلسة محلية، حاول التحميل من ENV
-        if (!SESSION_DATA_ENV) {
-            throw new Error('لا توجد جلسة محلية ولا SESSION_DATA في ENV');
-        }
-        
-        console.log('🔐 تحميل الجلسة من SESSION_DATA ENV...\n');
-        
-        if (fs.existsSync(authPath)) {
-            fs.rmSync(authPath, { recursive: true, force: true });
-        }
-        fs.mkdirSync(authPath, { recursive: true });
-        
-        const sessionJson = Buffer.from(SESSION_DATA_ENV, 'base64').toString('utf-8');
-        const sessionData = JSON.parse(sessionJson);
-        
-        for (const [filename, content] of Object.entries(sessionData)) {
-            fs.writeFileSync(path.join(authPath, filename), content);
-        }
-        
-        const creds = JSON.parse(fs.readFileSync(path.join(authPath, 'creds.json'), 'utf-8'));
-        if (!creds.noiseKey) {
-            throw new Error('creds.json غير مكتمل');
-        }
-        
-        console.log('✅ تم تحميل الجلسة من ENV بنجاح\n');
-        return true;
-        
-    } catch (error) {
-        console.error(`❌ فشل تحميل الجلسة: ${error.message}\n`);
-        return false;
+        throw error;
     }
 }
 
@@ -338,12 +357,32 @@ function cleanProcessedMessages() {
 
 async function startBot() {
     try {
-        // ⭐⭐⭐ التحقق من وجود جلسة ⭐⭐⭐
-        const sessionLoaded = loadSessionFromEnv();
+        // ⭐⭐⭐ التحقق من وجود جلسة في الـ repo ⭐⭐⭐
+        const authPath = path.join(__dirname, 'auth_info');
+        const credsPath = path.join(authPath, 'creds.json');
         
-        if (!sessionLoaded) {
+        if (!fs.existsSync(authPath) || !fs.existsSync(credsPath)) {
             console.log('⚠️ لا توجد جلسة - سيتم إنشاء جلسة جديدة\n');
-            return await generateNewSession();
+            await generateNewSession();
+            
+            // بعد إنشاء الجلسة، إعادة تشغيل
+            console.log('🔄 إعادة التشغيل للاتصال بالجلسة الجديدة...\n');
+            process.exit(0);
+        }
+        
+        // التحقق من صحة الجلسة
+        try {
+            const creds = JSON.parse(fs.readFileSync(credsPath, 'utf-8'));
+            if (!creds.noiseKey) {
+                throw new Error('creds.json غير مكتمل');
+            }
+            console.log('✅ تم العثور على جلسة صالحة\n');
+        } catch (e) {
+            console.error('❌ الجلسة تالفة:', e.message);
+            console.log('🗑️ حذف الجلسة التالفة وإنشاء جديدة...\n');
+            fs.rmSync(authPath, { recursive: true, force: true });
+            await generateNewSession();
+            process.exit(0);
         }
         
         console.log('🚀 بدء البوت...\n');
@@ -385,8 +424,12 @@ async function startBot() {
 
         globalSock = sock;
 
-        // حفظ الجلسة محلياً عند كل تحديث
-        sock.ev.on('creds.update', saveCreds);
+        // حفظ الجلسة محلياً ثم في Git
+        sock.ev.on('creds.update', async () => {
+            await saveCreds();
+            // حفظ في Git بشكل غير متزامن (لا ننتظر)
+            saveSessionToGit().catch(() => {});
+        });
         
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
             try {
@@ -630,7 +673,9 @@ async function startBot() {
             
             if (qr) {
                 console.error('\n❌ خطأ: تم طلب QR بعد تحميل الجلسة!\n');
-                console.error('⚠️ الجلسة المحلية تالفة - يجب حذف مجلد auth_info\n');
+                console.error('⚠️ الجلسة تالفة - حذفها وإعادة التشغيل...\n');
+                
+                fs.rmSync(authPath, { recursive: true, force: true });
                 process.exit(1);
             }
             
@@ -641,14 +686,9 @@ async function startBot() {
                 
                 if (statusCode === DisconnectReason.loggedOut ||
                     statusCode === 401 || statusCode === 403) {
-                    console.error('❌ الجلسة غير صالحة - حذف auth_info وإعادة التشغيل...\n');
+                    console.error('❌ الجلسة غير صالحة - حذفها وإعادة التشغيل...\n');
                     
-                    // حذف الجلسة التالفة
-                    const authPath = path.join(__dirname, 'auth_info');
-                    if (fs.existsSync(authPath)) {
-                        fs.rmSync(authPath, { recursive: true, force: true });
-                    }
-                    
+                    fs.rmSync(authPath, { recursive: true, force: true });
                     process.exit(1);
                 }
                 
