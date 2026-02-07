@@ -1,9 +1,11 @@
 const cron = require('node-cron');
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
+const http = require('http');
 
 // ═══════════════════════════════════════════════════════════
-// 📿 القسم الإسلامي - أذكار الصباح والمساء
+// 📿 القسم الإسلامي - أذكار الصباح والمساء + فتاوى ابن باز
 // ═══════════════════════════════════════════════════════════
 
 // ⭐ أذكار الصباح
@@ -81,14 +83,6 @@ const MORNING_ATHKAR = [
 
 ━━━━━━━━━━━━━━━━━━━━━━
 من قالها حين يصبح فقد أدى شكر ذلك اليوم`
-    },
-    {
-        text: `🌅 *ذكر الصباح*
-
-لا إِلَهَ إِلَّا اللهُ وَحْدَهُ لَا شَرِيكَ لَهُ، لَهُ الْمُلْكُ وَلَهُ الْحَمْدُ، وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ
-
-━━━━━━━━━━━━━━━━━━━━━━
-كُتِبَ لَهُ بِهِنَّ عَشْرُ حَسَنَاتٍ وَمُحِيَ بِهِنَّ عَنْهُ عَشْرُ سَيِّئَاتٍ وَرُفِعَ لَهُ بِهِنَّ عَشْرُ دَرَجَاتٍ وَكُنَّ لَهُ عَدْلَ عَتَاقَةِ أَرْبَعِ رِقَابٍ`
     },
     {
         text: `🌅 *ذكر الصباح*
@@ -203,14 +197,7 @@ const EVENING_ATHKAR = [
 ━━━━━━━━━━━━━━━━━━━━━━
 من قالها حين يمسي فقد أدى شكر تلك الليلة`
     },
-    {
-        text: `🌇 *ذكر المساء*
-
-لا إِلَهَ إِلَّا اللهُ وَحْدَهُ لَا شَرِيكَ لَهُ، لَهُ الْمُلْكُ وَلَهُ الْحَمْدُ، وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ
-
-━━━━━━━━━━━━━━━━━━━━━━
-كُتِبَ لَهُ بِهِنَّ عَشْرُ حَسَنَاتٍ وَمُحِيَ بِهِنَّ عَنْهُ عَشْرُ سَيِّئَاتٍ وَرُفِعَ لَهُ بِهِنَّ عَشْرُ دَرَجَاتٍ وَكُنَّ لَهُ عَدْلَ عَتَاقَةِ أَرْبَعِ رِقَابٍ`
-    },
+    
     {
         text: `🌇 *ذكر المساء*
 
@@ -247,6 +234,169 @@ const EVENING_ATHKAR = [
 كَانَتْ لَهُ عَدْلَ عَشْرِ رِقَابٍ، وَكُتِبَتْ لَهُ مَائَةُ حَسَنَةٍ، وَمُحِيَتْ عَنْهُ مَائَةُ سَيِّئَةٍ، وَكَانَتْ لَهُ حِرْزًا مِنَ الشَّيْطَانِ`
     }
 ];
+
+// ⭐⭐⭐ فتاوى ابن باز ⭐⭐⭐
+const FATWA_STATE_FILE = path.join(__dirname, 'fatwa_state.json');
+
+function loadFatwaState() {
+    try {
+        if (fs.existsSync(FATWA_STATE_FILE)) {
+            const data = fs.readFileSync(FATWA_STATE_FILE, 'utf-8');
+            return JSON.parse(data);
+        }
+    } catch (error) {
+        console.log('⚠️ خطأ في قراءة حالة الفتاوى');
+    }
+    return { usedFatwas: [], lastPage: 1 };
+}
+
+function saveFatwaState(state) {
+    try {
+        fs.writeFileSync(FATWA_STATE_FILE, JSON.stringify(state), 'utf-8');
+    } catch (error) {
+        console.error('❌ خطأ في حفظ حالة الفتاوى:', error.message);
+    }
+}
+
+let fatwaState = loadFatwaState();
+
+async function fetchRandomFatwa() {
+    return new Promise((resolve, reject) => {
+        // اختيار صفحة عشوائية (من 1 إلى 100)
+        const randomPage = Math.floor(Math.random() * 100) + 1;
+        const url = `https://binbaz.org.sa/fatwas/kind/1?page=${randomPage}`;
+        
+        console.log(`🔍 جلب فتوى من الصفحة ${randomPage}...`);
+        
+        https.get(url, (res) => {
+            let data = '';
+            
+            res.on('data', (chunk) => {
+                data += chunk;
+            });
+            
+            res.on('end', () => {
+                try {
+                    // استخراج روابط الفتاوى
+                    const fatwaRegex = /href="(\/fatwas\/\d+\/[^"]+)"/g;
+                    const matches = [];
+                    let match;
+                    
+                    while ((match = fatwaRegex.exec(data)) !== null) {
+                        matches.push(match[1]);
+                    }
+                    
+                    if (matches.length === 0) {
+                        reject(new Error('لم يتم العثور على فتاوى'));
+                        return;
+                    }
+                    
+                    // اختيار فتوى عشوائية
+                    const randomIndex = Math.floor(Math.random() * matches.length);
+                    const fatwaPath = matches[randomIndex];
+                    const fatwaUrl = `https://binbaz.org.sa${fatwaPath}`;
+                    
+                    // جلب محتوى الفتوى
+                    https.get(fatwaUrl, (fatwaRes) => {
+                        let fatwaData = '';
+                        
+                        fatwaRes.on('data', (chunk) => {
+                            fatwaData += chunk;
+                        });
+                        
+                        fatwaRes.on('end', () => {
+                            try {
+                                // استخراج العنوان
+                                const titleMatch = fatwaData.match(/<h1[^>]*>(.*?)<\/h1>/);
+                                const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : 'فتوى';
+                                
+                                // استخراج السؤال
+                                const questionMatch = fatwaData.match(/<div class="question-text"[^>]*>([\s\S]*?)<\/div>/);
+                                let question = questionMatch ? questionMatch[1].replace(/<[^>]+>/g, '').trim() : '';
+                                question = question.substring(0, 300); // أول 300 حرف
+                                
+                                // استخراج الجواب
+                                const answerMatch = fatwaData.match(/<div class="answer-text"[^>]*>([\s\S]*?)<\/div>/);
+                                let answer = answerMatch ? answerMatch[1].replace(/<[^>]+>/g, '').trim() : '';
+                                answer = answer.substring(0, 800); // أول 800 حرف
+                                
+                                if (!answer) {
+                                    reject(new Error('لم يتم العثور على محتوى الفتوى'));
+                                    return;
+                                }
+                                
+                                resolve({
+                                    title: title,
+                                    question: question || 'لا يوجد سؤال',
+                                    answer: answer,
+                                    url: fatwaUrl
+                                });
+                                
+                            } catch (error) {
+                                reject(error);
+                            }
+                        });
+                        
+                    }).on('error', reject);
+                    
+                } catch (error) {
+                    reject(error);
+                }
+            });
+            
+        }).on('error', reject);
+    });
+}
+
+async function sendFatwa(sock) {
+    try {
+        const targetGroup = process.env.ISLAMIC_GROUP_ID;
+        
+        if (!targetGroup) {
+            console.log('⚠️ لم يتم تحديد ISLAMIC_GROUP_ID في ENV');
+            return;
+        }
+        
+        if (!ISLAMIC_MODULE_ENABLED) {
+            console.log('⏸️ القسم الإسلامي معطّل');
+            return;
+        }
+        
+        console.log('\n📚 جاري جلب فتوى من موقع ابن باز...');
+        
+        const fatwa = await fetchRandomFatwa();
+        
+        const message = `📚 *فتوى من موقع الشيخ ابن باز*
+
+*${fatwa.title}*
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+*السؤال:*
+${fatwa.question}${fatwa.question.length >= 300 ? '...' : ''}
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+*الجواب:*
+${fatwa.answer}${fatwa.answer.length >= 800 ? '...' : ''}
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+🔗 للمزيد: ${fatwa.url}`;
+        
+        await sock.sendMessage(targetGroup, {
+            text: message
+        }, {
+            ephemeralExpiration: 0
+        });
+        
+        console.log(`✅ تم إرسال فتوى: ${fatwa.title}`);
+        console.log(`🔗 ${fatwa.url}\n`);
+        
+    } catch (error) {
+        console.error('❌ خطأ في إرسال الفتوى:', error.message);
+    }
+}
 
 const ISLAMIC_STATE_FILE = path.join(__dirname, 'islamic_state.json');
 
@@ -321,13 +471,15 @@ let morningJob1 = null;
 let morningJob2 = null;
 let eveningJob1 = null;
 let eveningJob2 = null;
+let fatwaJob = null;
 
 function startIslamicSchedule(sock) {
     if (!ISLAMIC_MODULE_ENABLED) {
-        console.log('⏸️ القسم الإسلامي معطّل - لن يتم جدولة الأذكار');
+        console.log('⏸️ القسم الإسلامي معطّل - لن يتم جدولة الأذكار والفتاوى');
         return;
     }
     
+    // أذكار الصباح
     morningJob1 = cron.schedule('50 6 * * *', async () => {
         console.log('\n🌅 حان وقت ذكر الصباح الأول (6:50 ص)...');
         await sendSingleThikr(sock, 'morning');
@@ -344,6 +496,7 @@ function startIslamicSchedule(sock) {
         timezone: "Africa/Cairo"
     });
     
+    // أذكار المساء
     eveningJob1 = cron.schedule('50 15 * * *', async () => {
         console.log('\n🌇 حان وقت ذكر المساء الأول (3:50 م)...');
         await sendSingleThikr(sock, 'evening');
@@ -360,9 +513,19 @@ function startIslamicSchedule(sock) {
         timezone: "Africa/Cairo"
     });
     
-    console.log('✅ تم جدولة الأذكار:');
+    // ⭐ فتاوى ابن باز - كل 4 ساعات
+    fatwaJob = cron.schedule('0 */4 * * *', async () => {
+        console.log('\n📚 حان وقت إرسال فتوى...');
+        await sendFatwa(sock);
+    }, {
+        scheduled: true,
+        timezone: "Africa/Cairo"
+    });
+    
+    console.log('✅ تم جدولة الأذكار والفتاوى:');
     console.log('   🌅 الصباح: 6:50 ص و 7:00 ص');
     console.log('   🌇 المساء: 3:50 م و 4:00 م');
+    console.log('   📚 الفتاوى: كل 4 ساعات');
     console.log('   🌍 التوقيت: القاهرة');
     console.log(`   📍 الذكر الحالي: #${CURRENT_THIKR_INDEX + 1}\n`);
 }
@@ -384,7 +547,11 @@ function stopIslamicSchedule() {
         eveningJob2.stop();
         eveningJob2 = null;
     }
-    console.log('⏸️ تم إيقاف جدولة الأذكار\n');
+    if (fatwaJob) {
+        fatwaJob.stop();
+        fatwaJob = null;
+    }
+    console.log('⏸️ تم إيقاف جدولة الأذكار والفتاوى\n');
 }
 
 async function handleIslamicCommand(sock, msg, messageText, sender) {
@@ -406,7 +573,13 @@ async function handleIslamicCommand(sock, msg, messageText, sender) {
         });
         
         await sock.sendMessage(sender, {
-            text: `✅ تم تفعيل القسم الإسلامي\n\n🌅 أذكار الصباح: 6:50 ص و 7:00 ص\n🌇 أذكار المساء: 3:50 م و 4:00 م\n🌍 التوقيت: القاهرة\n📍 الذكر الحالي: #${CURRENT_THIKR_INDEX + 1}`
+            text: `✅ تم تفعيل القسم الإسلامي
+
+🌅 أذكار الصباح: 6:50 ص و 7:00 ص
+🌇 أذكار المساء: 3:50 م و 4:00 م
+📚 الفتاوى: كل 4 ساعات
+🌍 التوقيت: القاهرة
+📍 الذكر الحالي: #${CURRENT_THIKR_INDEX + 1}`
         }, { quoted: msg });
         
         console.log('✅ تم تفعيل القسم الإسلامي بواسطة الأدمن\n');
@@ -446,6 +619,14 @@ async function handleIslamicCommand(sock, msg, messageText, sender) {
         return true;
     }
     
+    if (command === '/فتوى') {
+        await sendFatwa(sock);
+        await sock.sendMessage(sender, {
+            react: { text: '✅', key: msg.key }
+        });
+        return true;
+    }
+    
     if (command === '/اسلام_اعادة') {
         CURRENT_THIKR_INDEX = 0;
         saveIslamicState(ISLAMIC_MODULE_ENABLED, 0);
@@ -460,7 +641,12 @@ async function handleIslamicCommand(sock, msg, messageText, sender) {
     
     if (command === '/اسلام_حالة') {
         await sock.sendMessage(sender, {
-            text: `📊 *حالة القسم الإسلامي*\n\n✅ الحالة: ${ISLAMIC_MODULE_ENABLED ? 'مفعّل' : 'معطّل'}\n📍 الذكر الحالي: #${CURRENT_THIKR_INDEX + 1}\n📚 إجمالي الأذكار: ${MORNING_ATHKAR.length}`
+            text: `📊 *حالة القسم الإسلامي*
+
+✅ الحالة: ${ISLAMIC_MODULE_ENABLED ? 'مفعّل' : 'معطّل'}
+📍 الذكر الحالي: #${CURRENT_THIKR_INDEX + 1}
+📚 إجمالي الأذكار: ${MORNING_ATHKAR.length}
+🕌 الفتاوى: كل 4 ساعات`
         }, { quoted: msg });
         return true;
     }
