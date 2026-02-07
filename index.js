@@ -120,21 +120,404 @@ console.log(`💾 الجلسة: ${hasSession ? 'موجودة في الـ repo �
 console.log('═══════════════════════════════════\n');
 
 let requestCount = 0;
+let pairingCode = null;
+let pairingStatus = 'waiting'; // waiting, generating, ready, connected, error
+let pairingError = null;
+let phoneNumber = null;
 
 const server = http.createServer((req, res) => {
     requestCount++;
+    
+    // الصفحة الرئيسية
+    if (req.url === '/' || req.url === '/index.html') {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(`
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🤖 ربط البوت - ${CONFIG.botName}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 500px;
+            width: 100%;
+            text-align: center;
+        }
+        
+        .logo {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 16px;
+        }
+        
+        .status {
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+        
+        .status.waiting {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .status.generating {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+        
+        .status.ready {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .input-group {
+            margin-bottom: 20px;
+        }
+        
+        input {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            font-size: 18px;
+            text-align: center;
+            direction: ltr;
+        }
+        
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            border-radius: 10px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            width: 100%;
+            transition: transform 0.2s;
+        }
+        
+        button:hover {
+            transform: scale(1.05);
+        }
+        
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        
+        .code-display {
+            background: #f8f9fa;
+            border: 3px dashed #667eea;
+            border-radius: 15px;
+            padding: 30px;
+            margin: 20px 0;
+        }
+        
+        .code {
+            font-size: 48px;
+            font-weight: bold;
+            color: #667eea;
+            letter-spacing: 8px;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .instructions {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 20px;
+            text-align: right;
+        }
+        
+        .instructions ol {
+            margin: 10px 0;
+            padding-right: 20px;
+        }
+        
+        .instructions li {
+            margin: 10px 0;
+            line-height: 1.6;
+        }
+        
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .footer {
+            margin-top: 30px;
+            color: #999;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">🤖</div>
+        <h1>${CONFIG.botName}</h1>
+        <p class="subtitle">ربط WhatsApp Bot</p>
+        
+        <div id="statusBox" class="status waiting">
+            ⏳ في انتظار رقم الهاتف
+        </div>
+        
+        <div id="inputSection">
+            <div class="input-group">
+                <input 
+                    type="tel" 
+                    id="phoneInput" 
+                    placeholder="249962204268"
+                    maxlength="15"
+                    autocomplete="off"
+                >
+                <small style="color: #666; display: block; margin-top: 5px;">
+                    أدخل رقم الهاتف بدون + أو 00
+                </small>
+            </div>
+            <button onclick="getPairingCode()" id="submitBtn">
+                🔗 الحصول على كود الربط
+            </button>
+        </div>
+        
+        <div id="codeSection" style="display: none;">
+            <div class="code-display">
+                <div class="code" id="pairingCode">---</div>
+            </div>
+            
+            <div class="instructions">
+                <strong>📱 خطوات الربط:</strong>
+                <ol>
+                    <li>افتح WhatsApp على هاتفك</li>
+                    <li>اذهب إلى الإعدادات > الأجهزة المرتبطة</li>
+                    <li>اضغط "ربط جهاز"</li>
+                    <li>اضغط "ربط برقم الهاتف بدلاً من ذلك"</li>
+                    <li>أدخل الكود الظاهر أعلاه</li>
+                </ol>
+            </div>
+            
+            <button onclick="location.reload()" style="margin-top: 20px; background: #6c757d;">
+                🔄 رقم آخر
+            </button>
+        </div>
+        
+        <div class="footer">
+            Made with ❤️ by ${CONFIG.botOwner}
+        </div>
+    </div>
+    
+    <script>
+        async function getPairingCode() {
+            const phone = document.getElementById('phoneInput').value.trim();
+            const submitBtn = document.getElementById('submitBtn');
+            const statusBox = document.getElementById('statusBox');
+            
+            if (!phone) {
+                alert('⚠️ الرجاء إدخال رقم الهاتف');
+                return;
+            }
+            
+            if (!/^[0-9]{10,15}$/.test(phone)) {
+                alert('⚠️ رقم الهاتف غير صحيح\\nيجب أن يكون من 10-15 رقم بدون + أو مسافات');
+                return;
+            }
+            
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '⏳ جاري التحميل...';
+            statusBox.className = 'status generating';
+            statusBox.innerHTML = '🔄 جاري توليد كود الربط...';
+            
+            try {
+                const response = await fetch('/get-code?phone=' + phone);
+                const data = await response.json();
+                
+                if (data.success) {
+                    document.getElementById('inputSection').style.display = 'none';
+                    document.getElementById('codeSection').style.display = 'block';
+                    document.getElementById('pairingCode').textContent = data.code;
+                    statusBox.className = 'status ready';
+                    statusBox.innerHTML = '✅ كود الربط جاهز!';
+                    
+                    // التحديث التلقائي للحالة
+                    checkStatus();
+                } else {
+                    throw new Error(data.error || 'فشل الحصول على الكود');
+                }
+            } catch (error) {
+                statusBox.className = 'status error';
+                statusBox.innerHTML = '❌ ' + error.message;
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '🔗 الحصول على كود الربط';
+            }
+        }
+        
+        async function checkStatus() {
+            const interval = setInterval(async () => {
+                try {
+                    const response = await fetch('/status');
+                    const data = await response.json();
+                    
+                    if (data.status === 'connected') {
+                        document.getElementById('statusBox').className = 'status connected';
+                        document.getElementById('statusBox').innerHTML = '🎉 تم الربط بنجاح!';
+                        clearInterval(interval);
+                        
+                        setTimeout(() => {
+                            location.reload();
+                        }, 3000);
+                    }
+                } catch (error) {
+                    console.error('Error checking status:', error);
+                }
+            }, 2000);
+        }
+        
+        // Enter key support
+        document.getElementById('phoneInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                getPairingCode();
+            }
+        });
+    </script>
+</body>
+</html>
+        `);
+        return;
+    }
+    
+    // API للحصول على pairing code
+    if (req.url.startsWith('/get-code')) {
+        const url = new URL(req.url, `http://${req.headers.host}`);
+        const phone = url.searchParams.get('phone');
+        
+        if (!phone) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: 'رقم الهاتف مطلوب' }));
+            return;
+        }
+        
+        phoneNumber = phone;
+        pairingStatus = 'generating';
+        
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        
+        // انتظار توليد الكود (max 30 ثانية)
+        const startTime = Date.now();
+        const checkInterval = setInterval(() => {
+            if (pairingCode && pairingStatus === 'ready') {
+                clearInterval(checkInterval);
+                res.end(JSON.stringify({ 
+                    success: true, 
+                    code: pairingCode,
+                    phone: phoneNumber
+                }));
+            } else if (pairingStatus === 'error') {
+                clearInterval(checkInterval);
+                res.end(JSON.stringify({ 
+                    success: false, 
+                    error: pairingError || 'فشل توليد الكود'
+                }));
+            } else if (Date.now() - startTime > 30000) {
+                clearInterval(checkInterval);
+                res.end(JSON.stringify({ 
+                    success: false, 
+                    error: 'انتهى وقت الانتظار'
+                }));
+            }
+        }, 500);
+        
+        return;
+    }
+    
+    // API للحصول على الحالة
+    if (req.url === '/status') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            status: pairingStatus,
+            code: pairingCode,
+            phone: phoneNumber,
+            botName: CONFIG.botName,
+            connected: globalSock && globalSock.user ? true : false
+        }));
+        return;
+    }
+    
+    // الحالة العادية
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
         status: 'online',
         bot: CONFIG.botName,
         uptime: process.uptime(),
         requests: requestCount,
-        time: new Date().toISOString()
+        time: new Date().toISOString(),
+        connected: globalSock && globalSock.user ? true : false
     }));
 });
 
 server.listen(CONFIG.port, () => {
-    console.log(`🌐 HTTP Server: http://localhost:${CONFIG.port}`);
+    console.log('\n╔════════════════════════════════════════════════╗');
+    console.log(`║  🌐 الواجهة متاحة على:                         ║`);
+    console.log(`║  http://localhost:${CONFIG.port}                     ║`);
+    console.log('╚════════════════════════════════════════════════╝\n');
 });
 
 setInterval(() => {
@@ -144,25 +527,7 @@ setInterval(() => {
     }).on('error', () => {});
 }, 5 * 60 * 1000);
 
-// ⭐⭐⭐ دوال إنشاء الجلسة ⭐⭐⭐
-function generateQRLinks(qrData) {
-    const encoded = encodeURIComponent(qrData);
-    return {
-        primary: `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encoded}`,
-        alternative: `https://chart.googleapis.com/chart?chs=500x500&cht=qr&chl=${encoded}`
-    };
-}
-
-function displayQRLinks(links, attempt) {
-    console.log('\n╔════════════════════════════════════════════════════════╗');
-    console.log(`║          📱 QR Code #${attempt} - امسحه الآن!                ║`);
-    console.log('╚════════════════════════════════════════════════════════╝\n');
-    
-    console.log('🔗 الروابط:');
-    console.log(`\n1️⃣ ${links.primary}\n`);
-    console.log(`2️⃣ ${links.alternative}\n`);
-    console.log('═'.repeat(60) + '\n');
-}
+// ⭐⭐⭐ دوال إنشاء الجلسة بـ Pairing Code ⭐⭐⭐
 
 async function generateNewSession(attemptNumber = 1) {
     const MAX_SESSION_ATTEMPTS = 3;
@@ -178,8 +543,11 @@ async function generateNewSession(attemptNumber = 1) {
     console.log(`║    🔐 إنشاء جلسة جديدة - محاولة ${attemptNumber}/${MAX_SESSION_ATTEMPTS}     ║`);
     console.log('╚════════════════════════════════════════════════╝\n');
     
-    let qrAttempt = 0;
-    const MAX_QR_ATTEMPTS = 10;
+    // إعادة تعيين حالة الربط
+    pairingCode = null;
+    pairingStatus = 'waiting';
+    pairingError = null;
+    
     let connectionResolved = false;
     
     try {
@@ -221,31 +589,52 @@ async function generateNewSession(attemptNumber = 1) {
                 }
             }, 10 * 60 * 1000); // 10 دقائق
             
-            sock.ev.on('connection.update', async (update) => {
-                const { connection, lastDisconnect, qr } = update;
-                
-                if (qr) {
-                    qrAttempt++;
-                    if (qrAttempt > MAX_QR_ATTEMPTS) {
-                        console.error('\n❌ تجاوز الحد الأقصى لمحاولات QR\n');
-                        console.log('🔄 سيتم إعادة المحاولة...\n');
-                        connectionResolved = true;
-                        clearTimeout(timeoutId);
-                        sock.end();
-                        reject(new Error('max_qr_attempts'));
-                        return;
+            // ⭐ انتظار رقم الهاتف من الواجهة
+            console.log('📱 في انتظار رقم الهاتف من الواجهة...');
+            console.log(`🌐 افتح: http://localhost:${CONFIG.port}\n`);
+            
+            const checkPhoneInterval = setInterval(async () => {
+                if (phoneNumber && pairingStatus === 'generating') {
+                    clearInterval(checkPhoneInterval);
+                    
+                    try {
+                        console.log(`📞 رقم الهاتف المُدخل: ${phoneNumber}`);
+                        console.log('🔄 جاري توليد كود الربط...\n');
+                        
+                        // ⭐ طلب pairing code
+                        const code = await sock.requestPairingCode(phoneNumber);
+                        pairingCode = code;
+                        pairingStatus = 'ready';
+                        
+                        console.log('\n╔════════════════════════════════════════════════╗');
+                        console.log(`║           🔑 كود الربط: ${code}            ║`);
+                        console.log('╚════════════════════════════════════════════════╝\n');
+                        
+                        console.log('📱 أدخل هذا الكود في WhatsApp:\n');
+                        console.log('   1️⃣ افتح WhatsApp');
+                        console.log('   2️⃣ الإعدادات > الأجهزة المرتبطة');
+                        console.log('   3️⃣ ربط جهاز');
+                        console.log('   4️⃣ ربط برقم الهاتف بدلاً من ذلك');
+                        console.log(`   5️⃣ أدخل الكود: ${code}\n`);
+                        
+                    } catch (error) {
+                        console.error('❌ فشل توليد الكود:', error.message);
+                        pairingStatus = 'error';
+                        pairingError = error.message;
                     }
-                    const links = generateQRLinks(qr);
-                    displayQRLinks(links, qrAttempt);
                 }
+            }, 1000);
+            
+            sock.ev.on('connection.update', async (update) => {
+                const { connection, lastDisconnect } = update;
                 
                 if (connection === 'close') {
-                    if (connectionResolved) return; // تجنب المعالجة المكررة
+                    if (connectionResolved) return;
                     
+                    clearInterval(checkPhoneInterval);
                     const statusCode = lastDisconnect?.error?.output?.statusCode;
                     console.log(`\n⚠️ الاتصال مغلق - كود: ${statusCode}`);
                     
-                    // الأكواد التي تحتاج إعادة محاولة
                     if (statusCode === 515 || statusCode === 503 || statusCode === 408 || !statusCode) {
                         console.log('🔄 سيتم إعادة المحاولة...\n');
                         connectionResolved = true;
@@ -255,7 +644,6 @@ async function generateNewSession(attemptNumber = 1) {
                         return;
                     }
                     
-                    // الأكواد الأخرى
                     console.log(`❌ خطأ غير قابل للإصلاح: ${statusCode}\n`);
                     connectionResolved = true;
                     clearTimeout(timeoutId);
@@ -266,6 +654,8 @@ async function generateNewSession(attemptNumber = 1) {
                 if (connection === 'open') {
                     connectionResolved = true;
                     clearTimeout(timeoutId);
+                    clearInterval(checkPhoneInterval);
+                    pairingStatus = 'connected';
                     
                     console.log('\n✅ ════════════════════════════════════');
                     console.log('   🎉 تم الاتصال بنجاح!');
@@ -288,10 +678,8 @@ async function generateNewSession(attemptNumber = 1) {
     } catch (error) {
         console.error('❌ خطأ في إنشاء الجلسة:', error.message);
         
-        // إعادة المحاولة تلقائياً
         if (error.message.startsWith('retry_') || 
-            error.message === 'timeout' || 
-            error.message === 'max_qr_attempts') {
+            error.message === 'timeout') {
             console.log(`⏳ انتظار 10 ثواني قبل المحاولة التالية...\n`);
             await delay(10000);
             return generateNewSession(attemptNumber + 1);
@@ -768,4 +1156,3 @@ process.on('SIGTERM', () => {
 });
 
 startBot();
-
