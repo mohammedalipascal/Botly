@@ -118,7 +118,7 @@ console.log(`👤 المالك: ${CONFIG.botOwner}`);
 console.log(`👥 الرد في المجموعات: ${CONFIG.replyInGroups ? '✅' : '❌'}`);
 console.log(`🤖 AI: ${AI_ENABLED ? '✅ مفعّل' : '❌ معطّل'}`);
 console.log(`📿 القسم الإسلامي: ${islamicModule.isEnabled() ? '✅ مفعّل' : '❌ معطّل'}`);
-console.log(`💾 الجلسة: ${SESSION_DATA_ENV ? 'ENV ✅' : 'session.json'}`);
+console.log(`💾 الجلسة: ${SESSION_DATA_ENV ? 'ENV ✅' : '⚠️ فارغ - سيتم إنشاء جلسة جديدة'}`);
 console.log('═══════════════════════════════════\n');
 
 let requestCount = 0;
@@ -330,10 +330,10 @@ async function saveSessionToEnv() {
     }
 }
 
-// ⭐⭐⭐ تحميل الجلسة من ENV أو session.json ⭐⭐⭐
+// ⭐⭐⭐ تحميل الجلسة من ENV فقط ⭐⭐⭐
 function loadSessionFromEnv() {
     try {
-        console.log('🔐 تحميل الجلسة...\n');
+        console.log('🔐 تحميل الجلسة من SESSION_DATA ENV...\n');
         
         const authPath = path.join(__dirname, 'auth_info');
         if (fs.existsSync(authPath)) {
@@ -341,25 +341,9 @@ function loadSessionFromEnv() {
         }
         fs.mkdirSync(authPath, { recursive: true });
         
-        let sessionData;
-        
-        // ⭐ أولوية للـ ENV
-        if (SESSION_DATA_ENV) {
-            console.log('📦 تحميل من SESSION_DATA ENV...');
-            const sessionJson = Buffer.from(SESSION_DATA_ENV, 'base64').toString('utf-8');
-            sessionData = JSON.parse(sessionJson);
-        } else {
-            // الرجوع لـ session.json
-            console.log('📦 تحميل من session.json...');
-            const sessionPath = path.join(__dirname, 'session.json');
-            
-            if (!fs.existsSync(sessionPath)) {
-                throw new Error('لا يوجد SESSION_DATA في ENV ولا session.json!');
-            }
-            
-            const fileContent = fs.readFileSync(sessionPath, 'utf-8').trim();
-            sessionData = JSON.parse(fileContent);
-        }
+        // ⭐ تحميل من ENV فقط
+        const sessionJson = Buffer.from(SESSION_DATA_ENV, 'base64').toString('utf-8');
+        const sessionData = JSON.parse(sessionJson);
         
         // كتابة الملفات
         for (const [filename, content] of Object.entries(sessionData)) {
@@ -371,11 +355,11 @@ function loadSessionFromEnv() {
             throw new Error('creds.json غير مكتمل');
         }
         
-        console.log('✅ تم تحميل الجلسة بنجاح\n');
+        console.log('✅ تم تحميل الجلسة من ENV بنجاح\n');
         return true;
         
     } catch (error) {
-        console.error(`❌ فشل تحميل الجلسة: ${error.message}\n`);
+        console.error(`❌ فشل تحميل الجلسة من ENV: ${error.message}\n`);
         process.exit(1);
     }
 }
