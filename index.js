@@ -10,7 +10,6 @@ const P = require('pino');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
 const NodeCache = require('node-cache');
 const { getAIResponse } = require('./ai');
 const islamicModule = require('./islamicModule');
@@ -145,49 +144,6 @@ setInterval(() => {
     }).on('error', () => {});
 }, 5 * 60 * 1000);
 
-// ⭐⭐⭐ حفظ الجلسة في Git ⭐⭐⭐
-async function saveSessionToGit() {
-    try {
-        console.log('\n📤 حفظ الجلسة في Git...');
-        
-        // إعداد Git
-        try {
-            execSync('git config user.email "bot@whatsapp.local"', { stdio: 'ignore' });
-            execSync('git config user.name "WhatsApp Bot"', { stdio: 'ignore' });
-        } catch (e) {
-            // Git config قد يكون موجود بالفعل
-        }
-        
-        // إضافة auth_info
-        execSync('git add auth_info/', { stdio: 'ignore' });
-        
-        // التحقق من وجود تغييرات
-        try {
-            execSync('git diff --cached --quiet', { stdio: 'ignore' });
-            console.log('⏭️ لا توجد تغييرات للحفظ\n');
-            return true;
-        } catch (e) {
-            // يوجد تغييرات - نكمل
-        }
-        
-        // Commit
-        const timestamp = new Date().toISOString();
-        execSync(`git commit -m "Update session: ${timestamp}"`, { stdio: 'ignore' });
-        
-        // Push
-        console.log('⏳ رفع التغييرات إلى GitHub...');
-        execSync('git push origin HEAD:main --force', { stdio: 'pipe' });
-        
-        console.log('✅ تم حفظ الجلسة في Git بنجاح!\n');
-        return true;
-        
-    } catch (error) {
-        console.error('❌ خطأ في حفظ الجلسة:', error.message);
-        console.log('⚠️ تأكد من إعداد Git credentials على Clever Cloud\n');
-        return false;
-    }
-}
-
 // ⭐⭐⭐ دوال إنشاء الجلسة ⭐⭐⭐
 function generateQRLinks(qrData) {
     const encoded = encodeURIComponent(qrData);
@@ -319,23 +275,10 @@ async function generateNewSession(attemptNumber = 1) {
                     console.log('⏳ انتظار 10 ثواني للمزامنة الكاملة...\n');
                     await delay(10000);
                     
-                    console.log('💾 حفظ الجلسة في الـ repo...\n');
+                    console.log('✅ تم حفظ الجلسة محلياً في auth_info/');
+                    console.log('💡 الجلسة ستبقى على السيرفر\n');
                     
                     sock.end();
-                    
-                    // حفظ في Git
-                    const saved = await saveSessionToGit();
-                    
-                    if (saved) {
-                        console.log('\n✅ ════════════════════════════════════');
-                        console.log('   🎉 تم حفظ الجلسة بنجاح!');
-                        console.log('   🔄 سيتم إعادة التشغيل...');
-                        console.log('════════════════════════════════════\n');
-                    } else {
-                        console.log('\n⚠️ لم يتم حفظ الجلسة في Git');
-                        console.log('⚠️ ولكن ستعمل حتى إعادة التشغيل التالية\n');
-                    }
-                    
                     resolve();
                 }
             });
@@ -480,12 +423,8 @@ async function startBot() {
 
         globalSock = sock;
 
-        // حفظ الجلسة محلياً ثم في Git
-        sock.ev.on('creds.update', async () => {
-            await saveCreds();
-            // حفظ في Git بشكل غير متزامن (لا ننتظر)
-            saveSessionToGit().catch(() => {});
-        });
+        // حفظ الجلسة محلياً فقط
+        sock.ev.on('creds.update', saveCreds);
         
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
             try {
