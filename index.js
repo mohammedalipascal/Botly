@@ -208,13 +208,22 @@ function displayQRLinks(links, attempt) {
     console.log('═'.repeat(60) + '\n');
 }
 
-async function generateNewSession() {
+async function generateNewSession(attemptNumber = 1) {
+    const MAX_SESSION_ATTEMPTS = 3;
+    
+    if (attemptNumber > MAX_SESSION_ATTEMPTS) {
+        console.error('\n❌ فشلت جميع المحاولات لإنشاء الجلسة\n');
+        console.log('⏳ سيتم المحاولة مرة أخرى بعد 30 ثانية...\n');
+        await delay(30000);
+        return generateNewSession(1);
+    }
+    
     console.log('\n╔════════════════════════════════════════════════╗');
-    console.log('║      🔐 إنشاء جلسة جديدة                    ║');
+    console.log(`║    🔐 إنشاء جلسة جديدة - محاولة ${attemptNumber}/${MAX_SESSION_ATTEMPTS}     ║`);
     console.log('╚════════════════════════════════════════════════╝\n');
     
     let qrAttempt = 0;
-    const MAX_QR_ATTEMPTS = 5;
+    const MAX_QR_ATTEMPTS = 10;
     let connectionResolved = false;
     
     try {
@@ -249,10 +258,12 @@ async function generateNewSession() {
         return new Promise((resolve, reject) => {
             const timeoutId = setTimeout(() => {
                 if (!connectionResolved) {
+                    console.log('\n⏰ انتهى وقت الانتظار - إعادة المحاولة...\n');
+                    connectionResolved = true;
                     sock.end();
-                    reject(new Error('انتهى وقت الانتظار (5 دقائق)'));
+                    reject(new Error('timeout'));
                 }
-            }, 5 * 60 * 1000);
+            }, 10 * 60 * 1000); // 10 دقائق
             
             sock.ev.on('connection.update', async (update) => {
                 const { connection, lastDisconnect, qr } = update;
@@ -261,10 +272,11 @@ async function generateNewSession() {
                     qrAttempt++;
                     if (qrAttempt > MAX_QR_ATTEMPTS) {
                         console.error('\n❌ تجاوز الحد الأقصى لمحاولات QR\n');
+                        console.log('🔄 سيتم إعادة المحاولة...\n');
                         connectionResolved = true;
                         clearTimeout(timeoutId);
                         sock.end();
-                        reject(new Error('تجاوز الحد الأقصى'));
+                        reject(new Error('max_qr_attempts'));
                         return;
                     }
                     const links = generateQRLinks(qr);
@@ -272,12 +284,27 @@ async function generateNewSession() {
                 }
                 
                 if (connection === 'close') {
+                    if (connectionResolved) return; // تجنب المعالجة المكررة
+                    
                     const statusCode = lastDisconnect?.error?.output?.statusCode;
-                    console.log(`\n❌ فشل الاتصال - كود: ${statusCode}\n`);
+                    console.log(`\n⚠️ الاتصال مغلق - كود: ${statusCode}`);
+                    
+                    // الأكواد التي تحتاج إعادة محاولة
+                    if (statusCode === 515 || statusCode === 503 || statusCode === 408 || !statusCode) {
+                        console.log('🔄 سيتم إعادة المحاولة...\n');
+                        connectionResolved = true;
+                        clearTimeout(timeoutId);
+                        sock.end();
+                        reject(new Error(`retry_${statusCode || 'unknown'}`));
+                        return;
+                    }
+                    
+                    // الأكواد الأخرى
+                    console.log(`❌ خطأ غير قابل للإصلاح: ${statusCode}\n`);
                     connectionResolved = true;
                     clearTimeout(timeoutId);
                     sock.end();
-                    reject(new Error(`فشل الاتصال: ${statusCode}`));
+                    reject(new Error(`fatal_${statusCode}`));
                 }
                 
                 if (connection === 'open') {
@@ -316,6 +343,16 @@ async function generateNewSession() {
         
     } catch (error) {
         console.error('❌ خطأ في إنشاء الجلسة:', error.message);
+        
+        // إعادة المحاولة تلقائياً
+        if (error.message.startsWith('retry_') || 
+            error.message === 'timeout' || 
+            error.message === 'max_qr_attempts') {
+            console.log(`⏳ انتظار 10 ثواني قبل المحاولة التالية...\n`);
+            await delay(10000);
+            return generateNewSession(attemptNumber + 1);
+        }
+        
         throw error;
     }
 }
@@ -363,10 +400,19 @@ async function startBot() {
         
         if (!fs.existsSync(authPath) || !fs.existsSync(credsPath)) {
             console.log('⚠️ لا توجد جلسة - سيتم إنشاء جلسة جديدة\n');
-            await generateNewSession();
+            
+            try {
+                await generateNewSession();
+            } catch (error) {
+                console.error('❌ فشل إنشاء الجلسة:', error.message);
+                console.log('⏳ سيتم المحاولة مرة أخرى بعد 60 ثانية...\n');
+                await delay(60000);
+                return startBot(); // إعادة المحاولة
+            }
             
             // بعد إنشاء الجلسة، إعادة تشغيل
             console.log('🔄 إعادة التشغيل للاتصال بالجلسة الجديدة...\n');
+            await delay(3000);
             process.exit(0);
         }
         
@@ -381,7 +427,17 @@ async function startBot() {
             console.error('❌ الجلسة تالفة:', e.message);
             console.log('🗑️ حذف الجلسة التالفة وإنشاء جديدة...\n');
             fs.rmSync(authPath, { recursive: true, force: true });
-            await generateNewSession();
+            
+            try {
+                await generateNewSession();
+            } catch (error) {
+                console.error('❌ فشل إنشاء الجلسة:', error.message);
+                console.log('⏳ سيتم المحاولة مرة أخرى بعد 60 ثانية...\n');
+                await delay(60000);
+                return startBot();
+            }
+            
+            await delay(3000);
             process.exit(0);
         }
         
@@ -673,27 +729,44 @@ async function startBot() {
             
             if (qr) {
                 console.error('\n❌ خطأ: تم طلب QR بعد تحميل الجلسة!\n');
-                console.error('⚠️ الجلسة تالفة - حذفها وإعادة التشغيل...\n');
+                console.error('⚠️ الجلسة تالفة - حذفها وإعادة المحاولة...\n');
                 
                 fs.rmSync(authPath, { recursive: true, force: true });
-                process.exit(1);
+                
+                console.log('⏳ إعادة المحاولة بعد 10 ثواني...\n');
+                await delay(10000);
+                
+                // إعادة تشغيل البوت
+                sock.end();
+                await startBot();
+                return;
             }
             
             if (connection === 'close') {
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
                 
-                console.log(`\n❌ الاتصال مغلق - كود: ${statusCode}\n`);
+                console.log(`\n⚠️ الاتصال مغلق - كود: ${statusCode}\n`);
                 
                 if (statusCode === DisconnectReason.loggedOut ||
                     statusCode === 401 || statusCode === 403) {
-                    console.error('❌ الجلسة غير صالحة - حذفها وإعادة التشغيل...\n');
+                    console.error('❌ الجلسة غير صالحة - حذفها...\n');
                     
                     fs.rmSync(authPath, { recursive: true, force: true });
-                    process.exit(1);
+                    
+                    console.log('⏳ إعادة المحاولة بعد 10 ثواني...\n');
+                    await delay(10000);
+                    
+                    sock.end();
+                    await startBot();
+                    return;
                 }
                 
-                console.log(`⚠️ خطأ ${statusCode} - سيتم إعادة التشغيل\n`);
-                process.exit(1);
+                // أخطاء أخرى - إعادة الاتصال
+                console.log(`🔄 إعادة الاتصال بعد 5 ثواني...\n`);
+                await delay(5000);
+                
+                sock.end();
+                await startBot();
                 
             } else if (connection === 'open') {
                 console.log('✅ ════════════════════════════════════');
@@ -731,8 +804,9 @@ async function startBot() {
         
     } catch (error) {
         console.error('❌ خطأ في بدء البوت:', error);
-        console.log('⚠️ سيتم إعادة التشغيل\n');
-        process.exit(1);
+        console.log('⏳ إعادة المحاولة بعد 30 ثانية...\n');
+        await delay(30000);
+        return startBot();
     }
 }
 
