@@ -84,6 +84,7 @@ const MORNING_ATHKAR = [
 ━━━━━━━━━━━━━━━━━━━━━━
 من قالها حين يصبح فقد أدى شكر ذلك اليوم`
     },
+
     {
         text: `🌅 *ذكر الصباح*
 
@@ -262,89 +263,152 @@ let fatwaState = loadFatwaState();
 
 async function fetchRandomFatwa() {
     return new Promise((resolve, reject) => {
-        // اختيار صفحة عشوائية (من 1 إلى 100)
-        const randomPage = Math.floor(Math.random() * 100) + 1;
-        const url = `https://binbaz.org.sa/fatwas/kind/1?page=${randomPage}`;
+        // قائمة مُختارة من أرقام الفتاوى الصحيحة (من 1 إلى 35000)
+        // سنختار رقم عشوائي ونحاول جلبه
+        const maxAttempts = 10;
+        let attempts = 0;
         
-        console.log(`🔍 جلب فتوى من الصفحة ${randomPage}...`);
-        
-        https.get(url, (res) => {
-            let data = '';
+        const tryFetch = () => {
+            if (attempts >= maxAttempts) {
+                reject(new Error('فشل جلب الفتوى بعد عدة محاولات'));
+                return;
+            }
             
-            res.on('data', (chunk) => {
-                data += chunk;
-            });
+            attempts++;
             
-            res.on('end', () => {
-                try {
-                    // استخراج روابط الفتاوى
-                    const fatwaRegex = /href="(\/fatwas\/\d+\/[^"]+)"/g;
-                    const matches = [];
-                    let match;
-                    
-                    while ((match = fatwaRegex.exec(data)) !== null) {
-                        matches.push(match[1]);
-                    }
-                    
-                    if (matches.length === 0) {
-                        reject(new Error('لم يتم العثور على فتاوى'));
-                        return;
-                    }
-                    
-                    // اختيار فتوى عشوائية
-                    const randomIndex = Math.floor(Math.random() * matches.length);
-                    const fatwaPath = matches[randomIndex];
-                    const fatwaUrl = `https://binbaz.org.sa${fatwaPath}`;
-                    
-                    // جلب محتوى الفتوى
-                    https.get(fatwaUrl, (fatwaRes) => {
-                        let fatwaData = '';
-                        
-                        fatwaRes.on('data', (chunk) => {
-                            fatwaData += chunk;
-                        });
-                        
-                        fatwaRes.on('end', () => {
-                            try {
-                                // استخراج العنوان
-                                const titleMatch = fatwaData.match(/<h1[^>]*>(.*?)<\/h1>/);
-                                const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : 'فتوى';
-                                
-                                // استخراج السؤال
-                                const questionMatch = fatwaData.match(/<div class="question-text"[^>]*>([\s\S]*?)<\/div>/);
-                                let question = questionMatch ? questionMatch[1].replace(/<[^>]+>/g, '').trim() : '';
-                                question = question.substring(0, 300); // أول 300 حرف
-                                
-                                // استخراج الجواب
-                                const answerMatch = fatwaData.match(/<div class="answer-text"[^>]*>([\s\S]*?)<\/div>/);
-                                let answer = answerMatch ? answerMatch[1].replace(/<[^>]+>/g, '').trim() : '';
-                                answer = answer.substring(0, 800); // أول 800 حرف
-                                
-                                if (!answer) {
-                                    reject(new Error('لم يتم العثور على محتوى الفتوى'));
-                                    return;
-                                }
-                                
-                                resolve({
-                                    title: title,
-                                    question: question || 'لا يوجد سؤال',
-                                    answer: answer,
-                                    url: fatwaUrl
-                                });
-                                
-                            } catch (error) {
-                                reject(error);
-                            }
-                        });
-                        
-                    }).on('error', reject);
-                    
-                } catch (error) {
-                    reject(error);
+            // اختيار رقم فتوى عشوائي (الموقع يحتوي على آلاف الفتاوى)
+            const fatwaId = Math.floor(Math.random() * 35000) + 1;
+            const url = `https://binbaz.org.sa/fatwas/${fatwaId}`;
+            
+            console.log(`🔍 محاولة ${attempts}: جلب فتوى رقم ${fatwaId}...`);
+            
+            https.get(url, (res) => {
+                // إذا كانت الصفحة غير موجودة (404)، حاول مرة أخرى
+                if (res.statusCode === 404) {
+                    console.log(`⚠️ الفتوى ${fatwaId} غير موجودة، محاولة أخرى...`);
+                    tryFetch();
+                    return;
                 }
+                
+                if (res.statusCode !== 200) {
+                    console.log(`⚠️ خطأ ${res.statusCode}، محاولة أخرى...`);
+                    tryFetch();
+                    return;
+                }
+                
+                let data = '';
+                
+                res.on('data', (chunk) => {
+                    data += chunk;
+                });
+                
+                res.on('end', () => {
+                    try {
+                        // استخراج العنوان - عدة محاولات للعثور عليه
+                        let title = 'فتوى';
+                        
+                        // محاولة 1: من h1
+                        let titleMatch = data.match(/<h1[^>]*>(.*?)<\/h1>/i);
+                        if (titleMatch) {
+                            title = titleMatch[1].replace(/<[^>]+>/g, '').trim();
+                        } else {
+                            // محاولة 2: من title tag
+                            titleMatch = data.match(/<title>(.*?)<\/title>/i);
+                            if (titleMatch) {
+                                title = titleMatch[1].replace(/<[^>]+>/g, '').replace(/\s*-\s*موقع.*$/i, '').trim();
+                            }
+                        }
+                        
+                        // استخراج السؤال
+                        let question = '';
+                        const questionPatterns = [
+                            /<div[^>]*class="[^"]*question[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+                            /<div[^>]*id="[^"]*question[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+                            /<p[^>]*class="[^"]*question[^"]*"[^>]*>([\s\S]*?)<\/p>/i
+                        ];
+                        
+                        for (const pattern of questionPatterns) {
+                            const match = data.match(pattern);
+                            if (match) {
+                                question = match[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
+                                if (question.length > 50) break;
+                            }
+                        }
+                        
+                        // استخراج الجواب
+                        let answer = '';
+                        const answerPatterns = [
+                            /<div[^>]*class="[^"]*answer[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+                            /<div[^>]*id="[^"]*answer[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+                            /<div[^>]*class="[^"]*content[^"]*"[^>]*>([\s\S]*?)<\/div>/i
+                        ];
+                        
+                        for (const pattern of answerPatterns) {
+                            const match = data.match(pattern);
+                            if (match) {
+                                answer = match[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
+                                if (answer.length > 100) break;
+                            }
+                        }
+                        
+                        // إذا لم نجد الجواب، استخرج من body
+                        if (!answer || answer.length < 100) {
+                            const bodyMatch = data.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+                            if (bodyMatch) {
+                                const bodyText = bodyMatch[1]
+                                    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+                                    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+                                    .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '')
+                                    .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '')
+                                    .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '')
+                                    .replace(/<[^>]+>/g, ' ')
+                                    .replace(/\s+/g, ' ')
+                                    .replace(/&nbsp;/g, ' ')
+                                    .trim();
+                                
+                                // أخذ جزء معقول من النص
+                                if (bodyText.length > 200) {
+                                    answer = bodyText.substring(0, 1000);
+                                }
+                            }
+                        }
+                        
+                        // التحقق من وجود محتوى
+                        if (!answer || answer.length < 50) {
+                            console.log(`⚠️ الفتوى ${fatwaId} لا تحتوي على محتوى كافٍ، محاولة أخرى...`);
+                            tryFetch();
+                            return;
+                        }
+                        
+                        // تنظيف النصوص
+                        question = question.substring(0, 400).trim();
+                        answer = answer.substring(0, 1000).trim();
+                        
+                        // إضافة نقاط في النهاية إذا تم الاقتطاع
+                        if (question.length >= 400) question += '...';
+                        if (answer.length >= 1000) answer += '...';
+                        
+                        resolve({
+                            id: fatwaId,
+                            title: title,
+                            question: question || 'غير متوفر',
+                            answer: answer,
+                            url: url
+                        });
+                        
+                    } catch (error) {
+                        console.log(`⚠️ خطأ في معالجة الفتوى ${fatwaId}:`, error.message);
+                        tryFetch();
+                    }
+                });
+                
+            }).on('error', (error) => {
+                console.log(`⚠️ خطأ في الاتصال:`, error.message);
+                tryFetch();
             });
-            
-        }).on('error', reject);
+        };
+        
+        tryFetch();
     });
 }
 
@@ -366,23 +430,33 @@ async function sendFatwa(sock) {
         
         const fatwa = await fetchRandomFatwa();
         
-        const message = `📚 *فتوى من موقع الشيخ ابن باز*
+        let message = `📚 *فتوى من موقع الشيخ ابن باز*
+رحمه الله تعالى
+
+━━━━━━━━━━━━━━━━━━━━━━
 
 *${fatwa.title}*
 
-━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━`;
+
+        if (fatwa.question && fatwa.question !== 'غير متوفر') {
+            message += `
 
 *السؤال:*
-${fatwa.question}${fatwa.question.length >= 300 ? '...' : ''}
+${fatwa.question}
 
-━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━`;
+        }
+
+        message += `
 
 *الجواب:*
-${fatwa.answer}${fatwa.answer.length >= 800 ? '...' : ''}
+${fatwa.answer}
 
 ━━━━━━━━━━━━━━━━━━━━━━
 
-🔗 للمزيد: ${fatwa.url}`;
+🔗 الرابط الكامل:
+${fatwa.url}`;
         
         await sock.sendMessage(targetGroup, {
             text: message
@@ -390,7 +464,7 @@ ${fatwa.answer}${fatwa.answer.length >= 800 ? '...' : ''}
             ephemeralExpiration: 0
         });
         
-        console.log(`✅ تم إرسال فتوى: ${fatwa.title}`);
+        console.log(`✅ تم إرسال فتوى #${fatwa.id}: ${fatwa.title.substring(0, 50)}...`);
         console.log(`🔗 ${fatwa.url}\n`);
         
     } catch (error) {
