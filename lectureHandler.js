@@ -100,12 +100,11 @@ function parseContent(html) {
     
     const cleanContent = cleanText(content);
     
-    // اقتطاع إذا كان طويل جداً
-    const maxLength = 3000;
-    let finalContent = cleanContent;
-    if (cleanContent.length > maxLength) {
-        finalContent = cleanContent.substring(0, maxLength) + '...\n\n_(تم الاقتطاع للاختصار)_';
-    }
+    // ⭐ عرض النص الكامل بدون اختصار
+    // إضافة سطور فارغة للراحة
+    const finalContent = cleanContent
+        .replace(/\n{3,}/g, '\n\n')  // تقليل الأسطر الفارغة الزائدة
+        .replace(/([.!؟])\s*/g, '$1\n\n');  // سطر فارغ بعد كل جملة
     
     return {
         title: title || 'محاضرة',
