@@ -121,330 +121,19 @@ console.log('══════════════════════�
 
 let requestCount = 0;
 let pairingCode = null;
-let pairingStatus = 'waiting'; // waiting, generating, ready, connected, error
+let pairingStatus = 'waiting';
 let pairingError = null;
 let phoneNumber = null;
 
 const server = http.createServer((req, res) => {
     requestCount++;
     
-    // الصفحة الرئيسية
     if (req.url === '/' || req.url === '/index.html') {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(`
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🤖 ربط البوت - ${CONFIG.botName}</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 20px;
-        }
-        
-        .container {
-            background: white;
-            border-radius: 20px;
-            padding: 40px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            max-width: 500px;
-            width: 100%;
-            text-align: center;
-        }
-        
-        .logo {
-            font-size: 64px;
-            margin-bottom: 20px;
-        }
-        
-        h1 {
-            color: #333;
-            margin-bottom: 10px;
-            font-size: 28px;
-        }
-        
-        .subtitle {
-            color: #666;
-            margin-bottom: 30px;
-            font-size: 16px;
-        }
-        
-        .status {
-            padding: 15px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-            font-weight: bold;
-        }
-        
-        .status.waiting {
-            background: #fff3cd;
-            color: #856404;
-        }
-        
-        .status.generating {
-            background: #d1ecf1;
-            color: #0c5460;
-        }
-        
-        .status.ready {
-            background: #d4edda;
-            color: #155724;
-        }
-        
-        .status.connected {
-            background: #d4edda;
-            color: #155724;
-        }
-        
-        .status.error {
-            background: #f8d7da;
-            color: #721c24;
-        }
-        
-        .input-group {
-            margin-bottom: 20px;
-        }
-        
-        input {
-            width: 100%;
-            padding: 15px;
-            border: 2px solid #ddd;
-            border-radius: 10px;
-            font-size: 18px;
-            text-align: center;
-            direction: ltr;
-        }
-        
-        input:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-        
-        button {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            padding: 15px 40px;
-            border-radius: 10px;
-            font-size: 18px;
-            font-weight: bold;
-            cursor: pointer;
-            width: 100%;
-            transition: transform 0.2s;
-        }
-        
-        button:hover {
-            transform: scale(1.05);
-        }
-        
-        button:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
-        
-        .code-display {
-            background: #f8f9fa;
-            border: 3px dashed #667eea;
-            border-radius: 15px;
-            padding: 30px;
-            margin: 20px 0;
-        }
-        
-        .code {
-            font-size: 48px;
-            font-weight: bold;
-            color: #667eea;
-            letter-spacing: 8px;
-            font-family: 'Courier New', monospace;
-        }
-        
-        .instructions {
-            background: #f8f9fa;
-            padding: 20px;
-            border-radius: 10px;
-            margin-top: 20px;
-            text-align: right;
-        }
-        
-        .instructions ol {
-            margin: 10px 0;
-            padding-right: 20px;
-        }
-        
-        .instructions li {
-            margin: 10px 0;
-            line-height: 1.6;
-        }
-        
-        .spinner {
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #667eea;
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            animation: spin 1s linear infinite;
-            margin: 20px auto;
-        }
-        
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        
-        .footer {
-            margin-top: 30px;
-            color: #999;
-            font-size: 14px;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="logo">🤖</div>
-        <h1>${CONFIG.botName}</h1>
-        <p class="subtitle">ربط WhatsApp Bot</p>
-        
-        <div id="statusBox" class="status waiting">
-            ⏳ في انتظار رقم الهاتف
-        </div>
-        
-        <div id="inputSection">
-            <div class="input-group">
-                <input 
-                    type="tel" 
-                    id="phoneInput" 
-                    placeholder="249962204268"
-                    maxlength="15"
-                    autocomplete="off"
-                >
-                <small style="color: #666; display: block; margin-top: 5px;">
-                    أدخل رقم الهاتف بدون + أو 00
-                </small>
-            </div>
-            <button onclick="getPairingCode()" id="submitBtn">
-                🔗 الحصول على كود الربط
-            </button>
-        </div>
-        
-        <div id="codeSection" style="display: none;">
-            <div class="code-display">
-                <div class="code" id="pairingCode">---</div>
-            </div>
-            
-            <div class="instructions">
-                <strong>📱 خطوات الربط:</strong>
-                <ol>
-                    <li>افتح WhatsApp على هاتفك</li>
-                    <li>اذهب إلى الإعدادات > الأجهزة المرتبطة</li>
-                    <li>اضغط "ربط جهاز"</li>
-                    <li>اضغط "ربط برقم الهاتف بدلاً من ذلك"</li>
-                    <li>أدخل الكود الظاهر أعلاه</li>
-                </ol>
-            </div>
-            
-            <button onclick="location.reload()" style="margin-top: 20px; background: #6c757d;">
-                🔄 رقم آخر
-            </button>
-        </div>
-        
-        <div class="footer">
-            Made with ❤️ by ${CONFIG.botOwner}
-        </div>
-    </div>
-    
-    <script>
-        async function getPairingCode() {
-            const phone = document.getElementById('phoneInput').value.trim();
-            const submitBtn = document.getElementById('submitBtn');
-            const statusBox = document.getElementById('statusBox');
-            
-            if (!phone) {
-                alert('⚠️ الرجاء إدخال رقم الهاتف');
-                return;
-            }
-            
-            if (!/^[0-9]{10,15}$/.test(phone)) {
-                alert('⚠️ رقم الهاتف غير صحيح\\nيجب أن يكون من 10-15 رقم بدون + أو مسافات');
-                return;
-            }
-            
-            submitBtn.disabled = true;
-            submitBtn.innerHTML = '⏳ جاري التحميل...';
-            statusBox.className = 'status generating';
-            statusBox.innerHTML = '🔄 جاري توليد كود الربط...';
-            
-            try {
-                const response = await fetch('/get-code?phone=' + phone);
-                const data = await response.json();
-                
-                if (data.success) {
-                    document.getElementById('inputSection').style.display = 'none';
-                    document.getElementById('codeSection').style.display = 'block';
-                    document.getElementById('pairingCode').textContent = data.code;
-                    statusBox.className = 'status ready';
-                    statusBox.innerHTML = '✅ كود الربط جاهز!';
-                    
-                    // التحديث التلقائي للحالة
-                    checkStatus();
-                } else {
-                    throw new Error(data.error || 'فشل الحصول على الكود');
-                }
-            } catch (error) {
-                statusBox.className = 'status error';
-                statusBox.innerHTML = '❌ ' + error.message;
-                submitBtn.disabled = false;
-                submitBtn.innerHTML = '🔗 الحصول على كود الربط';
-            }
-        }
-        
-        async function checkStatus() {
-            const interval = setInterval(async () => {
-                try {
-                    const response = await fetch('/status');
-                    const data = await response.json();
-                    
-                    if (data.status === 'connected') {
-                        document.getElementById('statusBox').className = 'status connected';
-                        document.getElementById('statusBox').innerHTML = '🎉 تم الربط بنجاح!';
-                        clearInterval(interval);
-                        
-                        setTimeout(() => {
-                            location.reload();
-                        }, 3000);
-                    }
-                } catch (error) {
-                    console.error('Error checking status:', error);
-                }
-            }, 2000);
-        }
-        
-        // Enter key support
-        document.getElementById('phoneInput').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                getPairingCode();
-            }
-        });
-    </script>
-</body>
-</html>
-        `);
+        res.end(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>🤖 ${CONFIG.botName}</title></head><body style="font-family: sans-serif; text-align: center; padding: 50px;"><h1>${CONFIG.botName} Online</h1><p>Bot is running</p></body></html>`);
         return;
     }
     
-    // API للحصول على pairing code
     if (req.url.startsWith('/get-code')) {
         const url = new URL(req.url, `http://${req.headers.host}`);
         const phone = url.searchParams.get('phone');
@@ -460,35 +149,22 @@ const server = http.createServer((req, res) => {
         
         res.writeHead(200, { 'Content-Type': 'application/json' });
         
-        // انتظار توليد الكود (max 30 ثانية)
         const startTime = Date.now();
         const checkInterval = setInterval(() => {
             if (pairingCode && pairingStatus === 'ready') {
                 clearInterval(checkInterval);
-                res.end(JSON.stringify({ 
-                    success: true, 
-                    code: pairingCode,
-                    phone: phoneNumber
-                }));
+                res.end(JSON.stringify({ success: true, code: pairingCode, phone: phoneNumber }));
             } else if (pairingStatus === 'error') {
                 clearInterval(checkInterval);
-                res.end(JSON.stringify({ 
-                    success: false, 
-                    error: pairingError || 'فشل توليد الكود'
-                }));
+                res.end(JSON.stringify({ success: false, error: pairingError || 'فشل' }));
             } else if (Date.now() - startTime > 30000) {
                 clearInterval(checkInterval);
-                res.end(JSON.stringify({ 
-                    success: false, 
-                    error: 'انتهى وقت الانتظار'
-                }));
+                res.end(JSON.stringify({ success: false, error: 'انتهى وقت الانتظار' }));
             }
         }, 500);
-        
         return;
     }
     
-    // API للحصول على الحالة
     if (req.url === '/status') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
@@ -501,7 +177,6 @@ const server = http.createServer((req, res) => {
         return;
     }
     
-    // الحالة العادية
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
         status: 'online',
@@ -514,36 +189,26 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(CONFIG.port, () => {
-    console.log('\n╔════════════════════════════════════════════════╗');
-    console.log(`║  🌐 الواجهة متاحة على:                         ║`);
-    console.log(`║  http://localhost:${CONFIG.port}                     ║`);
-    console.log('╚════════════════════════════════════════════════╝\n');
+    console.log(`🌐 Server: http://localhost:${CONFIG.port}\n`);
 });
 
 setInterval(() => {
-    const url = `http://localhost:${CONFIG.port}`;
-    http.get(url, (res) => {
+    http.get(`http://localhost:${CONFIG.port}`, (res) => {
         console.log(`💓 Keep-alive: ${res.statusCode}`);
     }).on('error', () => {});
 }, 5 * 60 * 1000);
-
-// ⭐⭐⭐ دوال إنشاء الجلسة بـ Pairing Code ⭐⭐⭐
 
 async function generateNewSession(attemptNumber = 1) {
     const MAX_SESSION_ATTEMPTS = 3;
     
     if (attemptNumber > MAX_SESSION_ATTEMPTS) {
-        console.error('\n❌ فشلت جميع المحاولات لإنشاء الجلسة\n');
-        console.log('⏳ سيتم المحاولة مرة أخرى بعد 30 ثانية...\n');
+        console.error('\n❌ فشلت المحاولات\n');
         await delay(30000);
         return generateNewSession(1);
     }
     
-    console.log('\n╔════════════════════════════════════════════════╗');
-    console.log(`║    🔐 إنشاء جلسة جديدة - محاولة ${attemptNumber}/${MAX_SESSION_ATTEMPTS}     ║`);
-    console.log('╚════════════════════════════════════════════════╝\n');
+    console.log(`\n🔐 إنشاء جلسة - محاولة ${attemptNumber}/${MAX_SESSION_ATTEMPTS}\n`);
     
-    // إعادة تعيين حالة الربط
     pairingCode = null;
     pairingStatus = 'waiting';
     pairingError = null;
@@ -557,8 +222,6 @@ async function generateNewSession(attemptNumber = 1) {
         }
         
         const { version } = await fetchLatestBaileysVersion();
-        console.log(`📦 Baileys v${version.join('.')}\n`);
-        
         const { state, saveCreds } = await useMultiFileAuthState('auth_info');
         const msgRetryCounterCache = new NodeCache();
         
@@ -574,7 +237,7 @@ async function generateNewSession(attemptNumber = 1) {
             markOnlineOnConnect: true,
             syncFullHistory: false,
             msgRetryCounterCache,
-            getMessage: async () => ({ conversation: '' })
+            getMessage: async () => undefined
         });
         
         sock.ev.on('creds.update', saveCreds);
@@ -582,43 +245,24 @@ async function generateNewSession(attemptNumber = 1) {
         return new Promise((resolve, reject) => {
             const timeoutId = setTimeout(() => {
                 if (!connectionResolved) {
-                    console.log('\n⏰ انتهى وقت الانتظار - إعادة المحاولة...\n');
                     connectionResolved = true;
                     sock.end();
                     reject(new Error('timeout'));
                 }
-            }, 10 * 60 * 1000); // 10 دقائق
+            }, 10 * 60 * 1000);
             
-            // ⭐ انتظار رقم الهاتف من الواجهة
-            console.log('📱 في انتظار رقم الهاتف من الواجهة...');
-            console.log(`🌐 افتح: http://localhost:${CONFIG.port}\n`);
+            console.log(`📱 افتح: http://localhost:${CONFIG.port}\n`);
             
             const checkPhoneInterval = setInterval(async () => {
                 if (phoneNumber && pairingStatus === 'generating') {
                     clearInterval(checkPhoneInterval);
                     
                     try {
-                        console.log(`📞 رقم الهاتف المُدخل: ${phoneNumber}`);
-                        console.log('🔄 جاري توليد كود الربط...\n');
-                        
-                        // ⭐ طلب pairing code
                         const code = await sock.requestPairingCode(phoneNumber);
                         pairingCode = code;
                         pairingStatus = 'ready';
-                        
-                        console.log('\n╔════════════════════════════════════════════════╗');
-                        console.log(`║           🔑 كود الربط: ${code}            ║`);
-                        console.log('╚════════════════════════════════════════════════╝\n');
-                        
-                        console.log('📱 أدخل هذا الكود في WhatsApp:\n');
-                        console.log('   1️⃣ افتح WhatsApp');
-                        console.log('   2️⃣ الإعدادات > الأجهزة المرتبطة');
-                        console.log('   3️⃣ ربط جهاز');
-                        console.log('   4️⃣ ربط برقم الهاتف بدلاً من ذلك');
-                        console.log(`   5️⃣ أدخل الكود: ${code}\n`);
-                        
+                        console.log(`\n🔑 كود الربط: ${code}\n`);
                     } catch (error) {
-                        console.error('❌ فشل توليد الكود:', error.message);
                         pairingStatus = 'error';
                         pairingError = error.message;
                     }
@@ -633,10 +277,8 @@ async function generateNewSession(attemptNumber = 1) {
                     
                     clearInterval(checkPhoneInterval);
                     const statusCode = lastDisconnect?.error?.output?.statusCode;
-                    console.log(`\n⚠️ الاتصال مغلق - كود: ${statusCode}`);
                     
                     if (statusCode === 515 || statusCode === 503 || statusCode === 408 || !statusCode) {
-                        console.log('🔄 سيتم إعادة المحاولة...\n');
                         connectionResolved = true;
                         clearTimeout(timeoutId);
                         sock.end();
@@ -644,7 +286,6 @@ async function generateNewSession(attemptNumber = 1) {
                         return;
                     }
                     
-                    console.log(`❌ خطأ غير قابل للإصلاح: ${statusCode}\n`);
                     connectionResolved = true;
                     clearTimeout(timeoutId);
                     sock.end();
@@ -657,17 +298,9 @@ async function generateNewSession(attemptNumber = 1) {
                     clearInterval(checkPhoneInterval);
                     pairingStatus = 'connected';
                     
-                    console.log('\n✅ ════════════════════════════════════');
-                    console.log('   🎉 تم الاتصال بنجاح!');
-                    console.log(`   📱 ${sock.user.id.split(':')[0]}`);
-                    console.log('════════════════════════════════════\n');
-                    
-                    console.log('⏳ انتظار 45 ثانية للمزامنة الكاملة...');
-                    console.log('💡 نصيحة: أرسل رسالة في أي مجموعة الآن!\n');
+                    console.log('\n✅ متصل بنجاح!\n');
                     await delay(45000);
-                    
-                    console.log('✅ تم حفظ الجلسة محلياً في auth_info/');
-                    console.log('💡 الجلسة ستبقى على السيرفر\n');
+                    console.log('✅ تم حفظ الجلسة\n');
                     
                     sock.end();
                     resolve();
@@ -676,15 +309,10 @@ async function generateNewSession(attemptNumber = 1) {
         });
         
     } catch (error) {
-        console.error('❌ خطأ في إنشاء الجلسة:', error.message);
-        
-        if (error.message.startsWith('retry_') || 
-            error.message === 'timeout') {
-            console.log(`⏳ انتظار 10 ثواني قبل المحاولة التالية...\n`);
+        if (error.message.startsWith('retry_') || error.message === 'timeout') {
             await delay(10000);
             return generateNewSession(attemptNumber + 1);
         }
-        
         throw error;
     }
 }
@@ -693,6 +321,11 @@ const processedMessages = new Set();
 const MAX_PROCESSED_CACHE = 1000;
 let globalSock = null;
 let botStartTime = Date.now();
+
+// ⭐⭐⭐ عداد Bad MAC للإعادة التلقائية ⭐⭐⭐
+let badMacErrorCount = 0;
+const MAX_BAD_MAC_BEFORE_RESTART = 10;
+let lastBadMacReset = Date.now();
 
 const userMemory = new Map();
 const MAX_MEMORY_PER_USER = 5;
@@ -726,47 +359,39 @@ function cleanProcessedMessages() {
 
 async function startBot() {
     try {
-        // ⭐⭐⭐ التحقق من وجود جلسة في الـ repo ⭐⭐⭐
         const authPath = path.join(__dirname, 'auth_info');
         const credsPath = path.join(authPath, 'creds.json');
         
         if (!fs.existsSync(authPath) || !fs.existsSync(credsPath)) {
-            console.log('⚠️ لا توجد جلسة - سيتم إنشاء جلسة جديدة\n');
+            console.log('⚠️ لا توجد جلسة\n');
             
             try {
                 await generateNewSession();
             } catch (error) {
-                console.error('❌ فشل إنشاء الجلسة:', error.message);
-                console.log('⏳ سيتم المحاولة مرة أخرى بعد 3 ثانية...\n');
+                console.error('❌ فشل:', error.message);
                 await delay(3000);
-                return startBot(); // إعادة المحاولة
+                return startBot();
             }
             
-            // بعد إنشاء الجلسة، إعادة تشغيل
-            console.log('🔄 إعادة التشغيل للاتصال بالجلسة الجديدة...\n');
             await delay(3000);
             process.exit(0);
         }
         
-        // التحقق من صحة الجلسة
         try {
             const creds = JSON.parse(fs.readFileSync(credsPath, 'utf-8'));
             if (!creds.noiseKey) {
-                throw new Error('creds.json غير مكتمل');
+                throw new Error('creds غير مكتمل');
             }
-            console.log('✅ تم العثور على جلسة صالحة\n');
+            console.log('✅ جلسة صالحة\n');
         } catch (e) {
-            console.error('❌ الجلسة تالفة:', e.message);
-            console.log('🗑️ حذف الجلسة التالفة وإنشاء جديدة...\n');
+            console.error('❌ جلسة تالفة\n');
             fs.rmSync(authPath, { recursive: true, force: true });
             
             try {
                 await generateNewSession();
             } catch (error) {
-                console.error('❌ فشل إنشاء الجلسة:', error.message);
-                console.log('⏳ سيتم المحاولة مرة أخرى بعد 3 ثواني...\n');
                 await delay(3000);
-                return startBot(); // إعادة المحاولة
+                return startBot();
             }
             
             await delay(3000);
@@ -803,27 +428,22 @@ async function startBot() {
             
             msgRetryCounterCache,
             
-            getMessage: async (key) => {
-                return { conversation: '' };
-            },
+            // ⭐ إرجاع undefined بدلاً من empty object
+            getMessage: async (key) => undefined,
             
             shouldIgnoreJid: (jid) => jid.endsWith('@newsletter')
         });
 
         globalSock = sock;
 
-        // حفظ الجلسة محلياً فقط
         sock.ev.on('creds.update', saveCreds);
         
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
             try {
-                // ⭐ تنظيف cache بشكل صحيح لتجنب Bad MAC
                 if (msgRetryCounterCache) {
                     try {
                         msgRetryCounterCache.flushAll();
-                    } catch (e) {
-                        // تجاهل الأخطاء
-                    }
+                    } catch (e) {}
                 }
                 
                 if (type !== 'notify') return;
@@ -1049,8 +669,27 @@ async function startBot() {
                 }
                 
             } catch (error) {
-                if (!error.message.includes('Bad MAC')) {
-                    console.error('❌ خطأ في معالجة الرسالة:', error.message);
+                // ⭐⭐⭐ كشف Bad MAC وإعادة التشغيل التلقائي ⭐⭐⭐
+                if (error.message && error.message.includes('Bad MAC')) {
+                    badMacErrorCount++;
+                    
+                    // إعادة تعيين العداد كل 5 دقائق
+                    if (Date.now() - lastBadMacReset > 5 * 60 * 1000) {
+                        badMacErrorCount = 1;
+                        lastBadMacReset = Date.now();
+                    }
+                    
+                    console.log(`⚠️ Bad MAC Error (#${badMacErrorCount}/${MAX_BAD_MAC_BEFORE_RESTART})`);
+                    
+                    // إعادة تشغيل عند تجاوز الحد
+                    if (badMacErrorCount >= MAX_BAD_MAC_BEFORE_RESTART) {
+                        console.log('\n🔄 تجاوز حد أخطاء Bad MAC - إعادة تشغيل البوت...\n');
+                        sock.end();
+                        await delay(3000);
+                        process.exit(0); // Clever Cloud سيعيد التشغيل
+                    }
+                } else if (error.message && !error.message.includes('Bad MAC')) {
+                    console.error('❌ خطأ:', error.message);
                 }
             }
         });
@@ -1059,15 +698,9 @@ async function startBot() {
             const { connection, lastDisconnect, qr } = update;
             
             if (qr) {
-                console.error('\n❌ خطأ: تم طلب QR بعد تحميل الجلسة!\n');
-                console.error('⚠️ الجلسة تالفة - حذفها وإعادة المحاولة...\n');
-                
+                console.error('\n❌ QR بعد الجلسة!\n');
                 fs.rmSync(authPath, { recursive: true, force: true });
-                
-                console.log('⏳ إعادة المحاولة بعد 10 ثواني...\n');
                 await delay(10000);
-                
-                // إعادة تشغيل البوت
                 sock.end();
                 await startBot();
                 return;
@@ -1076,26 +709,20 @@ async function startBot() {
             if (connection === 'close') {
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
                 
-                console.log(`\n⚠️ الاتصال مغلق - كود: ${statusCode}\n`);
+                console.log(`\n⚠️ مغلق - كود: ${statusCode}\n`);
                 
                 if (statusCode === DisconnectReason.loggedOut ||
                     statusCode === 401 || statusCode === 403) {
-                    console.error('❌ الجلسة غير صالحة - حذفها...\n');
-                    
+                    console.error('❌ جلسة غير صالحة\n');
                     fs.rmSync(authPath, { recursive: true, force: true });
-                    
-                    console.log('⏳ إعادة المحاولة بعد 10 ثواني...\n');
                     await delay(10000);
-                    
                     sock.end();
                     await startBot();
                     return;
                 }
                 
-                // أخطاء أخرى - إعادة الاتصال
-                console.log(`🔄 إعادة الاتصال بعد 5 ثواني...\n`);
+                console.log(`🔄 إعادة الاتصال...\n`);
                 await delay(5000);
-                
                 sock.end();
                 await startBot();
                 
@@ -1110,6 +737,10 @@ async function startBot() {
                 
                 processedMessages.clear();
                 botStartTime = Date.now();
+                
+                // ⭐ إعادة تعيين عداد Bad MAC عند الاتصال الناجح
+                badMacErrorCount = 0;
+                lastBadMacReset = Date.now();
                 
                 if (islamicModule.isEnabled()) {
                     islamicModule.startIslamicSchedule(sock);
@@ -1135,7 +766,6 @@ async function startBot() {
         
     } catch (error) {
         console.error('❌ خطأ في بدء البوت:', error);
-        console.log('⏳ إعادة المحاولة بعد 30 ثانية...\n');
         await delay(30000);
         return startBot();
     }
@@ -1156,3 +786,4 @@ process.on('SIGTERM', () => {
 });
 
 startBot();
+
