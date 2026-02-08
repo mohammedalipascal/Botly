@@ -177,52 +177,89 @@ function parseHtmlContent(html, fatwaId, url) {
     // استخراج النص النظيف
     const cleanText = cleanHtmlText(mainContent);
     
-    // محاولة فصل السؤال والجواب
-    let question = null;
-    let answer = cleanText;
+    // ⭐ استخراج جميع الأسئلة والأجوبة (بما فيها الإضافية)
+    let fullContent = cleanText;
     
-    // البحث عن كلمات دالة على بداية الجواب
-    const answerKeywords = [
+    // البحث عن السؤال الرئيسي والجواب
+    const mainAnswerKeywords = [
         /الجواب\s*:/i,
         /الإجابة\s*:/i,
         /ج\s*:/,
-        /الحمد لله/i,
-        /نعم/i
+        /الحمد لله/i
     ];
     
-    for (const keyword of answerKeywords) {
+    let mainQuestion = null;
+    let mainAnswer = '';
+    let remainingText = cleanText;
+    
+    // محاولة فصل السؤال الرئيسي
+    for (const keyword of mainAnswerKeywords) {
         const parts = cleanText.split(keyword);
-        if (parts.length > 1 && parts[0].length < 600 && parts[1].length > 100) {
-            question = parts[0].replace(/السؤال|س:|نص السؤال/gi, '').trim();
-            answer = parts[1].trim();
+        if (parts.length > 1 && parts[0].length < 800 && parts[1].length > 100) {
+            mainQuestion = parts[0]
+                .replace(/السؤال|س:|نص السؤال/gi, '')
+                .replace(/^\s*:\s*/g, '')
+                .trim();
+            remainingText = parts[1].trim();
             break;
         }
     }
     
+    // إذا لم نجد فصل واضح، نستخدم كل النص
+    if (!remainingText) {
+        remainingText = cleanText;
+    }
+    
+    // ⭐ البحث عن أسئلة إضافية داخل النص
+    // مثل: "السؤال:" أو "السائل:" داخل الجواب
+    const additionalQuestionsPattern = /(السؤال\s*:|السائل\s*:|س\s*:)\s*([^؟\?]+[؟\?])/gi;
+    let match;
+    const additionalQuestions = [];
+    
+    while ((match = additionalQuestionsPattern.exec(remainingText)) !== null) {
+        const question = match[2].trim();
+        if (question.length > 10 && question.length < 500) {
+            additionalQuestions.push(question);
+        }
+    }
+    
+    // إزالة الأسئلة الإضافية من النص لعدم تكرارها
+    let cleanedAnswer = remainingText;
+    additionalQuestions.forEach(q => {
+        cleanedAnswer = cleanedAnswer.replace(q, '');
+    });
+    cleanedAnswer = cleanedAnswer
+        .replace(/(السؤال\s*:|السائل\s*:|س\s*:)/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    
+    mainAnswer = cleanedAnswer;
+    
     // التحقق من صحة البيانات
-    if (!answer || answer.length < 100) {
+    if (!mainAnswer || mainAnswer.length < 100) {
         return null;
     }
     
-    // اقتطاع النصوص الطويلة
-    if (question && question.length > 600) {
-        question = question.substring(0, 600).trim() + '...';
+    // اقتطاع النصوص الطويلة جداً
+    if (mainQuestion && mainQuestion.length > 700) {
+        mainQuestion = mainQuestion.substring(0, 700).trim() + '...';
     }
     
-    if (answer.length > 1500) {
-        answer = answer.substring(0, 1500).trim() + '...';
+    if (mainAnswer.length > 2000) {
+        mainAnswer = mainAnswer.substring(0, 2000).trim() + '...';
     }
     
     // تنظيف نهائي
     title = title.trim();
-    if (question) question = question.trim();
-    answer = answer.trim();
+    if (mainQuestion) mainQuestion = mainQuestion.trim();
+    mainAnswer = mainAnswer.trim();
     
     return {
         id: fatwaId,
         title: title || 'فتوى',
-        question: question,
-        answer: answer,
+        question: mainQuestion,
+        answer: mainAnswer,
+        additionalQuestions: additionalQuestions, // الأسئلة الإضافية
         url: url
     };
 }
@@ -239,19 +276,38 @@ function cleanHtmlText(text) {
         .replace(/<br\s*\/?>/gi, '\n')        // تحويل <br> إلى سطر جديد
         .replace(/<\/p>/gi, '\n\n')           // فقرات
         .replace(/<[^>]+>/g, ' ')             // إزالة HTML tags
-        .replace(/&nbsp;/g, ' ')              // إزالة &nbsp;
-        .replace(/&amp;/g, '&')               // تحويل &amp;
-        .replace(/&lt;/g, '<')                // تحويل &lt;
-        .replace(/&gt;/g, '>')                // تحويل &gt;
-        .replace(/&quot;/g, '"')              // تحويل &quot;
-        .replace(/&#39;/g, "'")               // تحويل &#39;
-        .replace(/&#x27;/g, "'")              // تحويل &#x27;
-        .replace(/&rsquo;/g, "'")             // تحويل &rsquo;
-        .replace(/&lsquo;/g, "'")             // تحويل &lsquo;
-        .replace(/&rdquo;/g, '"')             // تحويل &rdquo;
-        .replace(/&ldquo;/g, '"')             // تحويل &ldquo;
+        
+        // تنظيف HTML entities
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/gi, "'")
+        .replace(/&#x27;/gi, "'")
+        .replace(/&rsquo;/gi, "'")
+        .replace(/&lsquo;/gi, "'")
+        .replace(/&rdquo;/gi, '"')
+        .replace(/&ldquo;/gi, '"')
+        .replace(/&hellip;/gi, '...')
+        .replace(/&mdash;/gi, '—')
+        .replace(/&ndash;/gi, '–')
+        
+        // إزالة رموز غريبة شائعة
+        .replace(/[^\u0000-\u007F\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF\s\d\.\,\!\?\:\;\(\)\[\]\{\}\"\'\/\-\—\–]/g, '')
+        
+        // تنظيف عبارات غير مرغوبة
+        .replace(/play\s+max\s+volume/gi, '')
+        .replace(/تحميل\s+المادة/g, '')
+        .replace(/استمع\s+للمادة/g, '')
+        .replace(/المصدر\s*:/g, '')
+        
+        // تنظيف المسافات
         .replace(/\s+/g, ' ')                 // تقليص المسافات
         .replace(/\n\s*\n\s*\n/g, '\n\n')     // تقليص الأسطر الفارغة
+        .replace(/\s+\./g, '.')               // مسافة قبل النقطة
+        .replace(/\s+،/g, '،')                // مسافة قبل الفاصلة العربية
+        .replace(/\s+؟/g, '؟')                // مسافة قبل علامة الاستفهام
         .trim();
 }
 
@@ -261,33 +317,53 @@ function cleanHtmlText(text) {
  * @returns {string} الرسالة المُنسقة
  */
 function formatFatwaMessage(fatwa) {
-    let message = `📚 *فتوى من موقع الشيخ ابن باز*
+    let message = `┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+
+📿 *فتوى من موقع الشيخ ابن باز*
 رحمه الله تعالى
 
-━━━━━━━━━━━━━━━━━━━━━━
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
 
-📖 *${fatwa.title}*
+*${fatwa.title}*`;
 
-━━━━━━━━━━━━━━━━━━━━━━`;
-
+    // عرض السؤال الرئيسي إن وُجد
     if (fatwa.question) {
         message += `
 
-❓ *السؤال:*
-${fatwa.question}
+*السؤال:*
+${fatwa.question}`;
+    }
 
-━━━━━━━━━━━━━━━━━━━━━━`;
+    // عرض الجواب
+    message += `
+
+*الجواب:*
+${fatwa.answer}`;
+
+    // ⭐ عرض الأسئلة الإضافية إن وُجدت (max 2)
+    if (fatwa.additionalQuestions && fatwa.additionalQuestions.length > 0) {
+        const questionsToShow = fatwa.additionalQuestions.slice(0, 2); // أول سؤالين فقط
+        
+        questionsToShow.forEach((q, index) => {
+            message += `
+
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+
+*سؤال آخر:*
+${q}`;
+        });
+        
+        // إذا كان هناك أسئلة أكثر
+        if (fatwa.additionalQuestions.length > 2) {
+            message += `
+
+_(وأسئلة إضافية أخرى...)_`;
+        }
     }
 
     message += `
 
-💡 *الجواب:*
-${fatwa.answer}
-
-━━━━━━━━━━━━━━━━━━━━━━
-
-🔗 *للمزيد:*
-${fatwa.url}`;
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈`;
 
     return message;
 }
@@ -296,3 +372,4 @@ module.exports = {
     fetchRandomFatwa,
     formatFatwaMessage
 };
+
