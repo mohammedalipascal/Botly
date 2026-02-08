@@ -6,7 +6,7 @@ const { ISLAMIC_CONTENT } = require('./islamicContent');
 const { fetchLectureContent, formatLecture, downloadAudio } = require('./lectureHandler');
 
 // ═══════════════════════════════════════════════════════════
-// 🕌 القسم الإسلامي المتقدم - موقع الشيخ ابن باز رحمه الله
+// 🕌 القسم الإسلامي المتقدم
 // ═══════════════════════════════════════════════════════════
 
 let ISLAMIC_MODULE_ENABLED = false;
@@ -34,12 +34,7 @@ let lectureIndex = {
     mawdooiya: 0
 };
 
-// تخزين مؤقت للملفات الصوتية التي تم طلبها
 const audioRequests = new Map();
-
-// ═══════════════════════════════════════════════════════════
-// 📚 الأذكار
-// ═══════════════════════════════════════════════════════════
 
 const MORNING_EVENING_ATHKAR = [
     {
@@ -104,10 +99,6 @@ const MORNING_EVENING_ATHKAR = [
 
 let currentThikrIndex = 0;
 
-// ═══════════════════════════════════════════════════════════
-// 🔧 دوال الحالة
-// ═══════════════════════════════════════════════════════════
-
 function loadIslamicState() {
     try {
         if (fs.existsSync(ISLAMIC_STATE_FILE)) {
@@ -159,55 +150,33 @@ function saveSectionsState() {
 loadIslamicState();
 loadSectionsState();
 
-// ═══════════════════════════════════════════════════════════
-// 📤 دوال إرسال الأذكار
-// ═══════════════════════════════════════════════════════════
-
+// دوال الإرسال
 async function sendMorningThikr(sock) {
     try {
         const targetGroup = process.env.ISLAMIC_GROUP_ID;
-        
-        if (!targetGroup) {
-            console.log('⚠️ لم يتم تحديد ISLAMIC_GROUP_ID');
-            return;
-        }
-        
-        if (!sectionsState.athkar.enabled) {
-            console.log('⏸️ الأذكار معطّلة');
-            return;
-        }
+        if (!targetGroup || !sectionsState.athkar.enabled) return;
         
         const thikr = MORNING_EVENING_ATHKAR[currentThikrIndex];
-        const thikrText = thikr.evening ? thikr.text : thikr.text;
+        const thikrText = thikr.text;
         
         let message = `┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
 
-🕌 *ذكر الصباح* 
+🕌 *ذكر الصباح*
 
 ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
 
 ${thikrText}`;
 
-        if (thikr.repeat) {
-            message += `\n\n_يُقال ${thikr.repeat} مرة_`;
-        }
-
-        if (thikr.reward) {
-            message += `\n\n${thikr.reward}`;
-        }
-
+        if (thikr.repeat) message += `\n\n_يُقال ${thikr.repeat} مرة_`;
+        if (thikr.reward) message += `\n\n${thikr.reward}`;
         message += `\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈`;
 
         await sock.sendMessage(targetGroup, { text: message });
-        
         console.log(`✅ تم إرسال ذكر الصباح #${currentThikrIndex + 1}`);
         
         currentThikrIndex++;
-        if (currentThikrIndex >= MORNING_EVENING_ATHKAR.length) {
-            currentThikrIndex = 0;
-        }
+        if (currentThikrIndex >= MORNING_EVENING_ATHKAR.length) currentThikrIndex = 0;
         saveIslamicState();
-        
     } catch (error) {
         console.error('❌ خطأ في إرسال ذكر الصباح:', error.message);
     }
@@ -216,16 +185,7 @@ ${thikrText}`;
 async function sendEveningThikr(sock) {
     try {
         const targetGroup = process.env.ISLAMIC_GROUP_ID;
-        
-        if (!targetGroup) {
-            console.log('⚠️ لم يتم تحديد ISLAMIC_GROUP_ID');
-            return;
-        }
-        
-        if (!sectionsState.athkar.enabled) {
-            console.log('⏸️ الأذكار معطّلة');
-            return;
-        }
+        if (!targetGroup || !sectionsState.athkar.enabled) return;
         
         const thikr = MORNING_EVENING_ATHKAR[currentThikrIndex];
         const thikrText = thikr.evening || thikr.text;
@@ -238,48 +198,25 @@ async function sendEveningThikr(sock) {
 
 ${thikrText}`;
 
-        if (thikr.repeat) {
-            message += `\n\n_يُقال ${thikr.repeat} مرة_`;
-        }
-
-        if (thikr.reward) {
-            message += `\n\n${thikr.reward}`;
-        }
-
+        if (thikr.repeat) message += `\n\n_يُقال ${thikr.repeat} مرة_`;
+        if (thikr.reward) message += `\n\n${thikr.reward}`;
         message += `\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈`;
 
         await sock.sendMessage(targetGroup, { text: message });
-        
         console.log(`✅ تم إرسال ذكر المساء #${currentThikrIndex + 1}`);
         
         currentThikrIndex++;
-        if (currentThikrIndex >= MORNING_EVENING_ATHKAR.length) {
-            currentThikrIndex = 0;
-        }
+        if (currentThikrIndex >= MORNING_EVENING_ATHKAR.length) currentThikrIndex = 0;
         saveIslamicState();
-        
     } catch (error) {
         console.error('❌ خطأ في إرسال ذكر المساء:', error.message);
     }
 }
 
-// ═══════════════════════════════════════════════════════════
-// 📚 دوال إرسال الفتاوى
-// ═══════════════════════════════════════════════════════════
-
 async function sendFatwa(sock) {
     try {
         const targetGroup = process.env.ISLAMIC_GROUP_ID;
-        
-        if (!targetGroup) {
-            console.log('⚠️ لم يتم تحديد ISLAMIC_GROUP_ID');
-            return;
-        }
-        
-        if (!sectionsState.fatawa.enabled) {
-            console.log('⏸️ الفتاوى معطّلة');
-            return;
-        }
+        if (!targetGroup || !sectionsState.fatawa.enabled) return;
         
         console.log('\n📚 جاري جلب فتوى من موقع ابن باز...');
         
@@ -289,17 +226,11 @@ async function sendFatwa(sock) {
         await sock.sendMessage(targetGroup, { text: message });
         
         const extraQs = fatwa.additionalQuestions ? ` (+${fatwa.additionalQuestions.length} سؤال إضافي)` : '';
-        console.log(`✅ تم إرسال فتوى #${fatwa.id}: ${fatwa.title.substring(0, 50)}...${extraQs}`);
-        console.log(`📝 الأسئلة: ${fatwa.question ? 'رئيسي' : 'بدون'}${extraQs}\n`);
-        
+        console.log(`✅ تم إرسال فتوى #${fatwa.id}: ${fatwa.title.substring(0, 50)}...${extraQs}\n`);
     } catch (error) {
         console.error('❌ خطأ في إرسال الفتوى:', error.message);
     }
 }
-
-// ═══════════════════════════════════════════════════════════
-// 🕋 دوال إرسال المحاضرات
-// ═══════════════════════════════════════════════════════════
 
 function getAllLecturesFromContent(section) {
     const lectures = [];
@@ -334,19 +265,9 @@ function getAllLecturesFromContent(section) {
 async function sendScheduledLecture(sock, section) {
     try {
         const targetGroup = process.env.ISLAMIC_GROUP_ID;
-        
-        if (!targetGroup) {
-            console.log('⚠️ لم يتم تحديد ISLAMIC_GROUP_ID');
-            return;
-        }
-        
-        if (!sectionsState[section].enabled) {
-            console.log(`⏸️ ${section} معطّل`);
-            return;
-        }
+        if (!targetGroup || !sectionsState[section].enabled) return;
         
         const lectures = getAllLecturesFromContent(section);
-        
         if (lectures.length === 0) {
             console.log(`⚠️ لا توجد محاضرات متاحة في ${section}`);
             return;
@@ -368,19 +289,19 @@ async function sendScheduledLecture(sock, section) {
             timestamp: Date.now()
         });
         
-        // إرسال مع زر الصوت
-        await sock.sendMessage(targetGroup, {
+        // ⭐ إرسال مع زر للصوت - الطريقة الصحيحة لـ Baileys v6
+        const buttons = [
+            { buttonId: `audio_${lecture.id}`, buttonText: { displayText: '🎧 تحميل الصوت' }, type: 1 }
+        ];
+        
+        const buttonMessage = {
             text: message,
-            footer: 'اضغط للاستماع',
-            buttons: [
-                {
-                    buttonId: `audio_${lecture.id}`,
-                    buttonText: { displayText: '🎧 تحميل الصوت' },
-                    type: 1
-                }
-            ],
+            footer: 'اضغط الزر للاستماع',
+            buttons: buttons,
             headerType: 1
-        });
+        };
+        
+        await sock.sendMessage(targetGroup, buttonMessage);
         
         console.log(`✅ تم إرسال محاضرة: ${lecture.title}`);
         
@@ -391,19 +312,15 @@ async function sendScheduledLecture(sock, section) {
     }
 }
 
-// ═══════════════════════════════════════════════════════════
-// 🎛️ معالج الأزرار التفاعلية
-// ═══════════════════════════════════════════════════════════
-
+// معالج الأزرار
 async function handleButtonResponse(sock, msg) {
     try {
-        const buttonId = msg.message?.buttonsResponseMessage?.selectedButtonId;
+        const buttonResponse = msg.message?.buttonsResponseMessage;
+        if (!buttonResponse) return false;
         
-        if (!buttonId) return false;
-        
+        const buttonId = buttonResponse.selectedButtonId;
         console.log(`🔘 تم الضغط على زر: ${buttonId}`);
         
-        // معالجة زر الصوت
         if (buttonId.startsWith('audio_')) {
             const lectureId = buttonId.replace('audio_', '');
             const audioInfo = audioRequests.get(lectureId);
@@ -432,8 +349,6 @@ async function handleButtonResponse(sock, msg) {
                 }, { quoted: msg });
                 
                 console.log(`✅ تم إرسال الملف الصوتي`);
-                
-                // حذف من الذاكرة
                 audioRequests.delete(lectureId);
                 
             } catch (error) {
@@ -446,8 +361,6 @@ async function handleButtonResponse(sock, msg) {
             return true;
         }
         
-        // يمكن إضافة أزرار أخرى هنا
-        
         return false;
         
     } catch (error) {
@@ -456,12 +369,47 @@ async function handleButtonResponse(sock, msg) {
     }
 }
 
-// ═══════════════════════════════════════════════════════════
-// 📋 دوال القوائم المنسدلة
-// ═══════════════════════════════════════════════════════════
-
+// القائمة المنسدلة - الطريقة الصحيحة لـ Baileys v6
 async function sendMainMenu(sock, sender, msg) {
-    const menu = {
+    const sections = [
+        {
+            title: '🎛️ التحكم بالأقسام',
+            rows: [
+                { title: '🕌 تفعيل الأذكار', rowId: 'enable_athkar', description: 'أذكار الصباح والمساء' },
+                { title: '📚 تفعيل الفتاوى', rowId: 'enable_fatawa', description: 'فتوى يومياً' },
+                { title: '⚖️ تفعيل الفقه', rowId: 'enable_fiqh', description: 'محاضرات كل ساعة' },
+                { title: '📖 تفعيل الموضوعية', rowId: 'enable_mawdooiya', description: 'مواضيع كل ساعة' }
+            ]
+        },
+        {
+            title: '⏸️ الإيقاف',
+            rows: [
+                { title: '⏸️ إيقاف الأذكار', rowId: 'disable_athkar', description: 'إيقاف الأذكار' },
+                { title: '⏸️ إيقاف الفتاوى', rowId: 'disable_fatawa', description: 'إيقاف الفتاوى' },
+                { title: '⏸️ إيقاف الفقه', rowId: 'disable_fiqh', description: 'إيقاف الفقه' },
+                { title: '⏸️ إيقاف الموضوعية', rowId: 'disable_mawdooiya', description: 'إيقاف الموضوعية' }
+            ]
+        },
+        {
+            title: '⚡ إرسال فوري',
+            rows: [
+                { title: '🌅 ذكر صباح الآن', rowId: 'send_morning', description: 'إرسال فوراً' },
+                { title: '🌇 ذكر مساء الآن', rowId: 'send_evening', description: 'إرسال فوراً' },
+                { title: '📚 فتوى الآن', rowId: 'send_fatwa', description: 'إرسال فوراً' },
+                { title: '🕋 محاضرة فقه الآن', rowId: 'send_fiqh', description: 'إرسال فوراً' },
+                { title: '📖 محاضرة موضوعية الآن', rowId: 'send_mawdooiya', description: 'إرسال فوراً' }
+            ]
+        },
+        {
+            title: '📊 أخرى',
+            rows: [
+                { title: '📊 عرض الحالة', rowId: 'show_status', description: 'حالة جميع الأقسام' },
+                { title: '🔄 إعادة ترتيب الأذكار', rowId: 'reset_athkar', description: 'البدء من أول ذكر' }
+            ]
+        }
+    ];
+    
+    const listMessage = {
         text: `🕌 *القسم الإسلامي*
 
 مرحباً بك في القسم الإسلامي من موقع الشيخ ابن باز رحمه الله
@@ -477,131 +425,28 @@ async function sendMainMenu(sock, sender, msg) {
 
 ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
 
-*الأوامر السريعة:*
-/اسلام_حالة - عرض الحالة
-/ذكر_صباح - ذكر الآن
-/فتوى - فتوى الآن
-/فقه - محاضرة فقه الآن`,
-        footer: 'اختر قسماً للتحكم',
-        title: 'القسم الإسلامي',
+اختر من القائمة أدناه`,
+        footer: 'القسم الإسلامي',
+        title: '🕌 القائمة الرئيسية',
         buttonText: 'اختر قسم',
-        sections: [
-            {
-                title: 'التحكم بالأقسام',
-                rows: [
-                    {
-                        title: '🕌 تفعيل الأذكار',
-                        rowId: 'enable_athkar',
-                        description: 'أذكار الصباح والمساء'
-                    },
-                    {
-                        title: '📚 تفعيل الفتاوى',
-                        rowId: 'enable_fatawa',
-                        description: 'فتوى يومياً'
-                    },
-                    {
-                        title: '⚖️ تفعيل الفقه',
-                        rowId: 'enable_fiqh',
-                        description: 'محاضرات كل ساعة'
-                    },
-                    {
-                        title: '📖 تفعيل الموضوعية',
-                        rowId: 'enable_mawdooiya',
-                        description: 'مواضيع كل ساعة'
-                    }
-                ]
-            },
-            {
-                title: 'الإيقاف',
-                rows: [
-                    {
-                        title: '⏸️ إيقاف الأذكار',
-                        rowId: 'disable_athkar',
-                        description: 'إيقاف أذكار الصباح والمساء'
-                    },
-                    {
-                        title: '⏸️ إيقاف الفتاوى',
-                        rowId: 'disable_fatawa',
-                        description: 'إيقاف الفتاوى اليومية'
-                    },
-                    {
-                        title: '⏸️ إيقاف الفقه',
-                        rowId: 'disable_fiqh',
-                        description: 'إيقاف محاضرات الفقه'
-                    },
-                    {
-                        title: '⏸️ إيقاف الموضوعية',
-                        rowId: 'disable_mawdooiya',
-                        description: 'إيقاف الموضوعية'
-                    }
-                ]
-            },
-            {
-                title: 'إرسال فوري',
-                rows: [
-                    {
-                        title: '🌅 ذكر صباح الآن',
-                        rowId: 'send_morning',
-                        description: 'إرسال ذكر صباح فوراً'
-                    },
-                    {
-                        title: '🌇 ذكر مساء الآن',
-                        rowId: 'send_evening',
-                        description: 'إرسال ذكر مساء فوراً'
-                    },
-                    {
-                        title: '📚 فتوى الآن',
-                        rowId: 'send_fatwa',
-                        description: 'إرسال فتوى عشوائية'
-                    },
-                    {
-                        title: '🕋 محاضرة فقه الآن',
-                        rowId: 'send_fiqh',
-                        description: 'إرسال محاضرة فقه'
-                    },
-                    {
-                        title: '📖 محاضرة موضوعية الآن',
-                        rowId: 'send_mawdooiya',
-                        description: 'إرسال محاضرة موضوعية'
-                    }
-                ]
-            },
-            {
-                title: 'أخرى',
-                rows: [
-                    {
-                        title: '📊 عرض الحالة',
-                        rowId: 'show_status',
-                        description: 'حالة جميع الأقسام'
-                    },
-                    {
-                        title: '🔄 إعادة ترتيب الأذكار',
-                        rowId: 'reset_athkar',
-                        description: 'البدء من أول ذكر'
-                    }
-                ]
-            }
-        ]
+        sections: sections
     };
     
-    await sock.sendMessage(sender, menu, { quoted: msg });
+    await sock.sendMessage(sender, listMessage, { quoted: msg });
 }
 
 async function handleListResponse(sock, msg) {
     try {
         const listResponse = msg.message?.listResponseMessage;
-        
         if (!listResponse) return false;
         
         const rowId = listResponse.singleSelectReply?.selectedRowId;
-        
         if (!rowId) return false;
         
         console.log(`📋 تم اختيار: ${rowId}`);
         
         const sender = msg.key.remoteJid;
         
-        // معالجة الاختيارات
         switch(rowId) {
             case 'enable_athkar':
                 sectionsState.athkar.enabled = true;
@@ -643,36 +488,28 @@ async function handleListResponse(sock, msg) {
                 sectionsState.athkar.enabled = false;
                 saveSectionsState();
                 stopAthkarSchedule();
-                await sock.sendMessage(sender, {
-                    text: '⏸️ تم إيقاف الأذكار'
-                }, { quoted: msg });
+                await sock.sendMessage(sender, { text: '⏸️ تم إيقاف الأذكار' }, { quoted: msg });
                 break;
                 
             case 'disable_fatawa':
                 sectionsState.fatawa.enabled = false;
                 saveSectionsState();
                 stopFatawaSchedule();
-                await sock.sendMessage(sender, {
-                    text: '⏸️ تم إيقاف الفتاوى'
-                }, { quoted: msg });
+                await sock.sendMessage(sender, { text: '⏸️ تم إيقاف الفتاوى' }, { quoted: msg });
                 break;
                 
             case 'disable_fiqh':
                 sectionsState.fiqh.enabled = false;
                 saveSectionsState();
                 stopFiqhSchedule();
-                await sock.sendMessage(sender, {
-                    text: '⏸️ تم إيقاف الفقه'
-                }, { quoted: msg });
+                await sock.sendMessage(sender, { text: '⏸️ تم إيقاف الفقه' }, { quoted: msg });
                 break;
                 
             case 'disable_mawdooiya':
                 sectionsState.mawdooiya.enabled = false;
                 saveSectionsState();
                 stopMawdooiyaSchedule();
-                await sock.sendMessage(sender, {
-                    text: '⏸️ تم إيقاف الموضوعية'
-                }, { quoted: msg });
+                await sock.sendMessage(sender, { text: '⏸️ تم إيقاف الموضوعية' }, { quoted: msg });
                 break;
                 
             case 'send_morning':
@@ -700,8 +537,6 @@ async function handleListResponse(sock, msg) {
 
 ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
 
-القسم الرئيسي: ${ISLAMIC_MODULE_ENABLED ? '✅ مفعّل' : '❌ معطّل'}
-
 الأقسام الفرعية:
 • الأذكار: ${sectionsState.athkar.enabled ? '✅ مفعّل' : '❌ معطّل'}
 • الفتاوى: ${sectionsState.fatawa.enabled ? '✅ مفعّل' : '❌ معطّل'}
@@ -711,8 +546,7 @@ async function handleListResponse(sock, msg) {
 ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
 
 الجدولة:
-🌅 الأذكار الصباحية: 6:50 ص و 7:00 ص
-🌇 الأذكار المسائية: 3:50 م و 4:00 م
+🌅 الأذكار: 6:50 ص و 7:00 ص، 3:50 م و 4:00 م
 📚 الفتاوى: 12:00 ظهراً يومياً
 🕋 الفقه: كل ساعة
 📖 الموضوعية: كل ساعة`;
@@ -722,24 +556,18 @@ async function handleListResponse(sock, msg) {
             case 'reset_athkar':
                 currentThikrIndex = 0;
                 saveIslamicState();
-                await sock.sendMessage(sender, {
-                    text: '✅ تم إعادة ترتيب الأذكار'
-                }, { quoted: msg });
+                await sock.sendMessage(sender, { text: '✅ تم إعادة ترتيب الأذكار' }, { quoted: msg });
                 break;
         }
         
         return true;
-        
     } catch (error) {
         console.error('❌ خطأ في معالجة القائمة:', error.message);
         return false;
     }
 }
 
-// ═══════════════════════════════════════════════════════════
-// ⏰ دوال الجدولة
-// ═══════════════════════════════════════════════════════════
-
+// الجدولة
 function startAthkarSchedule(sock) {
     stopAthkarSchedule();
     morningJob1 = cron.schedule('50 6 * * *', () => sendMorningThikr(sock), { timezone: "Africa/Cairo" });
@@ -759,7 +587,7 @@ function stopAthkarSchedule() {
 function startFatawaSchedule(sock) {
     stopFatawaSchedule();
     fatwaJob = cron.schedule('0 12 * * *', () => sendFatwa(sock), { timezone: "Africa/Cairo" });
-    console.log('✅ تم جدولة الفتاوى: 12:00 ظهراً يومياً');
+    console.log('✅ تم جدولة الفتاوى');
 }
 
 function stopFatawaSchedule() {
@@ -769,7 +597,7 @@ function stopFatawaSchedule() {
 function startFiqhSchedule(sock) {
     stopFiqhSchedule();
     fiqhJob = cron.schedule('0 * * * *', () => sendScheduledLecture(sock, 'fiqh'), { timezone: "Africa/Cairo" });
-    console.log('✅ تم جدولة الفقه: كل ساعة');
+    console.log('✅ تم جدولة الفقه');
 }
 
 function stopFiqhSchedule() {
@@ -779,7 +607,7 @@ function stopFiqhSchedule() {
 function startMawdooiyaSchedule(sock) {
     stopMawdooiyaSchedule();
     mawdooiyaJob = cron.schedule('0 * * * *', () => sendScheduledLecture(sock, 'mawdooiya'), { timezone: "Africa/Cairo" });
-    console.log('✅ تم جدولة الموضوعية: كل ساعة');
+    console.log('✅ تم جدولة الموضوعية');
 }
 
 function stopMawdooiyaSchedule() {
@@ -802,10 +630,7 @@ function stopIslamicSchedule() {
     stopMawdooiyaSchedule();
 }
 
-// ═══════════════════════════════════════════════════════════
-// 🎛️ معالجة الأوامر
-// ═══════════════════════════════════════════════════════════
-
+// معالج الأوامر
 async function handleIslamicCommand(sock, msg, messageText, sender) {
     const isAdmin = sender.includes('249962204268') || sender.includes('231211024814174') || msg.key.fromMe;
     
@@ -831,73 +656,8 @@ async function handleIslamicCommand(sock, msg, messageText, sender) {
         return true;
     }
     
-    // باقي الأوامر النصية (للتوافق)
-    if (command === '/اسلام_حالة') {
-        const status = `🕌 *حالة القسم الإسلامي*
-
-┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
-
-القسم الرئيسي: ${ISLAMIC_MODULE_ENABLED ? '✅ مفعّل' : '❌ معطّل'}
-
-الأقسام الفرعية:
-• الأذكار: ${sectionsState.athkar.enabled ? '✅ مفعّل' : '❌ معطّل'}
-• الفتاوى: ${sectionsState.fatawa.enabled ? '✅ مفعّل' : '❌ معطّل'}
-• الفقه: ${sectionsState.fiqh.enabled ? '✅ مفعّل' : '❌ معطّل'}
-• الموضوعية: ${sectionsState.mawdooiya.enabled ? '✅ مفعّل' : '❌ معطّل'}
-
-┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
-
-الجدولة:
-🌅 الأذكار الصباحية: 6:50 ص و 7:00 ص
-🌇 الأذكار المسائية: 3:50 م و 4:00 م
-📚 الفتاوى: 12:00 ظهراً يومياً
-🕋 الفقه: كل ساعة
-📖 الموضوعية: كل ساعة`;
-        await sock.sendMessage(sender, { text: status }, { quoted: msg });
-        return true;
-    }
-    
-    // أوامر إرسال فوري
-    if (command === '/ذكر_صباح') {
-        await sendMorningThikr(sock);
-        return true;
-    }
-    
-    if (command === '/ذكر_مساء') {
-        await sendEveningThikr(sock);
-        return true;
-    }
-    
-    if (command === '/فتوى') {
-        await sendFatwa(sock);
-        return true;
-    }
-    
-    if (command === '/فقه') {
-        await sendScheduledLecture(sock, 'fiqh');
-        return true;
-    }
-    
-    if (command === '/موضوعية') {
-        await sendScheduledLecture(sock, 'mawdooiya');
-        return true;
-    }
-    
-    if (command === '/اسلام_اعادة') {
-        currentThikrIndex = 0;
-        saveIslamicState();
-        await sock.sendMessage(sender, {
-            text: '✅ تم إعادة ترتيب الأذكار'
-        }, { quoted: msg });
-        return true;
-    }
-    
     return false;
 }
-
-// ═══════════════════════════════════════════════════════════
-// 📤 Exports
-// ═══════════════════════════════════════════════════════════
 
 module.exports = {
     handleIslamicCommand,
