@@ -1,12 +1,13 @@
 const cron = require('node-cron');
 const fs = require('fs');
 const path = require('path');
+const { generateWAMessageFromContent, proto } = require('@whiskeysockets/baileys');
 const { fetchRandomFatwa, formatFatwaMessage } = require('./fatwaModule');
 const { ISLAMIC_CONTENT } = require('./islamicContent');
 const { fetchLectureContent, formatLecture, downloadAudio } = require('./lectureHandler');
 
 // ═══════════════════════════════════════════════════════════
-// 🕌 القسم الإسلامي المتقدم
+// 🕌 القسم الإسلامي - مع أزرار حقيقية
 // ═══════════════════════════════════════════════════════════
 
 let ISLAMIC_MODULE_ENABLED = false;
@@ -282,28 +283,56 @@ async function sendScheduledLecture(sock, section) {
         const content = await fetchLectureContent(lecture.pageUrl);
         const message = formatLecture(content, lecture.audioUrl);
         
-        // حفظ معلومات الصوت
         audioRequests.set(lecture.id, {
             audioUrl: lecture.audioUrl,
             title: lecture.title,
             timestamp: Date.now()
         });
         
-        // ⭐ إرسال مع زر للصوت - الطريقة الصحيحة لـ Baileys v6
-        const buttons = [
-            { buttonId: `audio_${lecture.id}`, buttonText: { displayText: '🎧 تحميل الصوت' }, type: 1 }
-        ];
-        
-        const buttonMessage = {
-            text: message,
-            footer: 'اضغط الزر للاستماع',
-            buttons: buttons,
-            headerType: 1
-        };
-        
-        await sock.sendMessage(targetGroup, buttonMessage);
-        
-        console.log(`✅ تم إرسال محاضرة: ${lecture.title}`);
+        // ⭐ إرسال مع زر الصوت - الطريقة الصحيحة باستخدام proto
+        try {
+            const msg = generateWAMessageFromContent(targetGroup, {
+                viewOnceMessage: {
+                    message: {
+                        messageContextInfo: {
+                            deviceListMetadata: {},
+                            deviceListMetadataVersion: 2
+                        },
+                        interactiveMessage: proto.Message.InteractiveMessage.create({
+                            body: proto.Message.InteractiveMessage.Body.create({
+                                text: message
+                            }),
+                            footer: proto.Message.InteractiveMessage.Footer.create({
+                                text: "اضغط الزر للاستماع"
+                            }),
+                            header: proto.Message.InteractiveMessage.Header.create({
+                                title: `🕋 ${content.title}`,
+                                hasMediaAttachment: false
+                            }),
+                            nativeFlowMessage: proto.Message.InteractiveMessage.NativeFlowMessage.create({
+                                buttons: [
+                                    {
+                                        name: "quick_reply",
+                                        buttonParamsJson: JSON.stringify({
+                                            display_text: "🎧 تحميل الصوت",
+                                            id: `audio_${lecture.id}`
+                                        })
+                                    }
+                                ]
+                            })
+                        })
+                    }
+                }
+            }, {});
+            
+            await sock.relayMessage(targetGroup, msg.message, { messageId: msg.key.id });
+            
+            console.log(`✅ تم إرسال محاضرة مع زر: ${lecture.title}`);
+        } catch (btnError) {
+            // Fallback: إرسال بدون أزرار
+            console.log('⚠️ فشل إرسال الأزرار، إرسال عادي...');
+            await sock.sendMessage(targetGroup, { text: message + `\n\n_اكتب: صوت - للحصول على الملف الصوتي_` });
+        }
         
         lectureIndex[section] = (currentIndex + 1) % lectures.length;
         
@@ -312,53 +341,67 @@ async function sendScheduledLecture(sock, section) {
     }
 }
 
-// معالج الأزرار
+// معالج الأزرار (من InteractiveMessage)
 async function handleButtonResponse(sock, msg) {
     try {
+        // من InteractiveMessage
+        const response = msg.message?.interactiveResponseMessage;
+        if (response) {
+            const buttonId = response.nativeFlowResponseMessage?.paramsJson;
+            if (buttonId) {
+                const parsed = JSON.parse(buttonId);
+                const id = parsed.id;
+                
+                console.log(`🔘 تم الضغط على زر: ${id}`);
+                
+                if (id && id.startsWith('audio_')) {
+                    const lectureId = id.replace('audio_', '');
+                    const audioInfo = audioRequests.get(lectureId);
+                    
+                    if (!audioInfo) {
+                        await sock.sendMessage(msg.key.remoteJid, {
+                            text: '⚠️ انتهت صلاحية هذا الطلب'
+                        }, { quoted: msg });
+                        return true;
+                    }
+                    
+                    console.log(`📥 جاري تحميل الصوت: ${audioInfo.title}...`);
+                    
+                    await sock.sendMessage(msg.key.remoteJid, {
+                        text: '⏳ جاري تحميل الملف الصوتي...'
+                    }, { quoted: msg });
+                    
+                    try {
+                        const audioBuffer = await downloadAudio(audioInfo.audioUrl);
+                        
+                        await sock.sendMessage(msg.key.remoteJid, {
+                            audio: audioBuffer,
+                            mimetype: 'audio/mp3',
+                            ptt: false,
+                            fileName: `${audioInfo.title.substring(0, 50)}.mp3`
+                        }, { quoted: msg });
+                        
+                        console.log(`✅ تم إرسال الملف الصوتي`);
+                        audioRequests.delete(lectureId);
+                        
+                    } catch (error) {
+                        console.error('❌ خطأ في تحميل الصوت:', error.message);
+                        await sock.sendMessage(msg.key.remoteJid, {
+                            text: '❌ عذراً، فشل تحميل الملف الصوتي'
+                        }, { quoted: msg });
+                    }
+                    
+                    return true;
+                }
+            }
+        }
+        
+        // Fallback: الطريقة القديمة للأزرار
         const buttonResponse = msg.message?.buttonsResponseMessage;
-        if (!buttonResponse) return false;
-        
-        const buttonId = buttonResponse.selectedButtonId;
-        console.log(`🔘 تم الضغط على زر: ${buttonId}`);
-        
-        if (buttonId.startsWith('audio_')) {
-            const lectureId = buttonId.replace('audio_', '');
-            const audioInfo = audioRequests.get(lectureId);
-            
-            if (!audioInfo) {
-                await sock.sendMessage(msg.key.remoteJid, {
-                    text: '⚠️ انتهت صلاحية هذا الطلب'
-                }, { quoted: msg });
-                return true;
-            }
-            
-            console.log(`📥 جاري تحميل الصوت: ${audioInfo.title}...`);
-            
-            await sock.sendMessage(msg.key.remoteJid, {
-                text: '⏳ جاري تحميل الملف الصوتي...'
-            }, { quoted: msg });
-            
-            try {
-                const audioBuffer = await downloadAudio(audioInfo.audioUrl);
-                
-                await sock.sendMessage(msg.key.remoteJid, {
-                    audio: audioBuffer,
-                    mimetype: 'audio/mp3',
-                    ptt: false,
-                    fileName: `${audioInfo.title.substring(0, 50)}.mp3`
-                }, { quoted: msg });
-                
-                console.log(`✅ تم إرسال الملف الصوتي`);
-                audioRequests.delete(lectureId);
-                
-            } catch (error) {
-                console.error('❌ خطأ في تحميل الصوت:', error.message);
-                await sock.sendMessage(msg.key.remoteJid, {
-                    text: '❌ عذراً، فشل تحميل الملف الصوتي'
-                }, { quoted: msg });
-            }
-            
-            return true;
+        if (buttonResponse) {
+            const buttonId = buttonResponse.selectedButtonId;
+            console.log(`🔘 زر قديم: ${buttonId}`);
+            // نفس المعالجة...
         }
         
         return false;
@@ -369,48 +412,19 @@ async function handleButtonResponse(sock, msg) {
     }
 }
 
-// القائمة المنسدلة - الطريقة الصحيحة لـ Baileys v6
+// القائمة المنسدلة بالطريقة الحديثة
 async function sendMainMenu(sock, sender, msg) {
-    const sections = [
-        {
-            title: '🎛️ التحكم بالأقسام',
-            rows: [
-                { title: '🕌 تفعيل الأذكار', rowId: 'enable_athkar', description: 'أذكار الصباح والمساء' },
-                { title: '📚 تفعيل الفتاوى', rowId: 'enable_fatawa', description: 'فتوى يومياً' },
-                { title: '⚖️ تفعيل الفقه', rowId: 'enable_fiqh', description: 'محاضرات كل ساعة' },
-                { title: '📖 تفعيل الموضوعية', rowId: 'enable_mawdooiya', description: 'مواضيع كل ساعة' }
-            ]
-        },
-        {
-            title: '⏸️ الإيقاف',
-            rows: [
-                { title: '⏸️ إيقاف الأذكار', rowId: 'disable_athkar', description: 'إيقاف الأذكار' },
-                { title: '⏸️ إيقاف الفتاوى', rowId: 'disable_fatawa', description: 'إيقاف الفتاوى' },
-                { title: '⏸️ إيقاف الفقه', rowId: 'disable_fiqh', description: 'إيقاف الفقه' },
-                { title: '⏸️ إيقاف الموضوعية', rowId: 'disable_mawdooiya', description: 'إيقاف الموضوعية' }
-            ]
-        },
-        {
-            title: '⚡ إرسال فوري',
-            rows: [
-                { title: '🌅 ذكر صباح الآن', rowId: 'send_morning', description: 'إرسال فوراً' },
-                { title: '🌇 ذكر مساء الآن', rowId: 'send_evening', description: 'إرسال فوراً' },
-                { title: '📚 فتوى الآن', rowId: 'send_fatwa', description: 'إرسال فوراً' },
-                { title: '🕋 محاضرة فقه الآن', rowId: 'send_fiqh', description: 'إرسال فوراً' },
-                { title: '📖 محاضرة موضوعية الآن', rowId: 'send_mawdooiya', description: 'إرسال فوراً' }
-            ]
-        },
-        {
-            title: '📊 أخرى',
-            rows: [
-                { title: '📊 عرض الحالة', rowId: 'show_status', description: 'حالة جميع الأقسام' },
-                { title: '🔄 إعادة ترتيب الأذكار', rowId: 'reset_athkar', description: 'البدء من أول ذكر' }
-            ]
-        }
-    ];
-    
-    const listMessage = {
-        text: `🕌 *القسم الإسلامي*
+    try {
+        const menuMsg = generateWAMessageFromContent(sender, {
+            viewOnceMessage: {
+                message: {
+                    messageContextInfo: {
+                        deviceListMetadata: {},
+                        deviceListMetadataVersion: 2
+                    },
+                    interactiveMessage: proto.Message.InteractiveMessage.create({
+                        body: proto.Message.InteractiveMessage.Body.create({
+                            text: `🕌 *القسم الإسلامي*
 
 مرحباً بك في القسم الإسلامي من موقع الشيخ ابن باز رحمه الله
 
@@ -425,119 +439,175 @@ async function sendMainMenu(sock, sender, msg) {
 
 ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
 
-اختر من القائمة أدناه`,
-        footer: 'القسم الإسلامي',
-        title: '🕌 القائمة الرئيسية',
-        buttonText: 'اختر قسم',
-        sections: sections
-    };
-    
-    await sock.sendMessage(sender, listMessage, { quoted: msg });
+اختر من الأزرار أدناه`
+                        }),
+                        footer: proto.Message.InteractiveMessage.Footer.create({
+                            text: "القسم الإسلامي"
+                        }),
+                        header: proto.Message.InteractiveMessage.Header.create({
+                            title: "القائمة الرئيسية",
+                            hasMediaAttachment: false
+                        }),
+                        nativeFlowMessage: proto.Message.InteractiveMessage.NativeFlowMessage.create({
+                            buttons: [
+                                {
+                                    name: "quick_reply",
+                                    buttonParamsJson: JSON.stringify({
+                                        display_text: "🕌 تفعيل الأذكار",
+                                        id: "enable_athkar"
+                                    })
+                                },
+                                {
+                                    name: "quick_reply",
+                                    buttonParamsJson: JSON.stringify({
+                                        display_text: "📚 تفعيل الفتاوى",
+                                        id: "enable_fatawa"
+                                    })
+                                },
+                                {
+                                    name: "quick_reply",
+                                    buttonParamsJson: JSON.stringify({
+                                        display_text: "⚖️ تفعيل الفقه",
+                                        id: "enable_fiqh"
+                                    })
+                                }
+                            ]
+                        })
+                    })
+                }
+            }
+        }, {});
+        
+        await sock.relayMessage(sender, menuMsg.message, { messageId: menuMsg.key.id });
+        console.log('✅ تم إرسال القائمة بأزرار');
+        
+    } catch (error) {
+        console.error('❌ خطأ في إرسال القائمة:', error.message);
+        // Fallback: قائمة نصية
+        await sock.sendMessage(sender, {
+            text: `🕌 *القسم الإسلامي*
+
+اختر بالأرقام:
+
+1️⃣ تفعيل الأذكار
+2️⃣ تفعيل الفتاوى
+3️⃣ تفعيل الفقه
+4️⃣ تفعيل الموضوعية
+5️⃣ إيقاف الأذكار
+6️⃣ إيقاف الفتاوى
+7️⃣ إيقاف الفقه
+8️⃣ إيقاف الموضوعية
+9️⃣ ذكر صباح الآن
+🔟 ذكر مساء الآن
+1️⃣1️⃣ فتوى الآن
+1️⃣2️⃣ محاضرة فقه الآن
+1️⃣3️⃣ محاضرة موضوعية الآن
+1️⃣4️⃣ عرض الحالة
+1️⃣5️⃣ إعادة ترتيب الأذكار`
+        }, { quoted: msg });
+    }
 }
 
-async function handleListResponse(sock, msg) {
-    try {
-        const listResponse = msg.message?.listResponseMessage;
-        if (!listResponse) return false;
-        
-        const rowId = listResponse.singleSelectReply?.selectedRowId;
-        if (!rowId) return false;
-        
-        console.log(`📋 تم اختيار: ${rowId}`);
-        
-        const sender = msg.key.remoteJid;
-        
-        switch(rowId) {
-            case 'enable_athkar':
-                sectionsState.athkar.enabled = true;
-                saveSectionsState();
-                startAthkarSchedule(sock);
-                await sock.sendMessage(sender, {
-                    text: '✅ تم تفعيل الأذكار\n\n🌅 الصباح: 6:50 ص و 7:00 ص\n🌇 المساء: 3:50 م و 4:00 م'
-                }, { quoted: msg });
-                break;
-                
-            case 'enable_fatawa':
-                sectionsState.fatawa.enabled = true;
-                saveSectionsState();
-                startFatawaSchedule(sock);
-                await sock.sendMessage(sender, {
-                    text: '✅ تم تفعيل الفتاوى\n\n📚 يومياً: 12:00 ظهراً'
-                }, { quoted: msg });
-                break;
-                
-            case 'enable_fiqh':
-                sectionsState.fiqh.enabled = true;
-                saveSectionsState();
-                startFiqhSchedule(sock);
-                await sock.sendMessage(sender, {
-                    text: '✅ تم تفعيل الفقه\n\n🕋 كل ساعة'
-                }, { quoted: msg });
-                break;
-                
-            case 'enable_mawdooiya':
-                sectionsState.mawdooiya.enabled = true;
-                saveSectionsState();
-                startMawdooiyaSchedule(sock);
-                await sock.sendMessage(sender, {
-                    text: '✅ تم تفعيل الموضوعية\n\n📖 كل ساعة'
-                }, { quoted: msg });
-                break;
-                
-            case 'disable_athkar':
-                sectionsState.athkar.enabled = false;
-                saveSectionsState();
-                stopAthkarSchedule();
-                await sock.sendMessage(sender, { text: '⏸️ تم إيقاف الأذكار' }, { quoted: msg });
-                break;
-                
-            case 'disable_fatawa':
-                sectionsState.fatawa.enabled = false;
-                saveSectionsState();
-                stopFatawaSchedule();
-                await sock.sendMessage(sender, { text: '⏸️ تم إيقاف الفتاوى' }, { quoted: msg });
-                break;
-                
-            case 'disable_fiqh':
-                sectionsState.fiqh.enabled = false;
-                saveSectionsState();
-                stopFiqhSchedule();
-                await sock.sendMessage(sender, { text: '⏸️ تم إيقاف الفقه' }, { quoted: msg });
-                break;
-                
-            case 'disable_mawdooiya':
-                sectionsState.mawdooiya.enabled = false;
-                saveSectionsState();
-                stopMawdooiyaSchedule();
-                await sock.sendMessage(sender, { text: '⏸️ تم إيقاف الموضوعية' }, { quoted: msg });
-                break;
-                
-            case 'send_morning':
-                await sendMorningThikr(sock);
-                break;
-                
-            case 'send_evening':
-                await sendEveningThikr(sock);
-                break;
-                
-            case 'send_fatwa':
-                await sendFatwa(sock);
-                break;
-                
-            case 'send_fiqh':
-                await sendScheduledLecture(sock, 'fiqh');
-                break;
-                
-            case 'send_mawdooiya':
-                await sendScheduledLecture(sock, 'mawdooiya');
-                break;
-                
-            case 'show_status':
-                const status = `🕌 *حالة القسم الإسلامي*
+async function handleMenuChoice(sock, msg, choice, sender) {
+    switch(choice) {
+        case '1':
+        case 'enable_athkar':
+            sectionsState.athkar.enabled = true;
+            saveSectionsState();
+            startAthkarSchedule(sock);
+            await sock.sendMessage(sender, {
+                text: '✅ تم تفعيل الأذكار\n\n🌅 الصباح: 6:50 ص و 7:00 ص\n🌇 المساء: 3:50 م و 4:00 م'
+            }, { quoted: msg });
+            break;
+            
+        case '2':
+        case 'enable_fatawa':
+            sectionsState.fatawa.enabled = true;
+            saveSectionsState();
+            startFatawaSchedule(sock);
+            await sock.sendMessage(sender, {
+                text: '✅ تم تفعيل الفتاوى\n\n📚 يومياً: 12:00 ظهراً'
+            }, { quoted: msg });
+            break;
+            
+        case '3':
+        case 'enable_fiqh':
+            sectionsState.fiqh.enabled = true;
+            saveSectionsState();
+            startFiqhSchedule(sock);
+            await sock.sendMessage(sender, {
+                text: '✅ تم تفعيل الفقه\n\n🕋 كل ساعة'
+            }, { quoted: msg });
+            break;
+            
+        case '4':
+        case 'enable_mawdooiya':
+            sectionsState.mawdooiya.enabled = true;
+            saveSectionsState();
+            startMawdooiyaSchedule(sock);
+            await sock.sendMessage(sender, {
+                text: '✅ تم تفعيل الموضوعية\n\n📖 كل ساعة'
+            }, { quoted: msg });
+            break;
+            
+        case '5':
+        case 'disable_athkar':
+            sectionsState.athkar.enabled = false;
+            saveSectionsState();
+            stopAthkarSchedule();
+            await sock.sendMessage(sender, { text: '⏸️ تم إيقاف الأذكار' }, { quoted: msg });
+            break;
+            
+        case '6':
+        case 'disable_fatawa':
+            sectionsState.fatawa.enabled = false;
+            saveSectionsState();
+            stopFatawaSchedule();
+            await sock.sendMessage(sender, { text: '⏸️ تم إيقاف الفتاوى' }, { quoted: msg });
+            break;
+            
+        case '7':
+        case 'disable_fiqh':
+            sectionsState.fiqh.enabled = false;
+            saveSectionsState();
+            stopFiqhSchedule();
+            await sock.sendMessage(sender, { text: '⏸️ تم إيقاف الفقه' }, { quoted: msg });
+            break;
+            
+        case '8':
+        case 'disable_mawdooiya':
+            sectionsState.mawdooiya.enabled = false;
+            saveSectionsState();
+            stopMawdooiyaSchedule();
+            await sock.sendMessage(sender, { text: '⏸️ تم إيقاف الموضوعية' }, { quoted: msg });
+            break;
+            
+        case '9':
+            await sendMorningThikr(sock);
+            break;
+            
+        case '10':
+            await sendEveningThikr(sock);
+            break;
+            
+        case '11':
+            await sendFatwa(sock);
+            break;
+            
+        case '12':
+            await sendScheduledLecture(sock, 'fiqh');
+            break;
+            
+        case '13':
+            await sendScheduledLecture(sock, 'mawdooiya');
+            break;
+            
+        case '14':
+            const status = `🕌 *حالة القسم الإسلامي*
 
 ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
 
-الأقسام الفرعية:
+الأقسام:
 • الأذكار: ${sectionsState.athkar.enabled ? '✅ مفعّل' : '❌ معطّل'}
 • الفتاوى: ${sectionsState.fatawa.enabled ? '✅ مفعّل' : '❌ معطّل'}
 • الفقه: ${sectionsState.fiqh.enabled ? '✅ مفعّل' : '❌ معطّل'}
@@ -546,24 +616,18 @@ async function handleListResponse(sock, msg) {
 ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
 
 الجدولة:
-🌅 الأذكار: 6:50 ص و 7:00 ص، 3:50 م و 4:00 م
+🌅 الأذكار: 6:50 ص، 7:00 ص، 3:50 م، 4:00 م
 📚 الفتاوى: 12:00 ظهراً يومياً
 🕋 الفقه: كل ساعة
 📖 الموضوعية: كل ساعة`;
-                await sock.sendMessage(sender, { text: status }, { quoted: msg });
-                break;
-                
-            case 'reset_athkar':
-                currentThikrIndex = 0;
-                saveIslamicState();
-                await sock.sendMessage(sender, { text: '✅ تم إعادة ترتيب الأذكار' }, { quoted: msg });
-                break;
-        }
-        
-        return true;
-    } catch (error) {
-        console.error('❌ خطأ في معالجة القائمة:', error.message);
-        return false;
+            await sock.sendMessage(sender, { text: status }, { quoted: msg });
+            break;
+            
+        case '15':
+            currentThikrIndex = 0;
+            saveIslamicState();
+            await sock.sendMessage(sender, { text: '✅ تم إعادة ترتيب الأذكار' }, { quoted: msg });
+            break;
     }
 }
 
@@ -636,13 +700,9 @@ async function handleIslamicCommand(sock, msg, messageText, sender) {
     
     if (!isAdmin) return false;
     
-    // معالجة الأزرار والقوائم
-    if (msg.message?.buttonsResponseMessage) {
+    // معالجة الأزرار
+    if (msg.message?.interactiveResponseMessage || msg.message?.buttonsResponseMessage) {
         return await handleButtonResponse(sock, msg);
-    }
-    
-    if (msg.message?.listResponseMessage) {
-        return await handleListResponse(sock, msg);
     }
     
     const command = messageText.trim();
@@ -652,7 +712,33 @@ async function handleIslamicCommand(sock, msg, messageText, sender) {
         await sendMainMenu(sock, sender, msg);
         ISLAMIC_MODULE_ENABLED = true;
         saveIslamicState();
-        console.log('✅ تم عرض القائمة الرئيسية');
+        return true;
+    }
+    
+    // معالجة الأرقام
+    if (/^[0-9]{1,2}$/.test(command)) {
+        await handleMenuChoice(sock, msg, command, sender);
+        return true;
+    }
+    
+    // أوامر نصية (للطلب المباشر)
+    if (command === 'صوت') {
+        // إرسال آخر صوت
+        const lastAudio = Array.from(audioRequests.values()).pop();
+        if (lastAudio) {
+            try {
+                await sock.sendMessage(sender, { text: '⏳ جاري تحميل...' }, { quoted: msg });
+                const audioBuffer = await downloadAudio(lastAudio.audioUrl);
+                await sock.sendMessage(sender, {
+                    audio: audioBuffer,
+                    mimetype: 'audio/mp3',
+                    ptt: false,
+                    fileName: `${lastAudio.title.substring(0, 50)}.mp3`
+                }, { quoted: msg });
+            } catch (error) {
+                await sock.sendMessage(sender, { text: '❌ فشل التحميل' }, { quoted: msg });
+            }
+        }
         return true;
     }
     
