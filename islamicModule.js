@@ -6,7 +6,7 @@ const { ISLAMIC_CONTENT } = require('./islamicContent');
 const { fetchLectureContent, formatLecture, downloadAudio } = require('./lectureHandler');
 const { 
     sendMainMenu, 
-    handleListResponse, 
+    handleButtonResponse, 
     sendLectureWithAudioButton 
 } = require('./islamicButtons');
 
@@ -245,12 +245,39 @@ async function handleIslamicCommand(sock, msg, messageText, sender) {
         return false;
     }
     
-    // معالجة List Responses
-    if (msg.message?.listResponseMessage) {
-        const selectedId = msg.message.listResponseMessage.singleSelectReply.selectedRowId;
-        console.log(`📋 List Selected: ${selectedId}`);
+    // معالجة Buttons Responses فقط
+    if (msg.message?.buttonsResponseMessage) {
+        const buttonId = msg.message.buttonsResponseMessage.selectedButtonId;
+        console.log(`🔘 Button Selected: ${buttonId}`);
         
-        const result = await handleListResponse(sock, sender, selectedId, sender);
+        // زر تحميل الصوت
+        if (buttonId.startsWith('audio_')) {
+            const lectureId = buttonId.replace('audio_', '');
+            const audioInfo = audioRequests.get(lectureId);
+            
+            if (audioInfo) {
+                try {
+                    await sock.sendMessage(sender, { text: '⏳ جاري التحميل...' });
+                    const buffer = await downloadAudio(audioInfo.audioUrl);
+                    await sock.sendMessage(sender, {
+                        audio: buffer,
+                        mimetype: 'audio/mp3',
+                        ptt: false,
+                        fileName: `${audioInfo.title.substring(0, 50)}.mp3`
+                    });
+                    console.log(`✅ تم إرسال الصوت: ${audioInfo.title}`);
+                } catch (err) {
+                    await sock.sendMessage(sender, { text: '❌ فشل التحميل' });
+                    console.error('❌ خطأ في تحميل الصوت:', err.message);
+                }
+            } else {
+                await sock.sendMessage(sender, { text: '⚠️ الصوت غير متاح' });
+            }
+            return true;
+        }
+        
+        // باقي الأزرار
+        const result = await handleButtonResponse(sock, sender, buttonId, sender);
         
         if (result && typeof result === 'object') {
             // تفعيل الأذكار
@@ -290,37 +317,6 @@ async function handleIslamicCommand(sock, msg, messageText, sender) {
         }
         
         return true;
-    }
-    
-    // معالجة Buttons Responses (زر تحميل الصوت)
-    if (msg.message?.buttonsResponseMessage) {
-        const buttonId = msg.message.buttonsResponseMessage.selectedButtonId;
-        console.log(`🔘 Button Selected: ${buttonId}`);
-        
-        if (buttonId.startsWith('audio_')) {
-            const lectureId = buttonId.replace('audio_', '');
-            const audioInfo = audioRequests.get(lectureId);
-            
-            if (audioInfo) {
-                try {
-                    await sock.sendMessage(sender, { text: '⏳ جاري التحميل...' });
-                    const buffer = await downloadAudio(audioInfo.audioUrl);
-                    await sock.sendMessage(sender, {
-                        audio: buffer,
-                        mimetype: 'audio/mp3',
-                        ptt: false,
-                        fileName: `${audioInfo.title.substring(0, 50)}.mp3`
-                    });
-                    console.log(`✅ تم إرسال الصوت: ${audioInfo.title}`);
-                } catch (err) {
-                    await sock.sendMessage(sender, { text: '❌ فشل التحميل' });
-                    console.error('❌ خطأ في تحميل الصوت:', err.message);
-                }
-            } else {
-                await sock.sendMessage(sender, { text: '⚠️ الصوت غير متاح' });
-            }
-            return true;
-        }
     }
     
     const cmd = messageText.trim();
