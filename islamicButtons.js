@@ -5,158 +5,198 @@ const { ISLAMIC_CONTENT } = require('./islamicContent');
 // ═══════════════════════════════════════════════════════════
 
 /**
- * إرسال القائمة الرئيسية
+ * إرسال القائمة الرئيسية - نظام Buttons
  */
 async function sendMainMenu(sock, chatId) {
-    const sections = [
-        {
-            title: "🕌 الأقسام الإسلامية",
-            rows: [
-                { title: "📿 الأذكار", rowId: "athkar", description: "أذكار الصباح والمساء" },
-                { title: "📚 الفتاوى", rowId: "fatawa", description: "فتاوى الشيخ ابن باز رحمه الله" },
-                { title: "⚖️ الفقه", rowId: "fiqh", description: "عبادات، معاملات، فقه الأسرة" },
-                { title: "📖 الموضوعية", rowId: "mawdooiya", description: "قرآن، عقيدة، حديث، دعوة" }
-            ]
-        }
+    const buttons = [
+        { buttonId: 'athkar', buttonText: { displayText: '📿 الأذكار' }, type: 1 },
+        { buttonId: 'fatawa', buttonText: { displayText: '📚 الفتاوى' }, type: 1 },
+        { buttonId: 'fiqh', buttonText: { displayText: '⚖️ الفقه' }, type: 1 }
     ];
 
-    const listMessage = {
+    const buttonMessage = {
         text: `┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
 
 🕌 *القسم الإسلامي*
 
 مرحباً بك في القسم الإسلامي من موقع الشيخ ابن باز رحمه الله تعالى
 
-اختر القسم المطلوب من القائمة أدناه:
+اختر القسم المطلوب:
+
+📿 *الأذكار* - أذكار الصباح والمساء
+📚 *الفتاوى* - فتاوى الشيخ ابن باز رحمه الله
+⚖️ *الفقه* - عبادات، معاملات، فقه الأسرة
 
 ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈`,
-        footer: "Botly - القسم الإسلامي",
-        title: "📋 اختر القسم",
-        buttonText: "📂 فتح القائمة",
-        sections
+        footer: 'Botly - القسم الإسلامي',
+        buttons: buttons,
+        headerType: 1
     };
 
-    await sock.sendMessage(chatId, listMessage);
+    await sock.sendMessage(chatId, buttonMessage);
 }
 
 /**
- * إرسال قائمة أقسام الفقه
+ * إرسال قائمة أقسام الفقه - نظام Buttons
  */
 async function sendFiqhMenu(sock, chatId) {
-    const sections = [
-        {
-            title: "⚖️ أقسام الفقه",
-            rows: [
-                { title: "🕌 العبادات", rowId: "fiqh_ibadat", description: "الصلاة، الصيام، الحج، الزكاة..." },
-                { title: "💰 المعاملات", rowId: "fiqh_muamalat", description: "البيوع، الربا، الشركة..." },
-                { title: "👨‍👩‍👧 فقه الأسرة", rowId: "fiqh_usrah", description: "الزواج، الطلاق، النفقات..." },
-                { title: "🏛️ العادات", rowId: "fiqh_adat", description: "عادات وتقاليد" },
-                { title: "🏠 العودة للقائمة الرئيسية", rowId: "main_menu", description: "الرجوع" }
-            ]
-        }
+    const buttons = [
+        { buttonId: 'fiqh_ibadat', buttonText: { displayText: '🕌 العبادات' }, type: 1 },
+        { buttonId: 'fiqh_muamalat', buttonText: { displayText: '💰 المعاملات' }, type: 1 },
+        { buttonId: 'main_menu', buttonText: { displayText: '🏠 القائمة الرئيسية' }, type: 1 }
     ];
 
-    const listMessage = {
+    const buttonMessage = {
         text: `┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
 
 ⚖️ *الفقه*
 
 اختر القسم الفرعي:
 
+🕌 *العبادات* - الصلاة، الصيام، الحج، الزكاة
+💰 *المعاملات* - البيوع، الربا، الشركة
+👨‍👩‍👧 *فقه الأسرة* - (قريباً)
+🏛️ *العادات* - (قريباً)
+
 ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈`,
-        footer: "Botly - الفقه",
-        title: "📋 اختر القسم الفرعي",
-        buttonText: "📂 فتح القائمة",
-        sections
+        footer: 'Botly - الفقه',
+        buttons: buttons,
+        headerType: 1
     };
 
-    await sock.sendMessage(chatId, listMessage);
+    await sock.sendMessage(chatId, buttonMessage);
 }
 
 /**
- * إرسال قائمة العبادات
+ * إرسال قائمة العبادات - نظام Buttons مع صفحات
  */
-async function sendIbadatMenu(sock, chatId) {
-    const sections = [
-        {
-            title: "🕌 العبادات",
-            rows: [
-                { title: "🕌 الصلاة", rowId: "fiqh_ibadat_salah", description: "أحكام الصلاة" },
-                { title: "⚰️ الجنائز", rowId: "fiqh_ibadat_janazah", description: "أحكام الجنائز" },
-                { title: "💰 الزكاة", rowId: "fiqh_ibadat_zakah", description: "أحكام الزكاة" },
-                { title: "🌙 الصيام", rowId: "fiqh_ibadat_siyam", description: "أحكام الصيام" },
-                { title: "🕋 الحج والعمرة", rowId: "fiqh_ibadat_hajj", description: "أحكام الحج" },
-                { title: "💧 الطهارة", rowId: "fiqh_ibadat_taharah", description: "أحكام الطهارة" },
-                { title: "⚔️ الجهاد والسير", rowId: "fiqh_ibadat_jihad", description: "أحكام الجهاد" },
-                { title: "◀️ رجوع", rowId: "fiqh", description: "العودة لقائمة الفقه" }
-            ]
-        }
-    ];
+async function sendIbadatMenu(sock, chatId, page = 1) {
+    let buttons = [];
+    let text = '';
+    
+    if (page === 1) {
+        buttons = [
+            { buttonId: 'fiqh_ibadat_salah', buttonText: { displayText: '🕌 الصلاة' }, type: 1 },
+            { buttonId: 'fiqh_ibadat_zakah', buttonText: { displayText: '💰 الزكاة' }, type: 1 },
+            { buttonId: 'ibadat_page_2', buttonText: { displayText: '⏩ التالي' }, type: 1 }
+        ];
+        
+        text = `┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
 
-    const listMessage = {
-        text: `┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+🕌 *العبادات* (صفحة 1/3)
 
-🕌 *العبادات*
+🕌 *الصلاة* - أحكام الصلاة
+💰 *الزكاة* - أحكام الزكاة
+⚰️ *الجنائز* - (صفحة 2)
+🌙 *الصيام* - (صفحة 2)
+🕋 *الحج* - (صفحة 3)
+💧 *الطهارة* - (صفحة 3)
 
-اختر الموضوع:
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈`;
+    } else if (page === 2) {
+        buttons = [
+            { buttonId: 'fiqh_ibadat_janazah', buttonText: { displayText: '⚰️ الجنائز' }, type: 1 },
+            { buttonId: 'fiqh_ibadat_siyam', buttonText: { displayText: '🌙 الصيام' }, type: 1 },
+            { buttonId: 'ibadat_page_3', buttonText: { displayText: '⏩ التالي' }, type: 1 }
+        ];
+        
+        text = `┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
 
-┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈`,
-        footer: "Botly - العبادات",
-        title: "📋 اختر الموضوع",
-        buttonText: "📂 فتح القائمة",
-        sections
+🕌 *العبادات* (صفحة 2/3)
+
+⚰️ *الجنائز* - أحكام الجنائز
+🌙 *الصيام* - أحكام الصيام
+
+_اضغط التالي للمزيد..._
+
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈`;
+    } else if (page === 3) {
+        buttons = [
+            { buttonId: 'fiqh_ibadat_hajj', buttonText: { displayText: '🕋 الحج' }, type: 1 },
+            { buttonId: 'fiqh_ibadat_taharah', buttonText: { displayText: '💧 الطهارة' }, type: 1 },
+            { buttonId: 'fiqh', buttonText: { displayText: '◀️ رجوع' }, type: 1 }
+        ];
+        
+        text = `┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+
+🕌 *العبادات* (صفحة 3/3)
+
+🕋 *الحج والعمرة* - أحكام الحج
+💧 *الطهارة* - أحكام الطهارة
+⚔️ *الجهاد* - (قريباً)
+
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈`;
+    }
+
+    const buttonMessage = {
+        text: text,
+        footer: 'Botly - العبادات',
+        buttons: buttons,
+        headerType: 1
     };
 
-    await sock.sendMessage(chatId, listMessage);
+    await sock.sendMessage(chatId, buttonMessage);
 }
 
 /**
- * إرسال قائمة فئات الصلاة (10 فئات فقط في كل قائمة)
+ * إرسال قائمة فئات الصلاة - نظام Buttons مع صفحات
  */
 async function sendSalahMenu(sock, chatId, page = 1) {
     const categories = ISLAMIC_CONTENT.fiqh.subsections.ibadat.topics.salah.categories;
     const categoryKeys = Object.keys(categories);
-    const itemsPerPage = 10;
+    const itemsPerPage = 3;
     const totalPages = Math.ceil(categoryKeys.length / itemsPerPage);
     
     const startIdx = (page - 1) * itemsPerPage;
     const endIdx = Math.min(startIdx + itemsPerPage, categoryKeys.length);
     const pageKeys = categoryKeys.slice(startIdx, endIdx);
     
-    const rows = pageKeys.map(key => ({
-        title: categories[key].displayName,
-        rowId: `salah_${key}`,
-        description: `فئة: ${categories[key].displayName}`
-    }));
+    const buttons = [];
+    let text = `┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+
+🕌 *الصلاة* (صفحة ${page}/${totalPages})
+
+`;
     
-    // إضافة أزرار التنقل
+    // إضافة أزرار الفئات (max 3)
+    let btnCount = 0;
+    for (const key of pageKeys) {
+        if (btnCount < 2) { // نترك مكان للزر الثالث (التالي/السابق/رجوع)
+            buttons.push({
+                buttonId: `salah_${key}`,
+                buttonText: { displayText: categories[key].displayName.substring(0, 20) },
+                type: 1
+            });
+            text += `• ${categories[key].displayName}\n`;
+            btnCount++;
+        }
+    }
+    
+    text += `\n_الصفحة ${page} من ${totalPages}_\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈`;
+    
+    // زر التنقل
     if (page < totalPages) {
-        rows.push({ title: "⏩ الصفحة التالية", rowId: `salah_page_${page + 1}`, description: `صفحة ${page + 1}` });
+        buttons.push({
+            buttonId: `salah_page_${page + 1}`,
+            buttonText: { displayText: `⏩ الصفحة ${page + 1}` },
+            type: 1
+        });
+    } else {
+        buttons.push({
+            buttonId: 'fiqh_ibadat',
+            buttonText: { displayText: '◀️ رجوع للعبادات' },
+            type: 1
+        });
     }
-    if (page > 1) {
-        rows.push({ title: "⏪ الصفحة السابقة", rowId: `salah_page_${page - 1}`, description: `صفحة ${page - 1}` });
-    }
-    rows.push({ title: "◀️ رجوع", rowId: "fiqh_ibadat", description: "العودة للعبادات" });
-    
-    const sections = [{ title: "🕌 فئات الصلاة", rows }];
 
-    const listMessage = {
-        text: `┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
-
-🕌 *الصلاة*
-
-اختر الفئة المطلوبة:
-
-_الصفحة ${page} من ${totalPages}_
-
-┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈`,
-        footer: "Botly - الصلاة",
-        title: "📋 اختر الفئة",
-        buttonText: "📂 فتح القائمة",
-        sections
+    const buttonMessage = {
+        text: text,
+        footer: 'Botly - الصلاة',
+        buttons: buttons,
+        headerType: 1
     };
 
-    await sock.sendMessage(chatId, listMessage);
+    await sock.sendMessage(chatId, buttonMessage);
 }
 
 /**
@@ -277,11 +317,11 @@ _الصفحة ${page} من ${totalPages}_
 }
 
 /**
- * معالجة اختيار القائمة
+ * معالجة اختيار الزر
  */
-async function handleListResponse(sock, chatId, selectedId, senderId) {
+async function handleButtonResponse(sock, chatId, selectedId, senderId) {
     try {
-        console.log(`📋 List Response: ${selectedId}`);
+        console.log(`🔘 Button Response: ${selectedId}`);
         
         // القائمة الرئيسية
         if (selectedId === 'main_menu') {
@@ -322,20 +362,32 @@ async function handleListResponse(sock, chatId, selectedId, senderId) {
         
         // أقسام الفقه
         if (selectedId === 'fiqh_ibadat') {
-            await sendIbadatMenu(sock, chatId);
+            await sendIbadatMenu(sock, chatId, 1);
             return true;
         }
         if (selectedId === 'fiqh_muamalat') {
-            await sendMuamalatMenu(sock, chatId);
+            await sock.sendMessage(chatId, { text: '⚠️ قسم المعاملات قيد التطوير' });
+            await sendFiqhMenu(sock, chatId);
             return true;
         }
         if (selectedId === 'fiqh_usrah') {
-            await sendUsrahMenu(sock, chatId);
+            await sock.sendMessage(chatId, { text: '⚠️ قسم فقه الأسرة قيد التطوير' });
+            await sendFiqhMenu(sock, chatId);
             return true;
         }
         if (selectedId === 'fiqh_adat') {
             await sock.sendMessage(chatId, { text: '⚠️ قسم العادات قيد التطوير' });
             await sendFiqhMenu(sock, chatId);
+            return true;
+        }
+        
+        // صفحات العبادات
+        if (selectedId === 'ibadat_page_2') {
+            await sendIbadatMenu(sock, chatId, 2);
+            return true;
+        }
+        if (selectedId === 'ibadat_page_3') {
+            await sendIbadatMenu(sock, chatId, 3);
             return true;
         }
         
@@ -352,7 +404,7 @@ async function handleListResponse(sock, chatId, selectedId, senderId) {
             return true;
         }
         
-        // فئات الصلاة
+        // فئات الصلاة - التفعيل
         if (selectedId.startsWith('salah_')) {
             const categoryKey = selectedId.replace('salah_', '');
             
@@ -382,58 +434,19 @@ async function handleListResponse(sock, chatId, selectedId, senderId) {
             };
         }
         
-        // الموضوعية
-        if (selectedId === 'mawdooiya') {
-            await sendMawdooiyaMenu(sock, chatId, 1);
-            return true;
-        }
-        
-        // صفحات الموضوعية
-        if (selectedId.startsWith('mawdooiya_page_')) {
-            const page = parseInt(selectedId.split('_')[2]);
-            await sendMawdooiyaMenu(sock, chatId, page);
-            return true;
-        }
-        
-        // مواضيع الموضوعية
-        if (selectedId.startsWith('mawdooiya_')) {
-            const topicKey = selectedId.replace('mawdooiya_', '');
-            
-            if (topicKey.startsWith('page_')) return true;
-            
-            const topic = ISLAMIC_CONTENT.mawdooiya.topics[topicKey];
-            
-            if (!topic) {
-                await sock.sendMessage(chatId, { text: '⚠️ موضوع غير موجود' });
-                return true;
-            }
-            
-            await sock.sendMessage(chatId, {
-                text: `✅ *تم تفعيل قسم: ${topic.displayName}*
-
-📖 سيتم إرسال المحاضرات تلقائياً للمجموعة كل ساعة`
-            });
-            
-            return { 
-                action: 'enable_mawdooiya', 
-                path: ['mawdooiya', topicKey],
-                topicName: topic.displayName
-            };
-        }
-        
-        // باقي مواضيع العبادات
+        // باقي مواضيع العبادات (قيد التطوير)
         if (selectedId === 'fiqh_ibadat_janazah' || selectedId === 'fiqh_ibadat_zakah' || 
             selectedId === 'fiqh_ibadat_siyam' || selectedId === 'fiqh_ibadat_hajj' || 
             selectedId === 'fiqh_ibadat_taharah' || selectedId === 'fiqh_ibadat_jihad') {
             await sock.sendMessage(chatId, { text: '⚠️ هذا القسم قيد التطوير - سيتم إضافة المحاضرات قريباً' });
-            await sendIbadatMenu(sock, chatId);
+            await sendIbadatMenu(sock, chatId, 1);
             return true;
         }
         
         return false;
         
     } catch (error) {
-        console.error('❌ خطأ في معالجة List Response:', error.message);
+        console.error('❌ خطأ في معالجة Button Response:', error.message);
         return false;
     }
 }
@@ -461,10 +474,6 @@ module.exports = {
     sendFiqhMenu,
     sendIbadatMenu,
     sendSalahMenu,
-    sendMuamalatMenu,
-    sendUsrahMenu,
-    sendMawdooiyaMenu,
-    handleListResponse,
+    handleButtonResponse,
     sendLectureWithAudioButton
 };
-
