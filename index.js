@@ -842,6 +842,14 @@ async function startBot() {
                 if (messageTime < botStartTime - 60000) {
                     return;
                 }
+                // ⭐⭐⭐ القسم الإسلامي - List Messages ⭐⭐⭐
+if (msg.message?.listResponseMessage || msg.message?.buttonsResponseMessage) {
+    const isHandled = await islamicModule.handleIslamicCommand(sock, msg, '', sender);
+    if (isHandled) {
+        console.log('✅ List/Button معالج بواسطة القسم الإسلامي');
+        return;
+    }
+}
                 
                 const messageText = 
                     msg.message.conversation ||
