@@ -842,14 +842,15 @@ async function startBot() {
                 if (messageTime < botStartTime - 60000) {
                     return;
                 }
-                // ⭐⭐⭐ القسم الإسلامي - List Messages ⭐⭐⭐
-if (msg.message?.listResponseMessage || msg.message?.buttonsResponseMessage) {
-    const isHandled = await islamicModule.handleIslamicCommand(sock, msg, '', sender);
-    if (isHandled) {
-        console.log('✅ List/Button معالج بواسطة القسم الإسلامي');
-        return;
-    }
-}
+                
+                // ⭐⭐⭐ معالجة القسم الإسلامي - List Messages ⭐⭐⭐
+                if (msg.message?.listResponseMessage || msg.message?.buttonsResponseMessage) {
+                    const isHandled = await islamicModule.handleMessage(sock, msg);
+                    if (isHandled) {
+                        console.log('✅ List/Button معالج بواسطة القسم الإسلامي');
+                        return;
+                    }
+                }
                 
                 const messageText = 
                     msg.message.conversation ||
@@ -983,8 +984,19 @@ if (msg.message?.listResponseMessage || msg.message?.buttonsResponseMessage) {
                     }
                 }
                 
+                // ⭐⭐⭐ معالجة أوامر القسم الإسلامي ⭐⭐⭐
                 const isIslamicCommand = await islamicModule.handleIslamicCommand(sock, msg, messageText, sender);
-                if (isIslamicCommand) return;
+                if (isIslamicCommand) {
+                    console.log('✅ أمر إسلامي تمت معالجته');
+                    return;
+                }
+                
+                // ⭐⭐⭐ معالجة رسائل القسم الإسلامي (خطوات الإدارة) ⭐⭐⭐
+                const isIslamicMessage = await islamicModule.handleMessage(sock, msg);
+                if (isIslamicMessage) {
+                    console.log('✅ رسالة إسلامية تمت معالجتها');
+                    return;
+                }
                                 
                 if (msg.key.fromMe) return;
                 
@@ -1145,8 +1157,9 @@ if (msg.message?.listResponseMessage || msg.message?.buttonsResponseMessage) {
                 badMacErrorCount = 0;
                 lastBadMacReset = Date.now();
                 
+                // ⭐⭐⭐ بدء جدولة القسم الإسلامي ⭐⭐⭐
                 if (islamicModule.isEnabled()) {
-                    islamicModule.startIslamicSchedule(sock);
+                    await islamicModule.startIslamicSchedule(sock);
                 }
                 
                 if (CONFIG.ownerNumber) {
@@ -1190,4 +1203,3 @@ process.on('SIGTERM', () => {
 });
 
 startBot();
-
