@@ -1,477 +1,526 @@
 const cron = require('node-cron');
-const fs = require('fs');
-const path = require('path');
-const { fetchRandomFatwa, formatFatwaMessage } = require('./fatwaModule');
-const { ISLAMIC_CONTENT } = require('./islamicContent');
-const { fetchLectureContent, formatLecture, downloadAudio } = require('./lectureHandler');
+const db = require('./googleSheetsDB');
+const { fetchLectureContent, formatLecture } = require('./lectureHandler');
 
-// ═══════════════════════════════════════════════════════════
-// 🕌 القسم الإسلامي - Poll Navigation System
-// ═══════════════════════════════════════════════════════════
+let ISLAMIC_MODULE_ENABLED = true;
+let scheduledJobs = {};
+let userSessions = {}; // تتبع جلسات المستخدمين في القوائم
 
-let ISLAMIC_MODULE_ENABLED = false;
-const ISLAMIC_STATE_FILE = path.join(__dirname, 'islamic_state.json');
-const SECTIONS_STATE_FILE = path.join(__dirname, 'sections_state.json');
-
-let morningJob1 = null, morningJob2 = null, eveningJob1 = null, eveningJob2 = null;
-let fatwaJob = null, fiqhJob = null, mawdooiyaJob = null;
-
-let sectionsState = {
-    athkar: { enabled: false },
-    fatawa: { enabled: false },
-    fiqh: { enabled: false },
-    mawdooiya: { enabled: false }
+// هيكل القائمة
+const MENU_STRUCTURE = {
+    'main': {
+        title: '🕌 القائمة الرئيسية',
+        options: ['محاضرات العقيدة', 'محاضرات الفقه', 'محاضرات الآداب', 'أذكار'],
+        backTo: null
+    },
+    'محاضرات العقيدة': {
+        title: '📚 محاضرات العقيدة',
+        options: ['التوحيد', 'أسماء الله الحسنى', 'الإيمان بالقدر'],
+        backTo: 'main'
+    },
+    'محاضرات الفقه': {
+        title: '⚖️ محاضرات الفقه',
+        options: ['أحكام الصلاة', 'أحكام الزكاة', 'أحكام الصيام', 'أحكام الحج'],
+        backTo: 'main'
+    },
+    'محاضرات الآداب': {
+        title: '🌟 محاضرات الآداب',
+        options: ['آداب الطعام', 'آداب النوم', 'آداب المجلس'],
+        backTo: 'main'
+    },
+    'أذكار': {
+        title: '📿 الأذكار',
+        options: ['أذكار الصباح', 'أذكار المساء', 'أذكار النوم'],
+        backTo: 'main'
+    }
 };
 
-let lectureIndex = { fiqh: 0, mawdooiya: 0 };
-const audioRequests = new Map();
-
-// تتبع موقع كل مستخدم في التنقل
-const userNavigation = new Map();
-
-const MORNING_EVENING_ATHKAR = [
-    { text: `أَصْبَحْنَا وَأَصْبَحَ الْمُلْكُ لِلَّهِ، وَالْحَمْدُ لِلَّهِ، لَا إِلَهَ إِلَّا اللهُ وَحْدَهُ لَا شَرِيكَ لَهُ، لَهُ الْمُلْكُ وَلَهُ الْحَمْدُ، وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ\n\nرَبِّ أَسْأَلُكَ خَيْرَ مَا فِي هَذَا الْيَوْمِ وَخَيْرَ مَا بَعْدَهُ، وَأَعُوذُ بِكَ مِنْ شَرِّ مَا فِي هَذَا الْيَوْمِ وَشَرِّ مَا بَعْدَهُ\n\nرَبِّ أَعُوذُ بِكَ مِنَ الْكَسَلِ وَسُوءِ الْكِبَرِ، رَبِّ أَعُوذُ بِكَ مِنْ عَذَابٍ فِي النَّارِ وَعَذَابٍ فِي الْقَبْرِ` },
-    { text: `اللَّهُمَّ بِكَ أَصْبَحْنَا، وَبِكَ أَمْسَيْنَا، وَبِكَ نَحْيَا، وَبِكَ نَمُوتُ، وَإِلَيْكَ النُّشُورُ` },
-    { text: `اللَّهُمَّ أَنْتَ رَبِّي لَا إِلَهَ إِلَّا أَنْتَ، خَلَقْتَنِي وَأَنَا عَبْدُكَ، وَأَنَا عَلَى عَهْدِكَ وَوَعْدِكَ مَا اسْتَطَعْتُ، أَعُوذُ بِكَ مِنْ شَرِّ مَا صَنَعْتُ، أَبُوءُ لَكَ بِنِعْمَتِكَ عَلَيَّ، وَأَبُوءُ بِذَنْبِي فَاغْفِرْ لِي، فَإِنَّهُ لَا يَغْفِرُ الذُّنُوبَ إِلَّا أَنْتَ` },
-    { text: `بِسْمِ اللهِ الَّذِي لَا يَضُرُّ مَعَ اسْمِهِ شَيْءٌ فِي الْأَرْضِ وَلَا فِي السَّمَاءِ وَهُوَ السَّمِيعُ الْعَلِيمُ`, repeat: 3 },
-    { text: `رَضِيتُ بِاللهِ رَبًّا، وَبِالْإِسْلَامِ دِينًا، وَبِمُحَمَّدٍ صَلَّى اللهُ عَلَيْهِ وَسَلَّمَ نَبِيًّا`, repeat: 3 }
+// تعيين الأقسام النهائية (التي يمكن تفعيلها)
+const FINAL_CATEGORIES = [
+    'التوحيد', 'أسماء الله الحسنى', 'الإيمان بالقدر',
+    'أحكام الصلاة', 'أحكام الزكاة', 'أحكام الصيام', 'أحكام الحج',
+    'آداب الطعام', 'آداب النوم', 'آداب المجلس',
+    'أذكار الصباح', 'أذكار المساء', 'أذكار النوم'
 ];
 
-let currentThikrIndex = 0;
-
-function loadIslamicState() {
+/**
+ * بدء جدولة المحاضرات
+ */
+async function startIslamicSchedule(sock) {
+    console.log('🕌 بدء جدولة المحاضرات الإسلامية...');
+    
     try {
-        if (fs.existsSync(ISLAMIC_STATE_FILE)) {
-            const state = JSON.parse(fs.readFileSync(ISLAMIC_STATE_FILE, 'utf-8'));
-            ISLAMIC_MODULE_ENABLED = state.enabled || false;
-            currentThikrIndex = state.currentThikrIndex || 0;
+        // تهيئة قاعدة البيانات
+        const initialized = await db.initialize();
+        if (!initialized) {
+            console.log('⚠️ تعذر الاتصال بـ Google Sheets - سيتم العمل بدون قاعدة بيانات');
+            return;
         }
-    } catch (error) {}
-}
 
-function saveIslamicState() {
-    try {
-        fs.writeFileSync(ISLAMIC_STATE_FILE, JSON.stringify({ enabled: ISLAMIC_MODULE_ENABLED, currentThikrIndex }), 'utf-8');
-    } catch (error) {}
-}
-
-function loadSectionsState() {
-    try {
-        if (fs.existsSync(SECTIONS_STATE_FILE)) {
-            sectionsState = JSON.parse(fs.readFileSync(SECTIONS_STATE_FILE, 'utf-8'));
-        }
-    } catch (error) {}
-}
-
-function saveSectionsState() {
-    try {
-        fs.writeFileSync(SECTIONS_STATE_FILE, JSON.stringify(sectionsState, null, 2), 'utf-8');
-    } catch (error) {}
-}
-
-loadIslamicState();
-loadSectionsState();
-
-// ═══════════════════════════════════════════════════════════
-// 📊 نظام الـ Poll Navigation
-// ═══════════════════════════════════════════════════════════
-
-async function sendPollMenu(sock, sender, level, path = []) {
-    try {
-        let pollName = '';
-        let options = [];
+        const schedules = await db.getAllSchedules();
         
-        // المستوى 1: القائمة الرئيسية
-        if (level === 'main') {
-            pollName = '🕌 القسم الإسلامي - اختر';
-            options = ['الأذكار', 'الفتاوى', 'الفقه', 'الموضوعية'];
-            
-            await sock.sendMessage(sender, {
-                text: `🕌 *القسم الإسلامي*\n\nمرحباً بك في القسم الإسلامي من موقع الشيخ ابن باز رحمه الله\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\nاختر من الاستطلاع أدناه:`
-            });
+        for (const schedule of schedules) {
+            if (schedule.enabled && schedule.groupId) {
+                createScheduleJob(sock, schedule);
+            }
         }
         
-        // المستوى 2: أقسام الفقه
-        else if (level === 'fiqh_main') {
-            pollName = '⚖️ الفقه - اختر القسم';
-            options = ['العبادات', 'المعاملات', 'فقه الأسرة', 'العادات'];
-        }
-        
-        // المستوى 3: أقسام العبادات
-        else if (level === 'fiqh_ibadat') {
-            pollName = '🕌 العبادات - اختر الموضوع';
-            options = ['الصلاة', 'الجنائز', 'الزكاة', 'الصيام', 'الحج والعمرة', 'الطهارة', 'الجهاد والسير'];
-        }
-        
-        // المستوى 4: أقسام الصلاة
-        else if (level === 'fiqh_ibadat_salah') {
-            pollName = '🕌 الصلاة - اختر الموضوع';
-            options = [
-                'حكم الصلاة وأهميتها',
-                'الركوع والسجود',
-                'وقت الصلاة',
-                'الطهارة لصحة الصلاة',
-                'ستر العورة للمصلي',
-                'استقبال القبلة',
-                'القيام في الصلاة',
-                'التكبير والاستفتاح',
-                'سجود التلاوة والشكر',
-                'الأذان والإقامة'
-            ];
-        }
-        
-        // المستوى 3: أقسام المعاملات
-        else if (level === 'fiqh_muamalat') {
-            pollName = '💰 المعاملات - اختر الموضوع';
-            options = [
-                'الربا والصرف',
-                'العارية',
-                'السبق والمسابقات',
-                'السلف والقرض',
-                'الرهن',
-                'الإفلاس والحجر',
-                'الصلح',
-                'الحوالة',
-                'الضمان والكفالة',
-                'الشركة'
-            ];
-        }
-        
-        // المستوى 3: فقه الأسرة
-        else if (level === 'fiqh_usrah') {
-            pollName = '👨‍👩‍👧 فقه الأسرة - اختر الموضوع';
-            options = [
-                'الزواج وأحكامه',
-                'النظر والخلوة والاختلاط',
-                'الخلع',
-                'الطلاق',
-                'الرجعة',
-                'الإيلاء',
-                'الظهار',
-                'اللعان',
-                'العِدَد',
-                'الرضاع'
-            ];
-        }
-        
-        // المستوى 2: أقسام الموضوعية
-        else if (level === 'mawdooiya_main') {
-            pollName = '📖 الموضوعية - اختر الموضوع';
-            options = [
-                'القرآن وعلومه',
-                'العقيدة',
-                'الحديث وعلومه',
-                'التفسير',
-                'الدعوة والدعاة',
-                'الفرق والمذاهب',
-                'البدع والمحدثات',
-                'أصول الفقه',
-                'العالم والمتعلم',
-                'الآداب والأخلاق'
-            ];
-        }
-        
-        // إرسال Poll
-        if (options.length > 0) {
-            await sock.sendMessage(sender, {
-                poll: {
-                    name: pollName,
-                    values: options,
-                    selectableCount: 1
-                }
-            });
-            
-            // حفظ موقع المستخدم
-            userNavigation.set(sender, { level, path, timestamp: Date.now() });
-            console.log(`✅ تم إرسال Poll: ${pollName}`);
-        }
-        
+        console.log(`✅ تم جدولة ${Object.keys(scheduledJobs).length} قسم`);
     } catch (error) {
-        console.error('❌ خطأ في إرسال Poll:', error.message);
+        console.error('❌ خطأ في بدء الجدولة:', error.message);
     }
 }
 
-// معالجة اختيار Poll
-async function handlePollResponse(sock, msg) {
+/**
+ * إنشاء مهمة جدولة لقسم معين
+ */
+function createScheduleJob(sock, schedule) {
+    const jobKey = `${schedule.category}_${schedule.groupId}`;
+    
+    // إلغاء المهمة القديمة إن وجدت
+    if (scheduledJobs[jobKey]) {
+        scheduledJobs[jobKey].stop();
+    }
+    
+    // إنشاء مهمة جديدة
+    scheduledJobs[jobKey] = cron.schedule(schedule.cronTime, async () => {
+        await sendScheduledLecture(sock, schedule.category, schedule.groupId);
+    });
+    
+    console.log(`✅ تم جدولة ${schedule.category} للمجموعة ${schedule.groupId}`);
+}
+
+/**
+ * إرسال محاضرة مجدولة
+ */
+async function sendScheduledLecture(sock, category, groupId) {
     try {
-        const pollUpdate = msg.message?.pollUpdateMessage;
-        if (!pollUpdate) return false;
+        const nextLecture = await db.getNextLecture(category);
         
-        const sender = msg.key.remoteJid;
-        const userNav = userNavigation.get(sender);
-        
-        if (!userNav) {
-            await sock.sendMessage(sender, { text: '⚠️ انتهت الجلسة. اكتب /اسلام للبدء من جديد' });
-            return true;
+        if (!nextLecture) {
+            console.log(`⚠️ لا توجد محاضرات في قسم ${category}`);
+            return;
         }
         
-        // استخراج الاختيار (هذا يعتمد على كيفية عمل Poll في Baileys)
-        // سنستخدم طريقة fallback: نطلب من المستخدم كتابة الرقم
-        console.log('📊 Poll Response:', JSON.stringify(pollUpdate, null, 2));
+        // جلب محتوى المحاضرة
+        const content = await fetchLectureContent(nextLecture.pageUrl);
+        const message = formatLecture(content);
         
-        await sock.sendMessage(sender, {
-            text: '✅ تم تسجيل اختيارك!\n\nللمتابعة، اكتب الرقم المقابل لاختيارك من الاستطلاع السابق'
-        });
+        // إرسال المحاضرة
+        await sock.sendMessage(groupId, { text: message });
         
+        // تحديث التقدم
+        await db.updateProgress(category, nextLecture.id);
+        
+        console.log(`✅ تم إرسال محاضرة من ${category} إلى ${groupId}`);
+    } catch (error) {
+        console.error(`❌ خطأ في إرسال المحاضرة:`, error.message);
+    }
+}
+
+/**
+ * إيقاف جميع الجداول
+ */
+function stopIslamicSchedule() {
+    Object.values(scheduledJobs).forEach(job => job.stop());
+    scheduledJobs = {};
+    console.log('⏹️ تم إيقاف جميع الجداول');
+}
+
+/**
+ * معالجة الأوامر الإسلامية
+ */
+async function handleIslamicCommand(sock, msg, command, args) {
+    const from = msg.key.remoteJid;
+    const sender = msg.key.participant || msg.key.remoteJid;
+    
+    // أمر القائمة الإسلامية
+    if (command === 'اسلامي' || command === 'islamic') {
+        await showMenu(sock, from, 'main', sender);
         return true;
-    } catch (error) {
-        console.error('❌ خطأ في معالجة Poll:', error.message);
-        return false;
-    }
-}
-
-// معالجة اختيار بالأرقام (Fallback)
-async function handleNumberSelection(sock, msg, choice, sender) {
-    const userNav = userNavigation.get(sender);
-    if (!userNav) return false;
-    
-    const { level, path } = userNav;
-    
-    // المستوى الرئيسي
-    if (level === 'main') {
-        if (choice === '1' || choice.includes('الأذكار')) {
-            sectionsState.athkar.enabled = true;
-            saveSectionsState();
-            startAthkarSchedule(sock);
-            await sock.sendMessage(sender, {
-                text: '✅ تم تفعيل الأذكار\n\n🌅 الصباح: 6:50 و 7:00\n🌇 المساء: 3:50 و 4:00'
-            });
-            userNavigation.delete(sender);
-            return true;
-        }
-        else if (choice === '2' || choice.includes('الفتاوى')) {
-            sectionsState.fatawa.enabled = true;
-            saveSectionsState();
-            startFatawaSchedule(sock);
-            await sock.sendMessage(sender, {
-                text: '✅ تم تفعيل الفتاوى\n\n📚 يومياً: 12:00 ظهراً'
-            });
-            userNavigation.delete(sender);
-            return true;
-        }
-        else if (choice === '3' || choice.includes('الفقه')) {
-            await sendPollMenu(sock, sender, 'fiqh_main', ['fiqh']);
-            return true;
-        }
-        else if (choice === '4' || choice.includes('الموضوعية')) {
-            await sendPollMenu(sock, sender, 'mawdooiya_main', ['mawdooiya']);
-            return true;
-        }
     }
     
-    // أقسام الفقه
-    else if (level === 'fiqh_main') {
-        if (choice === '1' || choice.includes('العبادات')) {
-            await sendPollMenu(sock, sender, 'fiqh_ibadat', ['fiqh', 'ibadat']);
-            return true;
-        }
-        else if (choice === '2' || choice.includes('المعاملات')) {
-            await sendPollMenu(sock, sender, 'fiqh_muamalat', ['fiqh', 'muamalat']);
-            return true;
-        }
-        else if (choice === '3' || choice.includes('الأسرة')) {
-            await sendPollMenu(sock, sender, 'fiqh_usrah', ['fiqh', 'usrah']);
-            return true;
-        }
+    // أمر حالة الأقسام
+    if (command === 'حالة_الاقسام' || command === 'status') {
+        await showCategoriesStatus(sock, from);
+        return true;
     }
     
-    // العبادات
-    else if (level === 'fiqh_ibadat') {
-        if (choice === '1' || choice.includes('الصلاة')) {
-            await sendPollMenu(sock, sender, 'fiqh_ibadat_salah', ['fiqh', 'ibadat', 'salah']);
+    // أمر الإدارة (محمي للمالك فقط)
+    if (command === 'ادارة' || command === 'admin') {
+        const ownerNumber = process.env.OWNER_NUMBER + '@s.whatsapp.net';
+        
+        if (sender !== ownerNumber) {
+            await sock.sendMessage(from, {
+                text: '❌ هذا الأمر متاح فقط لمالك البوت'
+            });
             return true;
         }
-        // باقي المواضيع...
-    }
-    
-    // الصلاة - الوصول للمحتوى
-    else if (level === 'fiqh_ibadat_salah') {
-        if (choice === '1' || choice.includes('حكم الصلاة')) {
-            // ✅ تفعيل القسم
-            sectionsState.fiqh.enabled = true;
-            saveSectionsState();
-            startFiqhSchedule(sock);
-            
-            // 📤 إرسال أول محاضرة
-            const lecture = ISLAMIC_CONTENT.fiqh.subsections.ibadat.topics.salah.categories.hukmSalah.items[0];
-            
-            await sock.sendMessage(sender, {
-                text: `✅ تم تفعيل قسم: حكم الصلاة وأهميتها\n\n🕋 سيتم إرسال المحاضرات كل ساعة\n\n📖 جاري إرسال أول محاضرة...`
-            });
-            
-            // جلب وإرسال المحاضرة
-            console.log(`🕋 جاري جلب: ${lecture.title}`);
-            const content = await fetchLectureContent(lecture.pageUrl);
-            const message = formatLecture(content, lecture.audioUrl);
-            
-            audioRequests.set(lecture.id, {
-                audioUrl: lecture.audioUrl,
-                title: lecture.title
-            });
-            
-            await sock.sendMessage(sender, { text: message });
-            await sock.sendMessage(sender, {
-                text: `💬 _اكتب *صوت* للحصول على الملف الصوتي_`
-            });
-            
-            console.log(`✅ تم تفعيل وإرسال: ${lecture.title}`);
-            
-            userNavigation.delete(sender);
-            return true;
-        }
+        
+        await showAdminMenu(sock, from, sender);
+        return true;
     }
     
     return false;
 }
 
-// دوال الإرسال (Athkar, Fatwa, etc.)
-async function sendMorningThikr(sock) {
+/**
+ * عرض القائمة
+ */
+async function showMenu(sock, chatId, menuKey, userId) {
+    const menu = MENU_STRUCTURE[menuKey];
+    if (!menu) return;
+    
+    // حفظ حالة المستخدم
+    userSessions[userId] = { currentMenu: menuKey };
+    
+    // إضافة خيار "رجوع" إذا لم تكن القائمة الرئيسية
+    const options = [...menu.options];
+    if (menu.backTo) {
+        options.push('🔙 رجوع');
+    }
+    
+    // إنشاء Poll
+    const poll = {
+        name: menu.title,
+        values: options,
+        selectableCount: 1
+    };
+    
+    await sock.sendMessage(chatId, {
+        poll: poll
+    });
+}
+
+/**
+ * معالجة رسائل التصويت (Poll)
+ */
+async function handlePollResponse(sock, msg) {
     try {
-        const targetGroup = process.env.ISLAMIC_GROUP_ID;
-        if (!targetGroup || !sectionsState.athkar.enabled) return;
+        const from = msg.key.remoteJid;
+        const sender = msg.key.participant || msg.key.remoteJid;
         
-        const thikr = MORNING_EVENING_ATHKAR[currentThikrIndex];
-        let message = `┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n🕌 *ذكر الصباح*\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n${thikr.text}`;
-        if (thikr.repeat) message += `\n\n_يُقال ${thikr.repeat} مرة_`;
-        if (thikr.reward) message += `\n\n${thikr.reward}`;
-        message += `\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈`;
+        // التحقق من وجود جلسة للمستخدم
+        if (!userSessions[sender]) return;
         
-        await sock.sendMessage(targetGroup, { text: message });
-        currentThikrIndex = (currentThikrIndex + 1) % MORNING_EVENING_ATHKAR.length;
-        saveIslamicState();
-    } catch (error) {}
+        const session = userSessions[sender];
+        const pollUpdate = msg.message?.pollUpdateMessage;
+        
+        if (!pollUpdate) return;
+        
+        // الحصول على الاختيار
+        const vote = pollUpdate.vote;
+        if (!vote || vote.selectedOptions.length === 0) return;
+        
+        const selectedIndex = vote.selectedOptions[0];
+        const currentMenu = MENU_STRUCTURE[session.currentMenu];
+        
+        let options = [...currentMenu.options];
+        if (currentMenu.backTo) {
+            options.push('🔙 رجوع');
+        }
+        
+        const selectedOption = options[selectedIndex];
+        
+        // معالجة زر الرجوع
+        if (selectedOption === '🔙 رجوع') {
+            await showMenu(sock, from, currentMenu.backTo, sender);
+            return;
+        }
+        
+        // التحقق من كون الخيار قسماً نهائياً
+        if (FINAL_CATEGORIES.includes(selectedOption)) {
+            await toggleCategory(sock, from, selectedOption, sender);
+        } else {
+            // الانتقال إلى قائمة فرعية
+            await showMenu(sock, from, selectedOption, sender);
+        }
+        
+    } catch (error) {
+        console.error('❌ خطأ في معالجة التصويت:', error.message);
+    }
 }
 
-async function sendEveningThikr(sock) {
+/**
+ * تفعيل/إلغاء تفعيل قسم
+ */
+async function toggleCategory(sock, chatId, category, userId) {
     try {
-        const targetGroup = process.env.ISLAMIC_GROUP_ID;
-        if (!targetGroup || !sectionsState.athkar.enabled) return;
+        const schedules = await db.getAllSchedules();
+        const schedule = schedules.find(s => s.category === category);
         
-        const thikr = MORNING_EVENING_ATHKAR[currentThikrIndex];
-        let message = `┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n🕌 *ذكر المساء*\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n${thikr.text}`;
-        if (thikr.repeat) message += `\n\n_يُقال ${thikr.repeat} مرة_`;
-        if (thikr.reward) message += `\n\n${thikr.reward}`;
-        message += `\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈`;
+        const newStatus = schedule ? !schedule.enabled : true;
+        await db.toggleSchedule(category, newStatus);
         
-        await sock.sendMessage(targetGroup, { text: message });
-        currentThikrIndex = (currentThikrIndex + 1) % MORNING_EVENING_ATHKAR.length;
-        saveIslamicState();
-    } catch (error) {}
+        const statusEmoji = newStatus ? '✅' : '❌';
+        const statusText = newStatus ? 'مُفعّل' : 'مُلغى';
+        
+        await sock.sendMessage(chatId, {
+            text: `${statusEmoji} القسم: *${category}*\n📊 الحالة: ${statusText}`
+        });
+        
+        // إعادة تحميل الجداول
+        if (newStatus && schedule && schedule.groupId) {
+            createScheduleJob(sock, { ...schedule, enabled: true });
+        } else {
+            const jobKey = `${category}_${schedule?.groupId || ''}`;
+            if (scheduledJobs[jobKey]) {
+                scheduledJobs[jobKey].stop();
+                delete scheduledJobs[jobKey];
+            }
+        }
+        
+    } catch (error) {
+        console.error('❌ خطأ في تفعيل/إلغاء القسم:', error.message);
+        await sock.sendMessage(chatId, {
+            text: '❌ حدث خطأ في تحديث حالة القسم'
+        });
+    }
 }
 
-async function sendFatwa(sock) {
+/**
+ * عرض حالة جميع الأقسام
+ */
+async function showCategoriesStatus(sock, chatId) {
     try {
-        const targetGroup = process.env.ISLAMIC_GROUP_ID;
-        if (!targetGroup || !sectionsState.fatawa.enabled) return;
+        const schedules = await db.getAllSchedules();
         
-        const fatwa = await fetchRandomFatwa();
-        await sock.sendMessage(targetGroup, { text: formatFatwaMessage(fatwa) });
-    } catch (error) {}
+        let statusMessage = '📊 *حالة الأقسام الإسلامية*\n\n';
+        
+        for (const category of FINAL_CATEGORIES) {
+            const schedule = schedules.find(s => s.category === category);
+            const enabled = schedule ? schedule.enabled : false;
+            const statusEmoji = enabled ? '✅' : '❌';
+            
+            statusMessage += `${statusEmoji} ${category}\n`;
+        }
+        
+        statusMessage += '\n💡 استخدم /اسلامي لتفعيل/إلغاء الأقسام';
+        
+        await sock.sendMessage(chatId, {
+            text: statusMessage
+        });
+        
+    } catch (error) {
+        console.error('❌ خطأ في عرض الحالة:', error.message);
+    }
 }
 
-// الجدولة
-function startAthkarSchedule(sock) {
-    stopAthkarSchedule();
-    morningJob1 = cron.schedule('50 6 * * *', () => sendMorningThikr(sock), { timezone: "Africa/Cairo" });
-    morningJob2 = cron.schedule('0 7 * * *', () => sendMorningThikr(sock), { timezone: "Africa/Cairo" });
-    eveningJob1 = cron.schedule('50 15 * * *', () => sendEveningThikr(sock), { timezone: "Africa/Cairo" });
-    eveningJob2 = cron.schedule('0 16 * * *', () => sendEveningThikr(sock), { timezone: "Africa/Cairo" });
+/**
+ * عرض قائمة الإدارة
+ */
+async function showAdminMenu(sock, chatId, userId) {
+    userSessions[userId] = { 
+        currentMenu: 'admin',
+        adminAction: null 
+    };
+    
+    const options = [
+        '➕ إضافة محاضرة',
+        '⏰ تعديل الأوقات',
+        '✏️ تعديل النصوص',
+        '🔙 رجوع'
+    ];
+    
+    const poll = {
+        name: '⚙️ لوحة الإدارة',
+        values: options,
+        selectableCount: 1
+    };
+    
+    await sock.sendMessage(chatId, {
+        poll: poll
+    });
 }
 
-function stopAthkarSchedule() {
-    if (morningJob1) morningJob1.stop();
-    if (morningJob2) morningJob2.stop();
-    if (eveningJob1) eveningJob1.stop();
-    if (eveningJob2) eveningJob2.stop();
+/**
+ * معالجة إجابات لوحة الإدارة
+ */
+async function handleAdminPollResponse(sock, msg, selectedOption) {
+    const from = msg.key.remoteJid;
+    const sender = msg.key.participant || msg.key.remoteJid;
+    
+    if (!userSessions[sender] || userSessions[sender].currentMenu !== 'admin') {
+        return;
+    }
+    
+    switch (selectedOption) {
+        case '➕ إضافة محاضرة':
+            await startAddLecture(sock, from, sender);
+            break;
+            
+        case '⏰ تعديل الأوقات':
+            await showTimeEditMenu(sock, from, sender);
+            break;
+            
+        case '✏️ تعديل النصوص':
+            await sock.sendMessage(from, {
+                text: '⚠️ هذه الميزة قيد التطوير'
+            });
+            break;
+            
+        case '🔙 رجوع':
+            delete userSessions[sender];
+            break;
+    }
 }
 
-function startFatawaSchedule(sock) {
-    stopFatawaSchedule();
-    fatwaJob = cron.schedule('0 12 * * *', () => sendFatwa(sock), { timezone: "Africa/Cairo" });
+/**
+ * بدء عملية إضافة محاضرة
+ */
+async function startAddLecture(sock, chatId, userId) {
+    userSessions[userId] = {
+        currentMenu: 'admin',
+        adminAction: 'add_lecture',
+        step: 'select_category',
+        lectureData: {}
+    };
+    
+    const poll = {
+        name: '📂 اختر القسم',
+        values: FINAL_CATEGORIES,
+        selectableCount: 1
+    };
+    
+    await sock.sendMessage(chatId, {
+        poll: poll
+    });
 }
 
-function stopFatawaSchedule() {
-    if (fatwaJob) fatwaJob.stop();
+/**
+ * معالجة خطوات إضافة محاضرة
+ */
+async function handleAddLectureSteps(sock, msg) {
+    const from = msg.key.remoteJid;
+    const sender = msg.key.participant || msg.key.remoteJid;
+    const session = userSessions[sender];
+    
+    if (!session || session.adminAction !== 'add_lecture') return;
+    
+    const messageText = msg.message?.conversation || 
+                       msg.message?.extendedTextMessage?.text || '';
+    
+    switch (session.step) {
+        case 'enter_title':
+            session.lectureData.title = messageText;
+            session.step = 'enter_url';
+            await sock.sendMessage(from, {
+                text: '🔗 أرسل رابط صفحة المحاضرة'
+            });
+            break;
+            
+        case 'enter_url':
+            session.lectureData.pageUrl = messageText;
+            session.step = 'confirm';
+            
+            const confirmText = `✅ تأكيد البيانات:\n\n` +
+                `📂 القسم: ${session.lectureData.category}\n` +
+                `📝 العنوان: ${session.lectureData.title}\n` +
+                `🔗 الرابط: ${session.lectureData.pageUrl}\n\n` +
+                `أرسل "نعم" للتأكيد أو "لا" للإلغاء`;
+            
+            await sock.sendMessage(from, { text: confirmText });
+            break;
+            
+        case 'confirm':
+            if (messageText.includes('نعم') || messageText.includes('yes')) {
+                try {
+                    await db.addLecture(session.lectureData);
+                    await sock.sendMessage(from, {
+                        text: '✅ تم إضافة المحاضرة بنجاح!'
+                    });
+                } catch (error) {
+                    await sock.sendMessage(from, {
+                        text: '❌ حدث خطأ في إضافة المحاضرة'
+                    });
+                }
+            } else {
+                await sock.sendMessage(from, {
+                    text: '❌ تم إلغاء العملية'
+                });
+            }
+            delete userSessions[sender];
+            break;
+    }
 }
 
-function startFiqhSchedule(sock) {
-    stopFiqhSchedule();
-    fiqhJob = cron.schedule('0 * * * *', () => {
-        // سيتم إرسال محاضرات تلقائياً
-    }, { timezone: "Africa/Cairo" });
+/**
+ * عرض قائمة تعديل الأوقات
+ */
+async function showTimeEditMenu(sock, chatId, userId) {
+    userSessions[userId] = {
+        currentMenu: 'admin',
+        adminAction: 'edit_time',
+        step: 'select_category'
+    };
+    
+    const poll = {
+        name: '⏰ اختر القسم لتعديل وقته',
+        values: FINAL_CATEGORIES,
+        selectableCount: 1
+    };
+    
+    await sock.sendMessage(chatId, {
+        poll: poll
+    });
 }
 
-function stopFiqhSchedule() {
-    if (fiqhJob) fiqhJob.stop();
+/**
+ * معالجة تعديل الأوقات
+ */
+async function handleTimeEditSteps(sock, msg) {
+    const from = msg.key.remoteJid;
+    const sender = msg.key.participant || msg.key.remoteJid;
+    const session = userSessions[sender];
+    
+    if (!session || session.adminAction !== 'edit_time') return;
+    
+    const messageText = msg.message?.conversation || 
+                       msg.message?.extendedTextMessage?.text || '';
+    
+    if (session.step === 'enter_cron') {
+        try {
+            await db.updateScheduleTime(session.selectedCategory, messageText);
+            await sock.sendMessage(from, {
+                text: `✅ تم تحديث وقت ${session.selectedCategory} إلى: ${messageText}`
+            });
+            
+            // إعادة تحميل الجدولة
+            await startIslamicSchedule(sock);
+            
+        } catch (error) {
+            await sock.sendMessage(from, {
+                text: '❌ حدث خطأ في تحديث الوقت'
+            });
+        }
+        delete userSessions[sender];
+    }
 }
 
-function startMawdooiyaSchedule(sock) {
-    stopMawdooiyaSchedule();
-    mawdooiyaJob = cron.schedule('0 * * * *', () => {
-        // سيتم إرسال محاضرات تلقائياً
-    }, { timezone: "Africa/Cairo" });
-}
-
-function stopMawdooiyaSchedule() {
-    if (mawdooiyaJob) mawdooiyaJob.stop();
-}
-
-function startIslamicSchedule(sock) {
-    if (sectionsState.athkar.enabled) startAthkarSchedule(sock);
-    if (sectionsState.fatawa.enabled) startFatawaSchedule(sock);
-    if (sectionsState.fiqh.enabled) startFiqhSchedule(sock);
-    if (sectionsState.mawdooiya.enabled) startMawdooiyaSchedule(sock);
-}
-
-function stopIslamicSchedule() {
-    stopAthkarSchedule();
-    stopFatawaSchedule();
-    stopFiqhSchedule();
-    stopMawdooiyaSchedule();
-}
-
-// معالج الأوامر
-async function handleIslamicCommand(sock, msg, messageText, sender) {
-    const isAdmin = sender.includes('249962204268') || sender.includes('231211024814174') || msg.key.fromMe;
-    if (!isAdmin) return false;
+/**
+ * معالجة الرسائل العامة
+ */
+async function handleMessage(sock, msg) {
+    const sender = msg.key.participant || msg.key.remoteJid;
+    const session = userSessions[sender];
+    
+    if (!session) return false;
     
     // معالجة Poll responses
     if (msg.message?.pollUpdateMessage) {
-        return await handlePollResponse(sock, msg);
-    }
-    
-    const cmd = messageText.trim();
-    
-    // القائمة الرئيسية
-    if (cmd === '/اسلام') {
-        await sendPollMenu(sock, sender, 'main');
-        ISLAMIC_MODULE_ENABLED = true;
-        saveIslamicState();
+        await handlePollResponse(sock, msg);
         return true;
     }
     
-    // معالجة الأرقام
-    if (/^[0-9]{1,2}$/.test(cmd)) {
-        return await handleNumberSelection(sock, msg, cmd, sender);
+    // معالجة خطوات إضافة محاضرة
+    if (session.adminAction === 'add_lecture') {
+        await handleAddLectureSteps(sock, msg);
+        return true;
     }
     
-    // أمر تحميل الصوت
-    if (cmd === 'صوت') {
-        const lastAudio = Array.from(audioRequests.values()).pop();
-        if (lastAudio) {
-            try {
-                await sock.sendMessage(sender, { text: '⏳ جاري التحميل...' });
-                const buffer = await downloadAudio(lastAudio.audioUrl);
-                await sock.sendMessage(sender, {
-                    audio: buffer,
-                    mimetype: 'audio/mp3',
-                    ptt: false,
-                    fileName: `${lastAudio.title.substring(0, 50)}.mp3`
-                });
-            } catch (err) {
-                await sock.sendMessage(sender, { text: '❌ فشل التحميل' });
-            }
-        }
+    // معالجة تعديل الأوقات
+    if (session.adminAction === 'edit_time') {
+        await handleTimeEditSteps(sock, msg);
         return true;
     }
     
@@ -480,6 +529,7 @@ async function handleIslamicCommand(sock, msg, messageText, sender) {
 
 module.exports = {
     handleIslamicCommand,
+    handleMessage,
     startIslamicSchedule,
     stopIslamicSchedule,
     isEnabled: () => ISLAMIC_MODULE_ENABLED
