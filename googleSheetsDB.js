@@ -14,16 +14,16 @@ class GoogleSheetsDB {
      */
     async initialize() {
         try {
-            // قراءة credentials من ملف
-            const credentialsPath = path.join(__dirname, 'google-credentials.json');
+            // قراءة credentials من متغير بيئي
+            const credentialsEnv = process.env.GOOGLE_CREDENTIALS;
             
-            if (!fs.existsSync(credentialsPath)) {
-                console.log('⚠️ لم يتم العثور على ملف google-credentials.json');
-                console.log('📝 يرجى إنشاء الملف ووضع Service Account credentials فيه');
+            if (!credentialsEnv) {
+                console.log('⚠️ لم يتم العثور على GOOGLE_CREDENTIALS في المتغيرات البيئية');
+                console.log('📝 يرجى إضافة GOOGLE_CREDENTIALS في ملف .env أو في إعدادات Clever Cloud');
                 return false;
             }
 
-            const credentials = JSON.parse(fs.readFileSync(credentialsPath, 'utf-8'));
+            const credentials = JSON.parse(credentialsEnv);
             
             const auth = new google.auth.GoogleAuth({
                 credentials,
