@@ -1,7 +1,7 @@
 {
   "name": "whatsapp-bot",
-  "version": "2.1.0",
-  "description": "WhatsApp Bot with AI and Islamic Module - Bad MAC Fixed",
+  "version": "3.0.0",
+  "description": "WhatsApp Bot with AI, Islamic Module, and Google Sheets Integration",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
@@ -12,7 +12,8 @@
     "bot",
     "baileys",
     "ai",
-    "islamic"
+    "islamic",
+    "google-sheets"
   ],
   "author": "مقداد",
   "license": "MIT",
@@ -22,7 +23,8 @@
     "pino": "^9.5.0",
     "qrcode-terminal": "^0.12.0",
     "node-cron": "^3.0.3",
-    "node-cache": "^5.1.2"
+    "node-cache": "^5.1.2",
+    "googleapis": "^140.0.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.9"
