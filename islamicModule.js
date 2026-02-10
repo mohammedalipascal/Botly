@@ -2,6 +2,11 @@ const cron = require('node-cron');
 const db = require('./googleSheetsDB');
 const { fetchLectureContent, formatLecture } = require('./lectureHandler');
 
+// إعدادات البوت (يمكن استبدالها من index.js)
+const CONFIG = {
+    botName: process.env.BOT_NAME || 'Islamic Bot'
+};
+
 let ISLAMIC_MODULE_ENABLED = true;
 let scheduledJobs = {};
 let userSessions = {}; // تتبع جلسات المستخدمين في القوائم
@@ -165,7 +170,7 @@ async function handleIslamicCommand(sock, msg, command, args) {
 }
 
 /**
- * عرض القائمة
+ * عرض القائمة باستخدام List Messages
  */
 async function showMenu(sock, chatId, menuKey, userId) {
     const menu = MENU_STRUCTURE[menuKey];
@@ -174,89 +179,176 @@ async function showMenu(sock, chatId, menuKey, userId) {
     // حفظ حالة المستخدم
     userSessions[userId] = { currentMenu: menuKey };
     
+    // إنشاء الصفوف للقائمة
+    const sections = [{
+        title: menu.title,
+        rows: menu.options.map((option, index) => ({
+            title: option,
+            rowId: `menu_${menuKey}_${index}`,
+            description: ''
+        }))
+    }];
+    
     // إضافة خيار "رجوع" إذا لم تكن القائمة الرئيسية
-    const options = [...menu.options];
     if (menu.backTo) {
-        options.push('🔙 رجوع');
+        sections.push({
+            title: '🔙 التنقل',
+            rows: [{
+                title: 'رجوع',
+                rowId: `back_${menu.backTo}`,
+                description: 'العودة للقائمة السابقة'
+            }]
+        });
     }
     
-    // إنشاء Poll
-    const poll = {
-        name: menu.title,
-        values: options,
-        selectableCount: 1
+    const listMessage = {
+        text: menu.title + '\n\nاختر من القائمة:',
+        footer: CONFIG.botName || 'Islamic Bot',
+        title: menu.title,
+        buttonText: "📋 القائمة",
+        sections
     };
     
-    await sock.sendMessage(chatId, {
-        poll: poll
-    });
+    await sock.sendMessage(chatId, listMessage);
 }
 
 /**
- * معالجة رسائل التصويت (Poll)
+ * معالجة رسائل القائمة (List Messages)
  */
-async function handlePollResponse(sock, msg) {
+async function handleListResponse(sock, msg) {
     try {
         const from = msg.key.remoteJid;
         const sender = msg.key.participant || msg.key.remoteJid;
         
+        const listResponse = msg.message?.listResponseMessage;
+        if (!listResponse) return false;
+        
+        const selectedRowId = listResponse.singleSelectReply?.selectedRowId;
+        if (!selectedRowId) return false;
+        
+        // معالجة خيارات الإدارة
+        if (selectedRowId.startsWith('admin_')) {
+            const session = userSessions[sender];
+            if (!session || session.currentMenu !== 'admin') return false;
+            
+            switch (selectedRowId) {
+                case 'admin_add_lecture':
+                    await startAddLecture(sock, from, sender);
+                    break;
+                    
+                case 'admin_edit_time':
+                    await showTimeEditMenu(sock, from, sender);
+                    break;
+                    
+                case 'admin_edit_text':
+                    await sock.sendMessage(from, {
+                        text: '⚠️ هذه الميزة قيد التطوير'
+                    });
+                    break;
+            }
+            
+            return true;
+        }
+        
+        // معالجة اختيار قسم لإضافة محاضرة
+        if (selectedRowId.startsWith('category_add_')) {
+            const session = userSessions[sender];
+            if (!session || session.adminAction !== 'add_lecture') return false;
+            
+            const category = selectedRowId.replace('category_add_', '');
+            session.lectureData = { category };
+            session.step = 'enter_title';
+            
+            await sock.sendMessage(from, {
+                text: '📝 أرسل عنوان المحاضرة'
+            });
+            
+            return true;
+        }
+        
+        // معالجة اختيار قسم لتعديل الوقت
+        if (selectedRowId.startsWith('category_time_')) {
+            const session = userSessions[sender];
+            if (!session || session.adminAction !== 'edit_time') return false;
+            
+            const category = selectedRowId.replace('category_time_', '');
+            session.selectedCategory = category;
+            session.step = 'enter_cron';
+            
+            await sock.sendMessage(from, {
+                text: `⏰ أرسل وقت النشر بصيغة Cron\n\n📌 أمثلة:\n0 9 * * * - كل يوم 9 صباحاً\n0 */6 * * * - كل 6 ساعات\n0 12 * * 5 - كل جمعة 12 ظهراً`
+            });
+            
+            return true;
+        }
+        
         // التحقق من وجود جلسة للمستخدم
-        if (!userSessions[sender]) return;
+        if (!userSessions[sender]) {
+            // قد تكون جلسة قديمة، نبدأ من القائمة الرئيسية
+            await showMenu(sock, from, 'main', sender);
+            return true;
+        }
         
         const session = userSessions[sender];
-        const pollUpdate = msg.message?.pollUpdateMessage;
-        
-        if (!pollUpdate) return;
-        
-        // الحصول على الاختيار
-        const vote = pollUpdate.vote;
-        if (!vote || vote.selectedOptions.length === 0) return;
-        
-        const selectedIndex = vote.selectedOptions[0];
-        const currentMenu = MENU_STRUCTURE[session.currentMenu];
-        
-        let options = [...currentMenu.options];
-        if (currentMenu.backTo) {
-            options.push('🔙 رجوع');
-        }
-        
-        const selectedOption = options[selectedIndex];
         
         // معالجة زر الرجوع
-        if (selectedOption === '🔙 رجوع') {
-            await showMenu(sock, from, currentMenu.backTo, sender);
-            return;
+        if (selectedRowId.startsWith('back_')) {
+            const backTo = selectedRowId.replace('back_', '');
+            await showMenu(sock, from, backTo, sender);
+            return true;
         }
         
-        // التحقق من كون الخيار قسماً نهائياً
-        if (FINAL_CATEGORIES.includes(selectedOption)) {
-            await toggleCategory(sock, from, selectedOption, sender);
-        } else {
-            // الانتقال إلى قائمة فرعية
-            await showMenu(sock, from, selectedOption, sender);
+        // معالجة اختيار من القائمة
+        if (selectedRowId.startsWith('menu_')) {
+            const parts = selectedRowId.split('_');
+            const menuKey = parts[1];
+            const optionIndex = parseInt(parts[2]);
+            
+            const currentMenu = MENU_STRUCTURE[menuKey];
+            if (!currentMenu) return false;
+            
+            const selectedOption = currentMenu.options[optionIndex];
+            if (!selectedOption) return false;
+            
+            // التحقق من كون الخيار قسماً نهائياً
+            if (FINAL_CATEGORIES.includes(selectedOption)) {
+                await toggleCategory(sock, from, selectedOption, sender);
+                return true;
+            } else {
+                // الانتقال إلى قائمة فرعية
+                await showMenu(sock, from, selectedOption, sender);
+                return true;
+            }
         }
+        
+        return false;
         
     } catch (error) {
-        console.error('❌ خطأ في معالجة التصويت:', error.message);
+        console.error('❌ خطأ في معالجة القائمة:', error.message);
+        return false;
     }
 }
 
 /**
- * تفعيل/إلغاء تفعيل قسم
+ * تفعيل/إلغاء تفعيل قسم (Toggle)
  */
 async function toggleCategory(sock, chatId, category, userId) {
     try {
         const schedules = await db.getAllSchedules();
         const schedule = schedules.find(s => s.category === category);
         
-        const newStatus = schedule ? !schedule.enabled : true;
+        // Toggle: إذا مفعل يصير معطل، وإذا معطل يصير مفعل
+        const currentStatus = schedule ? schedule.enabled : false;
+        const newStatus = !currentStatus;
+        
         await db.toggleSchedule(category, newStatus);
         
         const statusEmoji = newStatus ? '✅' : '❌';
-        const statusText = newStatus ? 'مُفعّل' : 'مُلغى';
+        const statusText = newStatus ? 'مُفعّل' : 'مُعطّل';
+        const actionText = newStatus ? 'تم تفعيل' : 'تم إلغاء تفعيل';
         
         await sock.sendMessage(chatId, {
-            text: `${statusEmoji} القسم: *${category}*\n📊 الحالة: ${statusText}`
+            text: `${statusEmoji} *${actionText}*\n\n📂 القسم: *${category}*\n📊 الحالة: ${statusText}\n\n💡 يمكنك إعادة الاختيار لتغيير الحالة`
         });
         
         // إعادة تحميل الجداول
@@ -315,54 +407,34 @@ async function showAdminMenu(sock, chatId, userId) {
         adminAction: null 
     };
     
-    const options = [
-        '➕ إضافة محاضرة',
-        '⏰ تعديل الأوقات',
-        '✏️ تعديل النصوص',
-        '🔙 رجوع'
-    ];
-    
-    const poll = {
-        name: '⚙️ لوحة الإدارة',
-        values: options,
-        selectableCount: 1
+    const listMessage = {
+        text: '⚙️ *لوحة الإدارة*\n\nاختر العملية المطلوبة:',
+        footer: CONFIG.botName || 'Islamic Bot',
+        title: 'لوحة الإدارة',
+        buttonText: "⚙️ الإدارة",
+        sections: [{
+            title: 'العمليات المتاحة',
+            rows: [
+                {
+                    title: '➕ إضافة محاضرة',
+                    rowId: 'admin_add_lecture',
+                    description: 'إضافة محاضرة جديدة للقسم'
+                },
+                {
+                    title: '⏰ تعديل الأوقات',
+                    rowId: 'admin_edit_time',
+                    description: 'تعديل أوقات النشر للأقسام'
+                },
+                {
+                    title: '✏️ تعديل النصوص',
+                    rowId: 'admin_edit_text',
+                    description: 'تعديل نصوص الأذكار (قريباً)'
+                }
+            ]
+        }]
     };
     
-    await sock.sendMessage(chatId, {
-        poll: poll
-    });
-}
-
-/**
- * معالجة إجابات لوحة الإدارة
- */
-async function handleAdminPollResponse(sock, msg, selectedOption) {
-    const from = msg.key.remoteJid;
-    const sender = msg.key.participant || msg.key.remoteJid;
-    
-    if (!userSessions[sender] || userSessions[sender].currentMenu !== 'admin') {
-        return;
-    }
-    
-    switch (selectedOption) {
-        case '➕ إضافة محاضرة':
-            await startAddLecture(sock, from, sender);
-            break;
-            
-        case '⏰ تعديل الأوقات':
-            await showTimeEditMenu(sock, from, sender);
-            break;
-            
-        case '✏️ تعديل النصوص':
-            await sock.sendMessage(from, {
-                text: '⚠️ هذه الميزة قيد التطوير'
-            });
-            break;
-            
-        case '🔙 رجوع':
-            delete userSessions[sender];
-            break;
-    }
+    await sock.sendMessage(chatId, listMessage);
 }
 
 /**
@@ -376,15 +448,22 @@ async function startAddLecture(sock, chatId, userId) {
         lectureData: {}
     };
     
-    const poll = {
-        name: '📂 اختر القسم',
-        values: FINAL_CATEGORIES,
-        selectableCount: 1
+    const listMessage = {
+        text: '📂 *اختر القسم لإضافة محاضرة جديدة*',
+        footer: CONFIG.botName || 'Islamic Bot',
+        title: 'اختيار القسم',
+        buttonText: "📂 الأقسام",
+        sections: [{
+            title: 'الأقسام المتاحة',
+            rows: FINAL_CATEGORIES.map((category) => ({
+                title: category,
+                rowId: `category_add_${category}`,
+                description: `إضافة محاضرة في ${category}`
+            }))
+        }]
     };
     
-    await sock.sendMessage(chatId, {
-        poll: poll
-    });
+    await sock.sendMessage(chatId, listMessage);
 }
 
 /**
@@ -454,15 +533,22 @@ async function showTimeEditMenu(sock, chatId, userId) {
         step: 'select_category'
     };
     
-    const poll = {
-        name: '⏰ اختر القسم لتعديل وقته',
-        values: FINAL_CATEGORIES,
-        selectableCount: 1
+    const listMessage = {
+        text: '⏰ *اختر القسم لتعديل وقت النشر*',
+        footer: CONFIG.botName || 'Islamic Bot',
+        title: 'تعديل الأوقات',
+        buttonText: "⏰ الأقسام",
+        sections: [{
+            title: 'الأقسام المتاحة',
+            rows: FINAL_CATEGORIES.map((category) => ({
+                title: category,
+                rowId: `category_time_${category}`,
+                description: `تعديل وقت ${category}`
+            }))
+        }]
     };
     
-    await sock.sendMessage(chatId, {
-        poll: poll
-    });
+    await sock.sendMessage(chatId, listMessage);
 }
 
 /**
@@ -504,13 +590,12 @@ async function handleMessage(sock, msg) {
     const sender = msg.key.participant || msg.key.remoteJid;
     const session = userSessions[sender];
     
-    if (!session) return false;
-    
-    // معالجة Poll responses
-    if (msg.message?.pollUpdateMessage) {
-        await handlePollResponse(sock, msg);
-        return true;
+    // معالجة List responses
+    if (msg.message?.listResponseMessage) {
+        return await handleListResponse(sock, msg);
     }
+    
+    if (!session) return false;
     
     // معالجة خطوات إضافة محاضرة
     if (session.adminAction === 'add_lecture') {
