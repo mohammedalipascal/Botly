@@ -1,363 +1,400 @@
 const cron = require('node-cron');
-const db = require('./googleSheetsDB');
+const fs = require('fs');
+const path = require('path');
+const { fetchRandomFatwa, formatFatwaMessage } = require('./fatwaModule');
 const { ISLAMIC_CONTENT } = require('./islamicContent');
 const { fetchLectureContent, formatLecture } = require('./lectureHandler');
 
-// ⭐ رقمك مباشرة
-const OWNER_NUMBER = '249962204268';
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+// \ud83d\udd4c \u0627\u0644\u0642\u0633\u0645 \u0627\u0644\u0625\u0633\u0644\u0627\u0645\u064a - Poll Navigation System (UPDATED)
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 
-let ISLAMIC_MODULE_ENABLED = true;
-let scheduledJobs = {};
-let userSessions = {};
+let ISLAMIC_MODULE_ENABLED = false;
+const ISLAMIC_STATE_FILE = path.join(__dirname, 'islamic_state.json');
+const SECTIONS_STATE_FILE = path.join(__dirname, 'sections_state.json');
 
-// ⭐ التحقق من المالك
-function isOwner(sender) {
-    if (!sender) return false;
-    const num = sender.replace('@s.whatsapp.net', '').replace('@c.us', '');
-    return num === OWNER_NUMBER;
-}
+let morningJob1 = null, morningJob2 = null, eveningJob1 = null, eveningJob2 = null;
+let fatwaJob = null;
+const activeLectureJobs = new Map(); // \u0644\u062a\u062a\u0628\u0639 \u062c\u0645\u064a\u0639 \u062c\u062f\u0627\u0648\u0644 \u0627\u0644\u0645\u062d\u0627\u0636\u0631\u0627\u062a \u0627\u0644\u0646\u0634\u0637\u0629
 
-// بناء قوائم Poll من ISLAMIC_CONTENT
-function buildPollMenu(path = []) {
-    if (path.length === 0) {
-        // القائمة الرئيسية
-        return ['الفقه', 'الموضوعية'];
-    }
-    
-    if (path[0] === 'الفقه') {
-        if (path.length === 1) {
-            return ['العبادات', 'المعاملات', 'فقه الأسرة', 'العادات'];
-        }
-        
-        const subsection = path[1];
-        if (subsection === 'العبادات' && path.length === 2) {
-            return ['الصلاة', 'الجنائز', 'الزكاة', 'الصيام', 'الحج والعمرة', 'الطهارة', 'الجهاد والسير'];
-        }
-        
-        // أقسام الصلاة
-        if (subsection === 'العبادات' && path[2] === 'الصلاة' && path.length === 3) {
-            const salah = ISLAMIC_CONTENT.fiqh.subsections.ibadat.topics.salah.categories;
-            return Object.values(salah).map(c => c.displayName);
-        }
-        
-        // أقسام الجنائز
-        if (subsection === 'العبادات' && path[2] === 'الجنائز' && path.length === 3) {
-            const janazah = ISLAMIC_CONTENT.fiqh.subsections.ibadat.topics.janazah.categories;
-            return Object.values(janazah).map(c => c.displayName);
-        }
-        
-        // أقسام الزكاة
-        if (subsection === 'العبادات' && path[2] === 'الزكاة' && path.length === 3) {
-            const zakah = ISLAMIC_CONTENT.fiqh.subsections.ibadat.topics.zakah.categories;
-            return Object.values(zakah).map(c => c.displayName);
-        }
-        
-        // أقسام الصيام
-        if (subsection === 'العبادات' && path[2] === 'الصيام' && path.length === 3) {
-            const siyam = ISLAMIC_CONTENT.fiqh.subsections.ibadat.topics.siyam.categories;
-            return Object.values(siyam).map(c => c.displayName);
-        }
-        
-        // أقسام الحج
-        if (subsection === 'العبادات' && path[2] === 'الحج والعمرة' && path.length === 3) {
-            const hajj = ISLAMIC_CONTENT.fiqh.subsections.ibadat.topics.hajj.categories;
-            return Object.values(hajj).map(c => c.displayName);
-        }
-        
-        // أقسام الطهارة
-        if (subsection === 'العبادات' && path[2] === 'الطهارة' && path.length === 3) {
-            const taharah = ISLAMIC_CONTENT.fiqh.subsections.ibadat.topics.taharah.categories;
-            return Object.values(taharah).map(c => c.displayName);
-        }
-        
-        // الجهاد
-        if (subsection === 'العبادات' && path[2] === 'الجهاد والسير' && path.length === 3) {
-            return ['أحكام الجهاد'];
-        }
-        
-        // المعاملات
-        if (subsection === 'المعاملات' && path.length === 2) {
-            const muamalat = ISLAMIC_CONTENT.fiqh.subsections.muamalat.topics;
-            return Object.values(muamalat).map(t => t.displayName);
-        }
-        
-        // فقه الأسرة
-        if (subsection === 'فقه الأسرة' && path.length === 2) {
-            const usrah = ISLAMIC_CONTENT.fiqh.subsections.fiqhUsrah.topics;
-            return Object.values(usrah).map(t => t.displayName);
-        }
-        
-        // العادات
-        if (subsection === 'العادات' && path.length === 2) {
-            return ['عادات وتقاليد'];
-        }
-    }
-    
-    if (path[0] === 'الموضوعية' && path.length === 1) {
-        const topics = ISLAMIC_CONTENT.mawdooiya.topics;
-        return Object.values(topics).map(t => t.displayName);
-    }
-    
-    return null;
-}
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+// \ud83d\udcca \u0647\u064a\u0643\u0644 \u062d\u0627\u0644\u0629 \u0627\u0644\u0623\u0642\u0633\u0627\u0645 \u0627\u0644\u0645\u062d\u062f\u062b
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 
-// الأقسام النهائية
-const FINAL_CATEGORIES = [
-    'حكم الصلاة وأهميتها', 'الركوع والسجود', 'وقت الصلاة',
-    'الطهارة لصحة الصلاة', 'ستر العورة للمصلي', 'استقبال القبلة',
-    'القيام في الصلاة', 'التكبير والاستفتاح', 'سجود التلاوة والشكر',
-    'الأذان والإقامة', 'التشهد والتسليم', 'سنن الصلاة',
-    'مكروهات الصلاة', 'مبطلات الصلاة', 'قضاء الفوائت',
-    'سجود السهو', 'القراءة في الصلاة', 'صلاة التطوع',
-    'صلاة الاستسقاء', 'المساجد ومواضع السجود', 'صلاة المريض',
-    'صلاة الخوف', 'أحكام الجمع', 'صلاة الجمعة',
-    'صلاة العيدين', 'صلاة الخسوف', 'أوقات النهي',
-    'صلاة الجماعة', 'مسائل متفرقة في الصلاة', 'الطمأنينة والخشوع',
-    'سترة المصلي', 'النية في الصلاة', 'القنوت في الصلاة',
-    'اللفظ والحركة في الصلاة', 'الوتر وقيام الليل',
-    'غسل الميت وتجهيزه', 'الصلاة على الميت', 'حمل الميت ودفنه',
-    'زيارة القبور', 'إهداء القرب للميت', 'حرمة الأموات',
-    'أحكام التعزية', 'مسائل متفرقة في الجنائز', 'الاحتضار وتلقين الميت',
-    'أحكام المقابر', 'النياحة على الميت',
-    'وجوب الزكاة وأهميتها', 'زكاة بهيمة الأنعام', 'زكاة الحبوب والثمار',
-    'زكاة النقدين', 'زكاة عروض التجارة', 'زكاة الفطر',
-    'إخراج الزكاة وأهلها', 'صدقة التطوع', 'مسائل متفرقة في الزكاة',
-    'فضائل رمضان', 'ما لا يفسد الصيام', 'رؤيا الهلال',
-    'من يجب عليه الصوم', 'الأعذار المبيحة للفطر', 'النية في الصيام',
-    'مفسدات الصيام', 'الجماع في نهار رمضان', 'مستحبات الصيام',
-    'قضاء الصيام', 'صيام التطوع', 'الاعتكاف وليلة القدر',
-    'مسائل متفرقة في الصيام',
-    'فضائل الحج والعمرة', 'حكم الحج والعمرة', 'شروط الحج',
-    'الإحرام', 'محظورات الإحرام', 'الفدية وجزاء الصيد',
-    'صيد الحرم', 'النيابة في الحج', 'المبيت بمنى',
-    'الوقوف بعرفة', 'المبيت بمزدلفة', 'الطواف بالبيت',
-    'السعي', 'رمي الجمار', 'الإحصار',
-    'الهدي والأضاحي', 'مسائل متفرقة في الحج والعمرة', 'المواقيت', 'التحلل',
-    'المياه', 'الآنية', 'قضاء الحاجة', 'سنن الفطرة',
-    'فروض الوضوء وصفته', 'نواقض الوضوء', 'ما يشرع له الوضوء',
-    'المسح على الخفين', 'الغسل', 'التيمم',
-    'النجاسات وإزالتها', 'الحيض والنفاس', 'مس المصحف',
-    'أحكام الجهاد',
-    'الربا والصرف', 'العارية', 'السبق والمسابقات',
-    'السلف والقرض', 'الرهن', 'الإفلاس والحجر',
-    'الصلح', 'الحوالة', 'الضمان والكفالة',
-    'الشركة', 'الوكالة', 'البيوع',
-    'الشفعة', 'الغصب', 'المساقاة والمزارعة',
-    'الإجارة', 'إحياء الموات', 'الوقف',
-    'الهبة والعطية', 'اللقطة واللقيط', 'الوصايا',
-    'الفرائض', 'الوديعة', 'الكسب المحرم',
-    'الزواج وأحكامه', 'النظر والخلوة والاختلاط', 'الخلع',
-    'الطلاق', 'الرجعة', 'الإيلاء',
-    'الظهار', 'اللعان', 'العِدَد',
-    'الرضاع', 'النفقات', 'الحضانة',
-    'عادات وتقاليد',
-    'القرآن وعلومه', 'العقيدة', 'الحديث وعلومه',
-    'التفسير', 'الدعوة والدعاة', 'الفرق والمذاهب',
-    'البدع والمحدثات', 'أصول الفقه', 'العالم والمتعلم',
-    'الآداب والأخلاق', 'الفضائل', 'الرقائق',
-    'الأدعية والأذكار', 'التاريخ والسيرة', 'قضايا معاصرة',
-    'قضايا المرأة', 'اللغة العربية', 'نصائح وتوجيهات',
-    'تربية الأولاد', 'الشعر والأغاني', 'أحكام الموظفين',
-    'أحكام الحيوان', 'بر الوالدين', 'المشكلات الزوجية',
-    'قضايا الشباب', 'نوازل معاصرة', 'الرؤى والمنامات',
-    'ردود وتعقيبات', 'الهجرة والابتعاث', 'الوسواس بأنواعه'
+let sectionsState = {
+    athkar: { enabled: false },
+    fatawa: { enabled: false },
+    fiqh: {
+        enabled: false,
+        subsections: {
+            ibadat: {
+                enabled: false,
+                topics: {
+                    salah: {
+                        enabled: false,
+                        categories: {
+                            hukmSalah: { enabled: false, index: 0 },
+                            rukoo: { enabled: false, index: 0 },
+                            waqt: { enabled: false, index: 0 },
+                            taharah: { enabled: false, index: 0 },
+                            satr: { enabled: false, index: 0 },
+                            qiblah: { enabled: false, index: 0 },
+                            qiyam: { enabled: false, index: 0 },
+                            takbeer: { enabled: false, index: 0 },
+                            sujoodTilawa: { enabled: false, index: 0 },
+                            adhan: { enabled: false, index: 0 }
+                        }
+                    },
+                    janazah: { enabled: false, categories: {} },
+                    zakah: { enabled: false, categories: {} },
+                    siyam: { enabled: false, categories: {} },
+                    hajj: { enabled: false, categories: {} },
+                    taharah: { enabled: false, categories: {} },
+                    jihad: { enabled: false, categories: {} }
+                }
+            },
+            muamalat: { enabled: false, topics: {} },
+            fiqhUsrah: { enabled: false, topics: {} },
+            adat: { enabled: false, topics: {} }
+        }
+    },
+    mawdooiya: { enabled: false, topics: {} }
+};
+
+// \u062a\u062a\u0628\u0639 \u0645\u0648\u0642\u0639 \u0643\u0644 \u0645\u0633\u062a\u062e\u062f\u0645 \u0641\u064a \u0627\u0644\u062a\u0646\u0642\u0644
+const userNavigation = new Map();
+const NAV_TIMEOUT = 30 * 60 * 1000; // 30 \u062f\u0642\u064a\u0642\u0629
+
+const MORNING_EVENING_ATHKAR = [
+    { text: `\u0623\u064e\u0635\u0652\u0628\u064e\u062d\u0652\u0646\u064e\u0627 \u0648\u064e\u0623\u064e\u0635\u0652\u0628\u064e\u062d\u064e \u0627\u0644\u0652\u0645\u064f\u0644\u0652\u0643\u064f \u0644\u0650\u0644\u064e\u0651\u0647\u0650\u060c \u0648\u064e\u0627\u0644\u0652\u062d\u064e\u0645\u0652\u062f\u064f \u0644\u0650\u0644\u064e\u0651\u0647\u0650\u060c \u0644\u064e\u0627 \u0625\u0650\u0644\u064e\u0647\u064e \u0625\u0650\u0644\u064e\u0651\u0627 \u0627\u0644\u0644\u0647\u064f \u0648\u064e\u062d\u0652\u062f\u064e\u0647\u064f \u0644\u064e\u0627 \u0634\u064e\u0631\u0650\u064a\u0643\u064e \u0644\u064e\u0647\u064f\u060c \u0644\u064e\u0647\u064f \u0627\u0644\u0652\u0645\u064f\u0644\u0652\u0643\u064f \u0648\u064e\u0644\u064e\u0647\u064f \u0627\u0644\u0652\u062d\u064e\u0645\u0652\u062f\u064f\u060c \u0648\u064e\u0647\u064f\u0648\u064e \u0639\u064e\u0644\u064e\u0649 \u0643\u064f\u0644\u0650\u0651 \u0634\u064e\u064a\u0652\u0621\u064d \u0642\u064e\u062f\u0650\u064a\u0631\u064c\n\n\u0631\u064e\u0628\u0650\u0651 \u0623\u064e\u0633\u0652\u0623\u064e\u0644\u064f\u0643\u064e \u062e\u064e\u064a\u0652\u0631\u064e \u0645\u064e\u0627 \u0641\u0650\u064a \u0647\u064e\u0630\u064e\u0627 \u0627\u0644\u0652\u064a\u064e\u0648\u0652\u0645\u0650 \u0648\u064e\u062e\u064e\u064a\u0652\u0631\u064e \u0645\u064e\u0627 \u0628\u064e\u0639\u0652\u062f\u064e\u0647\u064f\u060c \u0648\u064e\u0623\u064e\u0639\u064f\u0648\u0630\u064f \u0628\u0650\u0643\u064e \u0645\u0650\u0646\u0652 \u0634\u064e\u0631\u0650\u0651 \u0645\u064e\u0627 \u0641\u0650\u064a \u0647\u064e\u0630\u064e\u0627 \u0627\u0644\u0652\u064a\u064e\u0648\u0652\u0645\u0650 \u0648\u064e\u0634\u064e\u0631\u0650\u0651 \u0645\u064e\u0627 \u0628\u064e\u0639\u0652\u062f\u064e\u0647\u064f\n\n\u0631\u064e\u0628\u0650\u0651 \u0623\u064e\u0639\u064f\u0648\u0630\u064f \u0628\u0650\u0643\u064e \u0645\u0650\u0646\u064e \u0627\u0644\u0652\u0643\u064e\u0633\u064e\u0644\u0650 \u0648\u064e\u0633\u064f\u0648\u0621\u0650 \u0627\u0644\u0652\u0643\u0650\u0628\u064e\u0631\u0650\u060c \u0631\u064e\u0628\u0650\u0651 \u0623\u064e\u0639\u064f\u0648\u0630\u064f \u0628\u0650\u0643\u064e \u0645\u0650\u0646\u0652 \u0639\u064e\u0630\u064e\u0627\u0628\u064d \u0641\u0650\u064a \u0627\u0644\u0646\u064e\u0651\u0627\u0631\u0650 \u0648\u064e\u0639\u064e\u0630\u064e\u0627\u0628\u064d \u0641\u0650\u064a \u0627\u0644\u0652\u0642\u064e\u0628\u0652\u0631\u0650` },
+    { text: `\u0627\u0644\u0644\u064e\u0651\u0647\u064f\u0645\u064e\u0651 \u0628\u0650\u0643\u064e \u0623\u064e\u0635\u0652\u0628\u064e\u062d\u0652\u0646\u064e\u0627\u060c \u0648\u064e\u0628\u0650\u0643\u064e \u0623\u064e\u0645\u0652\u0633\u064e\u064a\u0652\u0646\u064e\u0627\u060c \u0648\u064e\u0628\u0650\u0643\u064e \u0646\u064e\u062d\u0652\u064a\u064e\u0627\u060c \u0648\u064e\u0628\u0650\u0643\u064e \u0646\u064e\u0645\u064f\u0648\u062a\u064f\u060c \u0648\u064e\u0625\u0650\u0644\u064e\u064a\u0652\u0643\u064e \u0627\u0644\u0646\u064f\u0651\u0634\u064f\u0648\u0631\u064f` },
+    { text: `\u0627\u0644\u0644\u064e\u0651\u0647\u064f\u0645\u064e\u0651 \u0623\u064e\u0646\u0652\u062a\u064e \u0631\u064e\u0628\u0650\u0651\u064a \u0644\u064e\u0627 \u0625\u0650\u0644\u064e\u0647\u064e \u0625\u0650\u0644\u064e\u0651\u0627 \u0623\u064e\u0646\u0652\u062a\u064e\u060c \u062e\u064e\u0644\u064e\u0642\u0652\u062a\u064e\u0646\u0650\u064a \u0648\u064e\u0623\u064e\u0646\u064e\u0627 \u0639\u064e\u0628\u0652\u062f\u064f\u0643\u064e\u060c \u0648\u064e\u0623\u064e\u0646\u064e\u0627 \u0639\u064e\u0644\u064e\u0649 \u0639\u064e\u0647\u0652\u062f\u0650\u0643\u064e \u0648\u064e\u0648\u064e\u0639\u0652\u062f\u0650\u0643\u064e \u0645\u064e\u0627 \u0627\u0633\u0652\u062a\u064e\u0637\u064e\u0639\u0652\u062a\u064f\u060c \u0623\u064e\u0639\u064f\u0648\u0630\u064f \u0628\u0650\u0643\u064e \u0645\u0650\u0646\u0652 \u0634\u064e\u0631\u0650\u0651 \u0645\u064e\u0627 \u0635\u064e\u0646\u064e\u0639\u0652\u062a\u064f\u060c \u0623\u064e\u0628\u064f\u0648\u0621\u064f \u0644\u064e\u0643\u064e \u0628\u0650\u0646\u0650\u0639\u0652\u0645\u064e\u062a\u0650\u0643\u064e \u0639\u064e\u0644\u064e\u064a\u064e\u0651\u060c \u0648\u064e\u0623\u064e\u0628\u064f\u0648\u0621\u064f \u0628\u0650\u0630\u064e\u0646\u0652\u0628\u0650\u064a \u0641\u064e\u0627\u063a\u0652\u0641\u0650\u0631\u0652 \u0644\u0650\u064a\u060c \u0641\u064e\u0625\u0650\u0646\u064e\u0651\u0647\u064f \u0644\u064e\u0627 \u064a\u064e\u063a\u0652\u0641\u0650\u0631\u064f \u0627\u0644\u0630\u064f\u0651\u0646\u064f\u0648\u0628\u064e \u0625\u0650\u0644\u064e\u0651\u0627 \u0623\u064e\u0646\u0652\u062a\u064e` },
+    { text: `\u0628\u0650\u0633\u0652\u0645\u0650 \u0627\u0644\u0644\u0647\u0650 \u0627\u0644\u064e\u0651\u0630\u0650\u064a \u0644\u064e\u0627 \u064a\u064e\u0636\u064f\u0631\u064f\u0651 \u0645\u064e\u0639\u064e \u0627\u0633\u0652\u0645\u0650\u0647\u0650 \u0634\u064e\u064a\u0652\u0621\u064c \u0641\u0650\u064a \u0627\u0644\u0652\u0623\u064e\u0631\u0652\u0636\u0650 \u0648\u064e\u0644\u064e\u0627 \u0641\u0650\u064a \u0627\u0644\u0633\u064e\u0651\u0645\u064e\u0627\u0621\u0650 \u0648\u064e\u0647\u064f\u0648\u064e \u0627\u0644\u0633\u064e\u0651\u0645\u0650\u064a\u0639\u064f \u0627\u0644\u0652\u0639\u064e\u0644\u0650\u064a\u0645\u064f`, repeat: 3 },
+    { text: `\u0631\u064e\u0636\u0650\u064a\u062a\u064f \u0628\u0650\u0627\u0644\u0644\u0647\u0650 \u0631\u064e\u0628\u064b\u0651\u0627\u060c \u0648\u064e\u0628\u0650\u0627\u0644\u0652\u0625\u0650\u0633\u0652\u0644\u064e\u0627\u0645\u0650 \u062f\u0650\u064a\u0646\u064b\u0627\u060c \u0648\u064e\u0628\u0650\u0645\u064f\u062d\u064e\u0645\u064e\u0651\u062f\u064d \u0635\u064e\u0644\u064e\u0651\u0649 \u0627\u0644\u0644\u0647\u064f \u0639\u064e\u0644\u064e\u064a\u0652\u0647\u0650 \u0648\u064e\u0633\u064e\u0644\u064e\u0651\u0645\u064e \u0646\u064e\u0628\u0650\u064a\u064b\u0651\u0627`, repeat: 3 }
 ];
 
-async function startIslamicSchedule(sock) {
-    console.log('🕌 بدء جدولة...');
+let currentThikrIndex = 0;
+
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+// \ud83d\udcbe \u062f\u0648\u0627\u0644 \u0627\u0644\u062a\u062d\u0645\u064a\u0644 \u0648\u0627\u0644\u062d\u0641\u0638
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+
+function loadIslamicState() {
     try {
-        const initialized = await db.initialize();
-        if (!initialized) {
-            console.log('⚠️ فشل الاتصال بـ Google Sheets');
-            return;
+        if (fs.existsSync(ISLAMIC_STATE_FILE)) {
+            const state = JSON.parse(fs.readFileSync(ISLAMIC_STATE_FILE, 'utf-8'));
+            ISLAMIC_MODULE_ENABLED = state.enabled || false;
+            currentThikrIndex = state.currentThikrIndex || 0;
         }
-        const schedules = await db.getAllSchedules();
-        for (const schedule of schedules) {
-            if (schedule.enabled && schedule.groupId) {
-                createScheduleJob(sock, schedule);
-            }
-        }
-        console.log(`✅ ${Object.keys(scheduledJobs).length} قسم`);
     } catch (error) {
-        console.error('❌ خطأ:', error.message);
+        console.error('\u26a0\ufe0f \u062e\u0637\u0623 \u0641\u064a \u0642\u0631\u0627\u0621\u0629 \u062d\u0627\u0644\u0629 \u0627\u0644\u0642\u0633\u0645 \u0627\u0644\u0625\u0633\u0644\u0627\u0645\u064a:', error.message);
     }
 }
 
-function createScheduleJob(sock, schedule) {
-    const jobKey = `${schedule.category}_${schedule.groupId}`;
-    if (scheduledJobs[jobKey]) {
-        scheduledJobs[jobKey].stop();
-    }
-    scheduledJobs[jobKey] = cron.schedule(schedule.cronTime, async () => {
-        await sendScheduledLecture(sock, schedule.category, schedule.groupId);
-    });
-}
-
-async function sendScheduledLecture(sock, category, groupId) {
+function saveIslamicState() {
     try {
-        const nextLecture = await db.getNextLecture(category);
-        if (!nextLecture) return;
-        const content = await fetchLectureContent(nextLecture.pageUrl);
-        const message = formatLecture(content);
-        await sock.sendMessage(groupId, { text: message });
-        await db.updateProgress(category, nextLecture.id);
-        console.log(`✅ ${category}`);
+        fs.writeFileSync(ISLAMIC_STATE_FILE, JSON.stringify({ 
+            enabled: ISLAMIC_MODULE_ENABLED, 
+            currentThikrIndex 
+        }), 'utf-8');
     } catch (error) {
-        console.error(`❌ خطأ:`, error.message);
+        console.error('\u274c \u062e\u0637\u0623 \u0641\u064a \u062d\u0641\u0638 \u062d\u0627\u0644\u0629 \u0627\u0644\u0642\u0633\u0645 \u0627\u0644\u0625\u0633\u0644\u0627\u0645\u064a:', error.message);
     }
 }
 
-function stopIslamicSchedule() {
-    Object.values(scheduledJobs).forEach(job => job.stop());
-    scheduledJobs = {};
-}
-
-async function handleIslamicCommand(sock, msg, command, sender) {
-    const from = msg.key.remoteJid;
-    const msgSender = msg.key.participant || msg.key.remoteJid;
-    
-    // ⭐ فقط المالك
-    if (!isOwner(msgSender)) {
-        return false;
-    }
-    
-    if (command === '/اسلامي' || command === 'اسلامي') {
-        userSessions[msgSender] = { path: [] };
-        await showPoll(sock, from, [], msgSender);
-        return true;
-    }
-    
-    if (command === '/حالة_الاقسام' || command === 'حالة_الاقسام') {
-        await showStatus(sock, from);
-        return true;
-    }
-    
-    if (command === '/ادارة' || command === 'ادارة') {
-        await showAdminPoll(sock, from, msgSender);
-        return true;
-    }
-    
-    return false;
-}
-
-// ⭐ Poll بسيط
-async function showPoll(sock, chatId, path, userId) {
-    const options = buildPollMenu(path);
-    if (!options) return;
-    
-    const title = path.length === 0 ? '🕌 القائمة الرئيسية' : path[path.length - 1];
-    
-    await sock.sendMessage(chatId, {
-        poll: {
-            name: title,
-            values: options,
-            selectableCount: 1
+function loadSectionsState() {
+    try {
+        if (fs.existsSync(SECTIONS_STATE_FILE)) {
+            const loaded = JSON.parse(fs.readFileSync(SECTIONS_STATE_FILE, 'utf-8'));
+            sectionsState = { ...sectionsState, ...loaded };
         }
-    });
+    } catch (error) {
+        console.error('\u26a0\ufe0f \u062e\u0637\u0623 \u0641\u064a \u0642\u0631\u0627\u0621\u0629 \u062d\u0627\u0644\u0629 \u0627\u0644\u0623\u0642\u0633\u0627\u0645:', error.message);
+    }
 }
+
+function saveSectionsState() {
+    try {
+        fs.writeFileSync(SECTIONS_STATE_FILE, JSON.stringify(sectionsState, null, 2), 'utf-8');
+    } catch (error) {
+        console.error('\u274c \u062e\u0637\u0623 \u0641\u064a \u062d\u0641\u0638 \u062d\u0627\u0644\u0629 \u0627\u0644\u0623\u0642\u0633\u0627\u0645:', error.message);
+    }
+}
+
+loadIslamicState();
+loadSectionsState();
+
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+// \ud83e\uddf9 \u062a\u0646\u0638\u064a\u0641 Navigation Map
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+
+function cleanupNavigationMap() {
+    const now = Date.now();
+    for (const [sender, data] of userNavigation.entries()) {
+        if (now - data.timestamp > NAV_TIMEOUT) {
+            userNavigation.delete(sender);
+        }
+    }
+}
+
+setInterval(cleanupNavigationMap, 5 * 60 * 1000); // \u0643\u0644 5 \u062f\u0642\u0627\u0626\u0642
+
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+// \ud83d\udcca \u0646\u0638\u0627\u0645 \u0627\u0644\u0640 Poll Navigation (\u0645\u062d\u062f\u062b)
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+
+async function sendPollMenu(sock, sender, level, path = []) {
+    try {
+        let pollName = '';
+        let options = [];
+        
+        // \u0627\u0644\u0645\u0633\u062a\u0648\u0649 1: \u0627\u0644\u0642\u0627\u0626\u0645\u0629 \u0627\u0644\u0631\u0626\u064a\u0633\u064a\u0629
+        if (level === 'main') {
+            pollName = '\ud83d\udd4c \u0627\u0644\u0642\u0633\u0645 \u0627\u0644\u0625\u0633\u0644\u0627\u0645\u064a - \u0627\u062e\u062a\u0631';
+            options = ['\ud83d\udcff \u0627\u0644\u0623\u0630\u0643\u0627\u0631', '\ud83d\udcda \u0627\u0644\u0641\u062a\u0627\u0648\u0649', '\u2696\ufe0f \u0627\u0644\u0641\u0642\u0647', '\ud83d\udcd6 \u0627\u0644\u0645\u0648\u0636\u0648\u0639\u064a\u0629'];
+            
+            await sock.sendMessage(sender, {
+                text: `\ud83d\udd4c *\u0627\u0644\u0642\u0633\u0645 \u0627\u0644\u0625\u0633\u0644\u0627\u0645\u064a*\n\n\u0645\u0631\u062d\u0628\u0627\u064b \u0628\u0643 \u0641\u064a \u0627\u0644\u0642\u0633\u0645 \u0627\u0644\u0625\u0633\u0644\u0627\u0645\u064a \u0645\u0646 \u0645\u0648\u0642\u0639 \u0627\u0644\u0634\u064a\u062e \u0627\u0628\u0646 \u0628\u0627\u0632 \u0631\u062d\u0645\u0647 \u0627\u0644\u0644\u0647\n\n\u2508\u2508\u2508\u2508\u2508\u2508\u2508\u2508\u2508\u2508\u2508\u2508\u2508\u2508\u2508\u2508\u2508\u2508\u2508\u2508\n\n\u0635\u0648\u0651\u062a \u0641\u064a \u0627\u0644\u0627\u0633\u062a\u0637\u0644\u0627\u0639 \u0623\u062f\u0646\u0627\u0647 \u0644\u0644\u0627\u062e\u062a\u064a\u0627\u0631:`
+            });
+        }
+        
+        // \u0627\u0644\u0645\u0633\u062a\u0648\u0649 2: \u0623\u0642\u0633\u0627\u0645 \u0627\u0644\u0641\u0642\u0647
+        else if (level === 'fiqh_main') {
+            pollName = '\u2696\ufe0f \u0627\u0644\u0641\u0642\u0647 - \u0627\u062e\u062a\u0631 \u0627\u0644\u0642\u0633\u0645';
+            options = ['\ud83d\udd4c \u0627\u0644\u0639\u0628\u0627\u062f\u0627\u062a', '\ud83d\udcb0 \u0627\u0644\u0645\u0639\u0627\u0645\u0644\u0627\u062a', '\ud83d\udc68\u200d\ud83d\udc69\u200d\ud83d\udc67 \u0641\u0642\u0647 \u0627\u0644\u0623\u0633\u0631\u0629', '\ud83c\udfd8\ufe0f \u0627\u0644\u0639\u0627\u062f\u0627\u062a'];
+        }
+        
+        // \u0627\u0644\u0645\u0633\u062a\u0648\u0649 3: \u0623\u0642\u0633\u0627\u0645 \u0627\u0644\u0639\u0628\u0627\u062f\u0627\u062a
+        else if (level === 'fiqh_ibadat') {
+            pollName = '\ud83d\udd4c \u0627\u0644\u0639\u0628\u0627\u062f\u0627\u062a - \u0627\u062e\u062a\u0631 \u0627\u0644\u0645\u0648\u0636\u0648\u0639';
+            options = [
+                '\ud83d\udd4c \u0627\u0644\u0635\u0644\u0627\u0629',
+                '\u26b0\ufe0f \u0627\u0644\u062c\u0646\u0627\u0626\u0632',
+                '\ud83d\udcb5 \u0627\u0644\u0632\u0643\u0627\u0629',
+                '\ud83c\udf19 \u0627\u0644\u0635\u064a\u0627\u0645',
+                '\ud83d\udd4b \u0627\u0644\u062d\u062c \u0648\u0627\u0644\u0639\u0645\u0631\u0629',
+                '\ud83d\udca7 \u0627\u0644\u0637\u0647\u0627\u0631\u0629',
+                '\u2694\ufe0f \u0627\u0644\u062c\u0647\u0627\u062f \u0648\u0627\u0644\u0633\u064a\u0631'
+            ];
+        }
+        
+        // \u0627\u0644\u0645\u0633\u062a\u0648\u0649 4: \u0623\u0642\u0633\u0627\u0645 \u0627\u0644\u0635\u0644\u0627\u0629
+        else if (level === 'fiqh_ibadat_salah') {
+            pollName = '\ud83d\udd4c \u0627\u0644\u0635\u0644\u0627\u0629 - \u0627\u062e\u062a\u0631 \u0627\u0644\u0645\u0648\u0636\u0648\u0639';
+            options = [
+                '\ud83d\udccc \u062d\u0643\u0645 \u0627\u0644\u0635\u0644\u0627\u0629 \u0648\u0623\u0647\u0645\u064a\u062a\u0647\u0627',
+                '\ud83d\ude47 \u0627\u0644\u0631\u0643\u0648\u0639 \u0648\u0627\u0644\u0633\u062c\u0648\u062f',
+                '\u23f0 \u0648\u0642\u062a \u0627\u0644\u0635\u0644\u0627\u0629',
+                '\ud83d\udca7 \u0627\u0644\u0637\u0647\u0627\u0631\u0629 \u0644\u0635\u062d\u0629 \u0627\u0644\u0635\u0644\u0627\u0629',
+                '\ud83d\udc54 \u0633\u062a\u0631 \u0627\u0644\u0639\u0648\u0631\u0629 \u0644\u0644\u0645\u0635\u0644\u064a',
+                '\ud83e\udded \u0627\u0633\u062a\u0642\u0628\u0627\u0644 \u0627\u0644\u0642\u0628\u0644\u0629',
+                '\ud83e\uddcd \u0627\u0644\u0642\u064a\u0627\u0645 \u0641\u064a \u0627\u0644\u0635\u0644\u0627\u0629',
+                '\ud83e\udd32 \u0627\u0644\u062a\u0643\u0628\u064a\u0631 \u0648\u0627\u0644\u0627\u0633\u062a\u0641\u062a\u0627\u062d',
+                '\ud83d\udcff \u0633\u062c\u0648\u062f \u0627\u0644\u062a\u0644\u0627\u0648\u0629 \u0648\u0627\u0644\u0634\u0643\u0631',
+                '\ud83d\udce2 \u0627\u0644\u0623\u0630\u0627\u0646 \u0648\u0627\u0644\u0625\u0642\u0627\u0645\u0629'
+            ];
+        }
+        
+        // \u0627\u0644\u0645\u0633\u062a\u0648\u0649 3: \u0623\u0642\u0633\u0627\u0645 \u0627\u0644\u0645\u0639\u0627\u0645\u0644\u0627\u062a
+        else if (level === 'fiqh_muamalat') {
+            pollName = '\ud83d\udcb0 \u0627\u0644\u0645\u0639\u0627\u0645\u0644\u0627\u062a - \u0627\u062e\u062a\u0631 \u0627\u0644\u0645\u0648\u0636\u0648\u0639';
+            options = [
+                '\ud83d\udeab \u0627\u0644\u0631\u0628\u0627 \u0648\u0627\u0644\u0635\u0631\u0641',
+                '\ud83e\udd1d \u0627\u0644\u0639\u0627\u0631\u064a\u0629',
+                '\ud83c\udfc6 \u0627\u0644\u0633\u0628\u0642 \u0648\u0627\u0644\u0645\u0633\u0627\u0628\u0642\u0627\u062a',
+                '\ud83d\udcb3 \u0627\u0644\u0633\u0644\u0641 \u0648\u0627\u0644\u0642\u0631\u0636',
+                '\ud83d\udd12 \u0627\u0644\u0631\u0647\u0646',
+                '\ud83d\udcc9 \u0627\u0644\u0625\u0641\u0644\u0627\u0633 \u0648\u0627\u0644\u062d\u062c\u0631',
+                '\ud83e\udd1d \u0627\u0644\u0635\u0644\u062d',
+                '\ud83d\udd04 \u0627\u0644\u062d\u0648\u0627\u0644\u0629',
+                '\ud83d\udee1\ufe0f \u0627\u0644\u0636\u0645\u0627\u0646 \u0648\u0627\u0644\u0643\u0641\u0627\u0644\u0629',
+                '\ud83d\udc65 \u0627\u0644\u0634\u0631\u0643\u0629'
+            ];
+        }
+        
+        // \u0627\u0644\u0645\u0633\u062a\u0648\u0649 3: \u0641\u0642\u0647 \u0627\u0644\u0623\u0633\u0631\u0629
+        else if (level === 'fiqh_usrah') {
+            pollName = '\ud83d\udc68\u200d\ud83d\udc69\u200d\ud83d\udc67 \u0641\u0642\u0647 \u0627\u0644\u0623\u0633\u0631\u0629 - \u0627\u062e\u062a\u0631 \u0627\u0644\u0645\u0648\u0636\u0648\u0639';
+            options = [
+                '\ud83d\udc8d \u0627\u0644\u0632\u0648\u0627\u062c \u0648\u0623\u062d\u0643\u0627\u0645\u0647',
+                '\ud83d\udc40 \u0627\u0644\u0646\u0638\u0631 \u0648\u0627\u0644\u062e\u0644\u0648\u0629 \u0648\u0627\u0644\u0627\u062e\u062a\u0644\u0627\u0637',
+                '\ud83d\udc94 \u0627\u0644\u062e\u0644\u0639',
+                '\ud83d\udcdc \u0627\u0644\u0637\u0644\u0627\u0642',
+                '\u21a9\ufe0f \u0627\u0644\u0631\u062c\u0639\u0629',
+                '\ud83d\udeab \u0627\u0644\u0625\u064a\u0644\u0627\u0621',
+                '\ud83d\udde3\ufe0f \u0627\u0644\u0638\u0647\u0627\u0631',
+                '\u2696\ufe0f \u0627\u0644\u0644\u0639\u0627\u0646',
+                '\ud83d\udcc5 \u0627\u0644\u0639\u0650\u062f\u064e\u062f',
+                '\ud83c\udf7c \u0627\u0644\u0631\u0636\u0627\u0639'
+            ];
+        }
+        
+        // \u0627\u0644\u0645\u0633\u062a\u0648\u0649 2: \u0623\u0642\u0633\u0627\u0645 \u0627\u0644\u0645\u0648\u0636\u0648\u0639\u064a\u0629
+        else if (level === 'mawdooiya_main') {
+            pollName = '\ud83d\udcd6 \u0627\u0644\u0645\u0648\u0636\u0648\u0639\u064a\u0629 - \u0627\u062e\u062a\u0631 \u0627\u0644\u0645\u0648\u0636\u0648\u0639';
+            options = [
+                '\ud83d\udcd7 \u0627\u0644\u0642\u0631\u0622\u0646 \u0648\u0639\u0644\u0648\u0645\u0647',
+                '\u262a\ufe0f \u0627\u0644\u0639\u0642\u064a\u062f\u0629',
+                '\ud83d\udcda \u0627\u0644\u062d\u062f\u064a\u062b \u0648\u0639\u0644\u0648\u0645\u0647',
+                '\ud83d\udcd6 \u0627\u0644\u062a\u0641\u0633\u064a\u0631',
+                '\ud83d\udce2 \u0627\u0644\u062f\u0639\u0648\u0629 \u0648\u0627\u0644\u062f\u0639\u0627\u0629',
+                '\ud83d\udd00 \u0627\u0644\u0641\u0631\u0642 \u0648\u0627\u0644\u0645\u0630\u0627\u0647\u0628',
+                '\u26a0\ufe0f \u0627\u0644\u0628\u062f\u0639 \u0648\u0627\u0644\u0645\u062d\u062f\u062b\u0627\u062a',
+                '\u2696\ufe0f \u0623\u0635\u0648\u0644 \u0627\u0644\u0641\u0642\u0647',
+                '\ud83d\udc68\u200d\ud83c\udfeb \u0627\u0644\u0639\u0627\u0644\u0645 \u0648\u0627\u0644\u0645\u062a\u0639\u0644\u0645',
+                '\ud83e\udd1d \u0627\u0644\u0622\u062f\u0627\u0628 \u0648\u0627\u0644\u0623\u062e\u0644\u0627\u0642'
+            ];
+        }
+        
+        // \u0625\u0631\u0633\u0627\u0644 Poll
+        if (options.length > 0) {
+            await sock.sendMessage(sender, {
+                poll: {
+                    name: pollName,
+                    values: options,
+                    selectableCount: 1
+                }
+            });
+            
+            // \u062d\u0641\u0638 \u0645\u0648\u0642\u0639 \u0627\u0644\u0645\u0633\u062a\u062e\u062f\u0645
+            userNavigation.set(sender, { level, path, timestamp: Date.now() });
+            console.log(`\u2705 \u062a\u0645 \u0625\u0631\u0633\u0627\u0644 Poll: ${pollName}`);
+        }
+        
+    } catch (error) {
+        console.error('\u274c \u062e\u0637\u0623 \u0641\u064a \u0625\u0631\u0633\u0627\u0644 Poll:', error.message);
+    }
+}
+
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+// \u26a1 \u0645\u0639\u0627\u0644\u062c\u0629 Poll Response (\u0645\u062d\u062f\u062b - \u0628\u062f\u0648\u0646 fallback)
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 
 async function handlePollResponse(sock, msg) {
     try {
-        const from = msg.key.remoteJid;
-        const sender = msg.key.participant || msg.key.remoteJid;
-        
-        if (!isOwner(sender)) return false;
-        
-        const session = userSessions[sender];
-        if (!session) return false;
-        
         const pollUpdate = msg.message?.pollUpdateMessage;
-        if (!pollUpdate || !pollUpdate.vote) return false;
+        if (!pollUpdate) return false;
         
-        const selectedIndex = pollUpdate.vote.selectedOptions[0];
-        const currentOptions = buildPollMenu(session.path);
-        const selected = currentOptions[selectedIndex];
+        const sender = msg.key.remoteJid;
+        const userNav = userNavigation.get(sender);
         
-        // إذا قسم نهائي → Toggle
-        if (FINAL_CATEGORIES.includes(selected)) {
-            await toggleCategory(sock, from, selected);
+        if (!userNav) {
+            await sock.sendMessage(sender, { 
+                text: '\u26a0\ufe0f \u0627\u0646\u062a\u0647\u062a \u0627\u0644\u062c\u0644\u0633\u0629. \u0627\u0643\u062a\u0628 /\u0627\u0633\u0644\u0627\u0645 \u0644\u0644\u0628\u062f\u0621 \u0645\u0646 \u062c\u062f\u064a\u062f' 
+            });
             return true;
         }
         
-        // إذا قائمة فرعية → عرضها
-        session.path.push(selected);
-        await showPoll(sock, from, session.path, sender);
-        return true;
+        // \u2705 \u0627\u0633\u062a\u062e\u0631\u0627\u062c \u0627\u0644\u0627\u062e\u062a\u064a\u0627\u0631 \u0645\u0646 pollUpdate
+        const selectedOptions = pollUpdate.vote?.selectedOptions || [];
+        if (selectedOptions.length === 0) {
+            console.log('\u26a0\ufe0f \u0644\u0645 \u064a\u062a\u0645 \u0627\u062e\u062a\u064a\u0627\u0631 \u0623\u064a \u062e\u064a\u0627\u0631');
+            return true;
+        }
         
-    } catch (error) {
-        console.error('❌ Poll:', error.message);
-        return false;
-    }
-}
-
-async function toggleCategory(sock, chatId, category) {
-    try {
-        const schedules = await db.getAllSchedules();
-        const schedule = schedules.find(s => s.category === category);
-        const currentStatus = schedule ? schedule.enabled : false;
-        const newStatus = !currentStatus;
-        await db.toggleSchedule(category, newStatus);
-        const emoji = newStatus ? '✅' : '❌';
-        const text = newStatus ? 'مُفعّل' : 'مُعطّل';
-        await sock.sendMessage(chatId, { text: `${emoji} ${category}\n${text}` });
-        if (newStatus && schedule && schedule.groupId) {
-            createScheduleJob(sock, { ...schedule, enabled: true });
-        } else {
-            const jobKey = `${category}_${schedule?.groupId || ''}`;
-            if (scheduledJobs[jobKey]) {
-                scheduledJobs[jobKey].stop();
-                delete scheduledJobs[jobKey];
+        const selectedIndex = selectedOptions[0];
+        const { level, path } = userNav;
+        
+        console.log(`\ud83d\udcca Poll Response: Level=${level}, Selected=${selectedIndex}`);
+        
+        // \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+        // \u0627\u0644\u0645\u0633\u062a\u0648\u0649 \u0627\u0644\u0631\u0626\u064a\u0633\u064a
+        // \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+        if (level === 'main') {
+            if (selectedIndex === 0) {
+                // \u2705 \u0627\u0644\u0623\u0630\u0643\u0627\u0631
+                return await toggleAthkar(sock, sender);
+            }
+            else if (selectedIndex === 1) {
+                // \u2705 \u0627\u0644\u0641\u062a\u0627\u0648\u0649
+                return await toggleFatawa(sock, sender);
+            }
+            else if (selectedIndex === 2) {
+                // \u2b07\ufe0f \u0627\u0644\u0641\u0642\u0647
+                await sendPollMenu(sock, sender, 'fiqh_main', ['fiqh']);
+                return true;
+            }
+            else if (selectedIndex === 3) {
+                // \u2b07\ufe0f \u0627\u0644\u0645\u0648\u0636\u0648\u0639\u064a\u0629
+                await sendPollMenu(sock, sender, 'mawdooiya_main', ['mawdooiya']);
+                return true;
             }
         }
-    } catch (error) {
-        console.error('❌ Toggle:', error.message);
-    }
-}
-
-async function showStatus(sock, chatId) {
-    try {
-        const schedules = await db.getAllSchedules();
-        let msg = '📊 *حالة الأقسام*\n\n';
-        for (const cat of FINAL_CATEGORIES.slice(0, 50)) {
-            const schedule = schedules.find(s => s.category === cat);
-            const enabled = schedule ? schedule.enabled : false;
-            const emoji = enabled ? '✅' : '❌';
-            msg += `${emoji} ${cat}\n`;
+        
+        // \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+        // \u0623\u0642\u0633\u0627\u0645 \u0627\u0644\u0641\u0642\u0647
+        // \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+        else if (level === 'fiqh_main') {
+            if (selectedIndex === 0) {
+                // \u2b07\ufe0f \u0627\u0644\u0639\u0628\u0627\u062f\u0627\u062a
+                await sendPollMenu(sock, sender, 'fiqh_ibadat', ['fiqh', 'ibadat']);
+                return true;
+            }
+            else if (selectedIndex === 1) {
+                // \u2b07\ufe0f \u0627\u0644\u0645\u0639\u0627\u0645\u0644\u0627\u062a
+                await sendPollMenu(sock, sender, 'fiqh_muamalat', ['fiqh', 'muamalat']);
+                return true;
+            }
+            else if (selectedIndex === 2) {
+                // \u2b07\ufe0f \u0641\u0642\u0647 \u0627\u0644\u0623\u0633\u0631\u0629
+                await sendPollMenu(sock, sender, 'fiqh_usrah', ['fiqh', 'usrah']);
+                return true;
+            }
+            else if (selectedIndex === 3) {
+                // \u2705 \u0627\u0644\u0639\u0627\u062f\u0627\u062a (\u062a\u0641\u0639\u064a\u0644/\u062a\u0639\u0637\u064a\u0644)
+                return await toggleSection(sock, sender, ['fiqh', 'adat']);
+            }
         }
-        if (FINAL_CATEGORIES.length > 50) {
-            msg += `\n... +${FINAL_CATEGORIES.length - 50}`;
+        
+        // \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+        // \u0627\u0644\u0639\u0628\u0627\u062f\u0627\u062a
+        // \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+        else if (level === 'fiqh_ibadat') {
+            const topics = ['salah', 'janazah', 'zakah', 'siyam', 'hajj', 'taharah', 'jihad'];
+            const topicNames = ['\u0627\u0644\u0635\u0644\u0627\u0629', '\u0627\u0644\u062c\u0646\u0627\u0626\u0632', '\u0627\u0644\u0632\u0643\u0627\u0629', '\u0627\u0644\u0635\u064a\u0627\u0645', '\u0627\u0644\u062d\u062c \u0648\u0627\u0644\u0639\u0645\u0631\u0629', '\u0627\u0644\u0637\u0647\u0627\u0631\u0629', '\u0627\u0644\u062c\u0647\u0627\u062f'];
+            
+            if (selectedIndex === 0) {
+                // \u2b07\ufe0f \u0627\u0644\u0635\u0644\u0627\u0629
+                await sendPollMenu(sock, sender, 'fiqh_ibadat_salah', ['fiqh', 'ibadat', 'salah']);
+                return true;
+            } else {
+                // \u2705 \u0628\u0627\u0642\u064a \u0627\u0644\u0645\u0648\u0627\u0636\u064a\u0639 (\u062a\u0641\u0639\u064a\u0644/\u062a\u0639\u0637\u064a\u0644 \u0645\u0628\u0627\u0634\u0631)
+                const topicKey = topics[selectedIndex];
+                if (topicKey) {
+                    return await toggleSection(sock, sender, ['fiqh', 'ibadat', topicKey], topicNames[selectedIndex]);
+                }
+            }
         }
-        msg += '\n\n💡 /اسلامي';
-        await sock.sendMessage(chatId, { text: msg });
-    } catch (error) {
-        console.error('❌ الحالة:', error.message);
-    }
-}
-
-async function showAdminPoll(sock, chatId, userId) {
-    userSessions[userId] = { path: ['admin'] };
-    await sock.sendMessage(chatId, {
-        poll: {
-            name: '⚙️ لوحة الإدارة',
-            values: ['➕ إضافة محاضرة', '⏰ تعديل الأوقات'],
-            selectableCount: 1
+        
+        // \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+        // \u0627\u0644\u0635\u0644\u0627\u0629 - \u0627\u0644\u0648\u0635\u0648\u0644 \u0644\u0644\u0641\u0626\u0627\u062a
+        // \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+        else if (level === 'fiqh_ibadat_salah') {
+            const categories = [
+                'hukmSalah', 'rukoo', 'waqt', 'taharah', 'satr', 
+                'qiblah', 'qiyam', 'takbeer', 'sujoodTilawa', 'adhan'
+            ];
+            const categoryNames = [
+                '\u062d\u0643\u0645 \u0627\u0644\u0635\u0644\u0627\u0629 \u0648\u0623\u0647\u0645\u064a\u062a\u0647\u0627', '\u0627\u0644\u0631\u0643\u0648\u0639 \u0648\u0627\u0644\u0633\u062c\u0648\u062f', '\u0648\u0642\u062a \u0627\u0644\u0635\u0644\u0627\u0629', 
+                '\u0627\u0644\u0637\u0647\u0627\u0631\u0629 \u0644\u0635\u062d\u0629 \u0627\u0644\u0635\u0644\u0627\u0629', '\u0633\u062a\u0631 \u0627\u0644\u0639\u0648\u0631\u0629 \u0644\u0644\u0645\u0635\u0644\u064a', '\u0627\u0633\u062a\u0642\u0628\u0627\u0644 \u0627\u0644\u0642\u0628\u0644\u0629',
+                '\u0627\u0644\u0642\u064a\u0627\u0645 \u0641\u064a \u0627\u0644\u0635\u0644\u0627\u0629', '\u0627\u0644\u062a\u0643\u0628\u064a\u0631 \u0648\u0627\u0644\u0627\u0633\u062a\u0641\u062a\u0627\u062d', '\u0633\u062c\u0648\u062f \u0627\u0644\u062a\u0644\u0627\u0648\u0629 \u0648\u0627\u0644\u0634\u0643\u0631', '\u0627\u0644\u0623\u0630\u0627\u0646 \u0648\u0627\u0644\u0625\u0642\u0627\u0645\u0629'
+            ];
+            
+            const categoryKey = categories[selectedIndex];
+            if (categoryKey) {
+                return await toggleLectureCategory(
+                    sock, 
+                    sender, 
+                    ['fiqh', 'ibadat', 'salah', categoryKey],
+                    categoryNames[selectedIndex]
+                );
+            }
         }
-    });
-}
-
-async function handleMessage(sock, msg) {
-    const sender = msg.key.participant || msg.key.remoteJid;
-    if (!isOwner(sender)) return false;
-    if (msg.message?.pollUpdateMessage) {
-        return await handlePollResponse(sock, msg);
-    }
-    return false;
-}
-
-module.exports = {
-    handleIslamicCommand,
-    handleMessage,
-    startIslamicSchedule,
-    stopIslamicSchedule,
-    isEnabled: () => ISLAMIC_MODULE_ENABLED
-};
+        
+        // \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+        // \u0627\u0644\u0645\u0639\u0627\u0645\u0644\u0627\u062a
+        // \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+        else if (level === 'fiqh_muamalat') {
+            const topics = [
+                'riba', 'a3riya', 'sabaq', 'salaf', 'rahn',
+                'iflas', 'sulh
