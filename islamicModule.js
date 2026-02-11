@@ -236,6 +236,36 @@ async function sendPollMenu(sock, sender, level, path = []) {
     }
 }
 
+// تجربة: استماع لجميع الـ events المحتملة
+function setupPollEventListeners(sock) {
+    console.log('🔧 تم تفعيل مراقبة Poll Events...');
+    
+    // Event 1: messages.update
+    sock.ev.on('messages.update', (updates) => {
+        for (const update of updates) {
+            if (update.update?.pollUpdates) {
+                console.log('\n🎯 === messages.update: pollUpdates ===');
+                console.log(JSON.stringify(update, null, 2));
+                console.log('=====================================\n');
+            }
+        }
+    });
+    
+    // Event 2: message-receipt.update
+    sock.ev.on('message-receipt.update', (receipts) => {
+        console.log('\n📬 === message-receipt.update ===');
+        console.log(JSON.stringify(receipts, null, 2));
+        console.log('=================================\n');
+    });
+    
+    // Event 3: messages.reaction
+    sock.ev.on('messages.reaction', (reactions) => {
+        console.log('\n😍 === messages.reaction ===');
+        console.log(JSON.stringify(reactions, null, 2));
+        console.log('============================\n');
+    });
+}
+
 // معالجة Poll Response
 async function handlePollResponse(sock, msg) {
     try {
@@ -253,13 +283,33 @@ async function handlePollResponse(sock, msg) {
         }
         
         // طباعة البنية الكاملة للتحليل
-        console.log('=== pollUpdate الكامل ===');
+        console.log('\n🔍 === pollUpdateMessage ===');
         console.log(JSON.stringify(pollUpdate, null, 2));
-        console.log('========================');
+        console.log('============================\n');
+        
+        // تجربة 1: محاولة فك التشفير
+        console.log('🔐 محاولة قراءة البيانات المشفرة...');
+        console.log('encPayload:', pollUpdate.vote?.encPayload);
+        console.log('encIv:', pollUpdate.vote?.encIv);
+        
+        // تجربة 2: البحث في جميع خصائص pollUpdate
+        console.log('\n📊 جميع الخصائص في pollUpdate:');
+        for (const key in pollUpdate) {
+            console.log(`  - ${key}:`, typeof pollUpdate[key], pollUpdate[key]);
+        }
+        
+        // تجربة 3: البحث في msg الكامل
+        console.log('\n📦 البحث في msg الكامل...');
+        if (msg.message?.poll) {
+            console.log('✅ وجدنا msg.message.poll:', msg.message.poll);
+        }
+        if (msg.pollUpdates) {
+            console.log('✅ وجدنا msg.pollUpdates:', msg.pollUpdates);
+        }
         
         const selectedOptions = pollUpdate.vote?.selectedOptions || [];
         if (selectedOptions.length === 0) {
-            console.log('لم يتم اختيار أي خيار');
+            console.log('❌ لم يتم اختيار أي خيار في selectedOptions');
             console.log('pollUpdate.vote:', pollUpdate.vote);
             return true;
         }
@@ -843,5 +893,6 @@ module.exports = {
     handleIslamicCommand,
     startIslamicSchedule,
     stopIslamicSchedule,
-    isEnabled: () => ISLAMIC_MODULE_ENABLED
+    isEnabled: () => ISLAMIC_MODULE_ENABLED,
+    setupPollEventListeners  // اضافة
 };
