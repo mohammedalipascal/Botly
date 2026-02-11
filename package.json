@@ -1,31 +1,23 @@
 {
   "name": "whatsapp-bot",
-  "version": "3.0.0",
-  "description": "WhatsApp Bot with AI, Islamic Module, and Google Sheets Integration",
+  "version": "1.0.0",
+  "description": "WhatsApp Bot with Islamic content",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js"
   },
-  "keywords": [
-    "whatsapp",
-    "bot",
-    "baileys",
-    "ai",
-    "islamic",
-    "google-sheets"
-  ],
-  "author": "مقداد",
-  "license": "MIT",
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.9",
-    "dotenv": "^16.4.5",
-    "pino": "^9.5.0",
-    "qrcode-terminal": "^0.12.0",
-    "node-cron": "^3.0.3",
+    "@whiskeysockets/baileys": "^6.7.8",
+    "axios": "^1.7.9",
+    "cheerio": "^1.0.0",
+    "dotenv": "^16.4.7",
+    "groq-sdk": "^0.8.0",
     "node-cache": "^5.1.2",
-    "googleapis": "^140.0.0"
-    "sharp": "^0.34.5"
+    "node-cron": "^3.0.3",
+    "pino": "^9.5.0",
+    "sharp": "^0.34.5",
+    "node-addon-api": "^8.0.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.9"
