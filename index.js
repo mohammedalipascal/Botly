@@ -842,21 +842,20 @@ async function startBot() {
                 if (messageTime < botStartTime - 60000) {
                     return;
                 }
-                // ⭐⭐⭐ معالجة Poll للقسم الإسلامي ⭐⭐⭐
-                if (msg.message?.pollUpdateMessage) {
-                    const handled = await islamicModule.handleMessage(sock, msg);
-                    if (handled) {
-                        console.log('✅ Poll معالج');
-                        return;
-                    }
-                }
+                // ⭐⭐⭐ القسم الإسلامي - List Messages ⭐⭐⭐
+if (msg.message?.listResponseMessage || msg.message?.buttonsResponseMessage) {
+    const isHandled = await islamicModule.handleIslamicCommand(sock, msg, '', sender);
+    if (isHandled) {
+        console.log('✅ List/Button معالج بواسطة القسم الإسلامي');
+        return;
+    }
+}
                 
                 const messageText = 
                     msg.message.conversation ||
                     msg.message.extendedTextMessage?.text ||
                     msg.message.imageMessage?.caption ||
                     msg.message.videoMessage?.caption || '';
-            
                 
                 const adminCommands = ['/تشغيل', '/توقف', '/ban', '/unban', '/id'];
                 if (msg.key.fromMe && adminCommands.includes(messageText.trim())) {
@@ -984,19 +983,8 @@ async function startBot() {
                     }
                 }
                 
-                // ⭐⭐⭐ معالجة أوامر القسم الإسلامي ⭐⭐⭐
                 const isIslamicCommand = await islamicModule.handleIslamicCommand(sock, msg, messageText, sender);
-                if (isIslamicCommand) {
-                    console.log('✅ أمر إسلامي تمت معالجته');
-                    return;
-                }
-                
-                // ⭐⭐⭐ معالجة رسائل القسم الإسلامي (خطوات الإدارة) ⭐⭐⭐
-                const isIslamicMessage = await islamicModule.handleMessage(sock, msg);
-                if (isIslamicMessage) {
-                    console.log('✅ رسالة إسلامية تمت معالجتها');
-                    return;
-                }
+                if (isIslamicCommand) return;
                                 
                 if (msg.key.fromMe) return;
                 
@@ -1157,9 +1145,8 @@ async function startBot() {
                 badMacErrorCount = 0;
                 lastBadMacReset = Date.now();
                 
-                // ⭐⭐⭐ بدء جدولة القسم الإسلامي ⭐⭐⭐
                 if (islamicModule.isEnabled()) {
-                    await islamicModule.startIslamicSchedule(sock);
+                    islamicModule.startIslamicSchedule(sock);
                 }
                 
                 if (CONFIG.ownerNumber) {
@@ -1203,4 +1190,3 @@ process.on('SIGTERM', () => {
 });
 
 startBot();
-
