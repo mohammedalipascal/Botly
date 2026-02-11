@@ -2,63 +2,152 @@ const cron = require('node-cron');
 const db = require('./googleSheetsDB');
 const { fetchLectureContent, formatLecture } = require('./lectureHandler');
 
-// إعدادات البوت (يمكن استبدالها من index.js)
-const CONFIG = {
-    botName: process.env.BOT_NAME || 'Islamic Bot'
-};
+// ⭐ المالك - رقمك مباشرة
+const OWNER_NUMBER = '249962204268';
 
 let ISLAMIC_MODULE_ENABLED = true;
 let scheduledJobs = {};
-let userSessions = {}; // تتبع جلسات المستخدمين في القوائم
+let userSessions = {};
 
-// هيكل القائمة
-const MENU_STRUCTURE = {
-    'main': {
-        title: '🕌 القائمة الرئيسية',
-        options: ['محاضرات العقيدة', 'محاضرات الفقه', 'محاضرات الآداب', 'أذكار'],
-        backTo: null
-    },
-    'محاضرات العقيدة': {
-        title: '📚 محاضرات العقيدة',
-        options: ['التوحيد', 'أسماء الله الحسنى', 'الإيمان بالقدر'],
-        backTo: 'main'
-    },
-    'محاضرات الفقه': {
-        title: '⚖️ محاضرات الفقه',
-        options: ['أحكام الصلاة', 'أحكام الزكاة', 'أحكام الصيام', 'أحكام الحج'],
-        backTo: 'main'
-    },
-    'محاضرات الآداب': {
-        title: '🌟 محاضرات الآداب',
-        options: ['آداب الطعام', 'آداب النوم', 'آداب المجلس'],
-        backTo: 'main'
-    },
-    'أذكار': {
-        title: '📿 الأذكار',
-        options: ['أذكار الصباح', 'أذكار المساء', 'أذكار النوم'],
-        backTo: 'main'
-    }
+// التحقق من المالك
+function isOwner(sender) {
+    if (!sender) return false;
+    const num = sender.replace('@s.whatsapp.net', '').replace('@c.us', '');
+    return num === OWNER_NUMBER;
+}
+
+// ═══════════════════════════════════════════════════════
+// الأقسام الجديدة - بالضبط كما طلبت
+// ═══════════════════════════════════════════════════════
+
+const CATEGORIES = {
+    // القائمة الرئيسية
+    'main': ['الفقه', 'الموضوعية'],
+    
+    // الفقه
+    'الفقه': ['العبادات', 'المعاملات', 'فقه الأسرة', 'العادات'],
+    
+    // العبادات
+    'العبادات': ['الصلاة', 'الجنائز', 'الزكاة', 'الصيام', 'الحج والعمرة', 'الطهارة', 'الجهاد والسير'],
+    
+    // الصلاة
+    'الصلاة': [
+        'حكم الصلاة وأهميتها', 'الركوع والسجود', 'وقت الصلاة',
+        'الطهارة لصحة الصلاة', 'ستر العورة للمصلي', 'استقبال القبلة',
+        'القيام في الصلاة', 'التكبير والاستفتاح', 'سجود التلاوة والشكر',
+        'الأذان والإقامة', 'التشهد والتسليم', 'سنن الصلاة',
+        'مكروهات الصلاة', 'مبطلات الصلاة', 'قضاء الفوائت',
+        'سجود السهو', 'القراءة في الصلاة', 'صلاة التطوع',
+        'صلاة الاستسقاء', 'المساجد ومواضع السجود', 'صلاة المريض',
+        'صلاة الخوف', 'أحكام الجمع', 'صلاة الجمعة',
+        'صلاة العيدين', 'صلاة الخسوف', 'أوقات النهي',
+        'صلاة الجماعة', 'مسائل متفرقة في الصلاة', 'الطمأنينة والخشوع',
+        'سترة المصلي', 'النية في الصلاة', 'القنوت في الصلاة',
+        'اللفظ والحركة في الصلاة', 'الوتر وقيام الليل'
+    ],
+    
+    // الجنائز
+    'الجنائز': [
+        'غسل الميت وتجهيزه', 'الصلاة على الميت', 'حمل الميت ودفنه',
+        'زيارة القبور', 'إهداء القرب للميت', 'حرمة الأموات',
+        'أحكام التعزية', 'مسائل متفرقة في الجنائز', 'الاحتضار وتلقين الميت',
+        'أحكام المقابر', 'النياحة على الميت'
+    ],
+    
+    // الزكاة
+    'الزكاة': [
+        'وجوب الزكاة وأهميتها', 'زكاة بهيمة الأنعام', 'زكاة الحبوب والثمار',
+        'زكاة النقدين', 'زكاة عروض التجارة', 'زكاة الفطر',
+        'إخراج الزكاة وأهلها', 'صدقة التطوع', 'مسائل متفرقة في الزكاة'
+    ],
+    
+    // الصيام
+    'الصيام': [
+        'فضائل رمضان', 'ما لا يفسد الصيام', 'رؤيا الهلال',
+        'من يجب عليه الصوم', 'الأعذار المبيحة للفطر', 'النية في الصيام',
+        'مفسدات الصيام', 'الجماع في نهار رمضان', 'مستحبات الصيام',
+        'قضاء الصيام', 'صيام التطوع', 'الاعتكاف وليلة القدر',
+        'مسائل متفرقة في الصيام'
+    ],
+    
+    // الحج والعمرة
+    'الحج والعمرة': [
+        'فضائل الحج والعمرة', 'حكم الحج والعمرة', 'شروط الحج',
+        'الإحرام', 'محظورات الإحرام', 'الفدية وجزاء الصيد',
+        'صيد الحرم', 'النيابة في الحج', 'المبيت بمنى',
+        'الوقوف بعرفة', 'المبيت بمزدلفة', 'الطواف بالبيت',
+        'السعي', 'رمي الجمار', 'الإحصار',
+        'الهدي والأضاحي', 'مسائل متفرقة في الحج والعمرة', 'المواقيت', 'التحلل'
+    ],
+    
+    // الطهارة
+    'الطهارة': [
+        'المياه', 'الآنية', 'قضاء الحاجة', 'سنن الفطرة',
+        'فروض الوضوء وصفته', 'نواقض الوضوء', 'ما يشرع له الوضوء',
+        'المسح على الخفين', 'الغسل', 'التيمم',
+        'النجاسات وإزالتها', 'الحيض والنفاس', 'مس المصحف'
+    ],
+    
+    // الجهاد والسير
+    'الجهاد والسير': ['أحكام الجهاد'],
+    
+    // المعاملات
+    'المعاملات': [
+        'الربا والصرف', 'العارية', 'السبق والمسابقات',
+        'السلف والقرض', 'الرهن', 'الإفلاس والحجر',
+        'الصلح', 'الحوالة', 'الضمان والكفالة',
+        'الشركة', 'الوكالة', 'البيوع',
+        'الشفعة', 'الغصب', 'المساقاة والمزارعة',
+        'الإجارة', 'إحياء الموات', 'الوقف',
+        'الهبة والعطية', 'اللقطة واللقيط', 'الوصايا',
+        'الفرائض', 'الوديعة', 'الكسب المحرم'
+    ],
+    
+    // فقه الأسرة
+    'فقه الأسرة': [
+        'الزواج وأحكامه', 'النظر والخلوة والاختلاط', 'الخلع',
+        'الطلاق', 'الرجعة', 'الإيلاء',
+        'الظهار', 'اللعان', 'العِدَد',
+        'الرضاع', 'النفقات', 'الحضانة'
+    ],
+    
+    // العادات
+    'العادات': ['عادات وتقاليد'],
+    
+    // الموضوعية
+    'الموضوعية': [
+        'القرآن وعلومه', 'العقيدة', 'الحديث وعلومه',
+        'التفسير', 'الدعوة والدعاة', 'الفرق والمذاهب',
+        'البدع والمحدثات', 'أصول الفقه', 'العالم والمتعلم',
+        'الآداب والأخلاق', 'الفضائل', 'الرقائق',
+        'الأدعية والأذكار', 'التاريخ والسيرة', 'قضايا معاصرة',
+        'قضايا المرأة', 'اللغة العربية', 'نصائح وتوجيهات',
+        'تربية الأولاد', 'الشعر والأغاني', 'أحكام الموظفين',
+        'أحكام الحيوان', 'بر الوالدين', 'المشكلات الزوجية',
+        'قضايا الشباب', 'نوازل معاصرة', 'الرؤى والمنامات',
+        'ردود وتعقيبات', 'الهجرة والابتعاث', 'الوسواس بأنواعه'
+    ]
 };
 
-// تعيين الأقسام النهائية (التي يمكن تفعيلها)
-const FINAL_CATEGORIES = [
-    'التوحيد', 'أسماء الله الحسنى', 'الإيمان بالقدر',
-    'أحكام الصلاة', 'أحكام الزكاة', 'أحكام الصيام', 'أحكام الحج',
-    'آداب الطعام', 'آداب النوم', 'آداب المجلس',
-    'أذكار الصباح', 'أذكار المساء', 'أذكار النوم'
-];
+// الأقسام النهائية (التي يمكن تفعيلها)
+const FINAL_CATEGORIES = [];
+Object.keys(CATEGORIES).forEach(key => {
+    if (!['main', 'الفقه', 'العبادات', 'الموضوعية'].includes(key)) {
+        CATEGORIES[key].forEach(cat => {
+            if (!FINAL_CATEGORIES.includes(cat)) {
+                FINAL_CATEGORIES.push(cat);
+            }
+        });
+    }
+});
 
-/**
- * بدء جدولة المحاضرات
- */
 async function startIslamicSchedule(sock) {
-    console.log('🕌 بدء جدولة المحاضرات الإسلامية...');
+    console.log('🕌 بدء الجدولة...');
     
     try {
-        // تهيئة قاعدة البيانات
         const initialized = await db.initialize();
         if (!initialized) {
-            console.log('⚠️ تعذر الاتصال بـ Google Sheets - سيتم العمل بدون قاعدة بيانات');
+            console.log('⚠️ فشل الاتصال بـ Google Sheets');
             return;
         }
 
@@ -70,288 +159,143 @@ async function startIslamicSchedule(sock) {
             }
         }
         
-        console.log(`✅ تم جدولة ${Object.keys(scheduledJobs).length} قسم`);
+        console.log(`✅ ${Object.keys(scheduledJobs).length} قسم مجدول`);
     } catch (error) {
-        console.error('❌ خطأ في بدء الجدولة:', error.message);
+        console.error('❌ خطأ:', error.message);
     }
 }
 
-/**
- * إنشاء مهمة جدولة لقسم معين
- */
 function createScheduleJob(sock, schedule) {
     const jobKey = `${schedule.category}_${schedule.groupId}`;
     
-    // إلغاء المهمة القديمة إن وجدت
     if (scheduledJobs[jobKey]) {
         scheduledJobs[jobKey].stop();
     }
     
-    // إنشاء مهمة جديدة
     scheduledJobs[jobKey] = cron.schedule(schedule.cronTime, async () => {
         await sendScheduledLecture(sock, schedule.category, schedule.groupId);
     });
-    
-    console.log(`✅ تم جدولة ${schedule.category} للمجموعة ${schedule.groupId}`);
 }
 
-/**
- * إرسال محاضرة مجدولة
- */
 async function sendScheduledLecture(sock, category, groupId) {
     try {
         const nextLecture = await db.getNextLecture(category);
+        if (!nextLecture) return;
         
-        if (!nextLecture) {
-            console.log(`⚠️ لا توجد محاضرات في قسم ${category}`);
-            return;
-        }
-        
-        // جلب محتوى المحاضرة
         const content = await fetchLectureContent(nextLecture.pageUrl);
         const message = formatLecture(content);
         
-        // إرسال المحاضرة
         await sock.sendMessage(groupId, { text: message });
-        
-        // تحديث التقدم
         await db.updateProgress(category, nextLecture.id);
         
-        console.log(`✅ تم إرسال محاضرة من ${category} إلى ${groupId}`);
+        console.log(`✅ ${category}`);
     } catch (error) {
-        console.error(`❌ خطأ في إرسال المحاضرة:`, error.message);
+        console.error(`❌ خطأ:`, error.message);
     }
 }
 
-/**
- * إيقاف جميع الجداول
- */
 function stopIslamicSchedule() {
     Object.values(scheduledJobs).forEach(job => job.stop());
     scheduledJobs = {};
-    console.log('⏹️ تم إيقاف جميع الجداول');
 }
 
-/**
- * معالجة الأوامر الإسلامية
- */
-async function handleIslamicCommand(sock, msg, command, args) {
+async function handleIslamicCommand(sock, msg, command, sender) {
     const from = msg.key.remoteJid;
-    const sender = msg.key.participant || msg.key.remoteJid;
+    const msgSender = msg.key.participant || msg.key.remoteJid;
     
-    // أمر القائمة الإسلامية
-    if (command === 'اسلامي' || command === 'islamic') {
-        await showMenu(sock, from, 'main', sender);
+    // ⭐ فقط المالك
+    if (!isOwner(msgSender)) {
+        return false;
+    }
+    
+    if (command === '/اسلامي' || command === 'اسلامي') {
+        await showPoll(sock, from, 'main', msgSender);
         return true;
     }
     
-    // أمر حالة الأقسام
-    if (command === 'حالة_الاقسام' || command === 'status') {
-        await showCategoriesStatus(sock, from);
+    if (command === '/حالة_الاقسام' || command === 'حالة_الاقسام') {
+        await showStatus(sock, from);
         return true;
     }
     
-    // أمر الإدارة (محمي للمالك فقط)
-    if (command === 'ادارة' || command === 'admin') {
-        const ownerNumber = process.env.OWNER_NUMBER + '@s.whatsapp.net';
-        
-        if (sender !== ownerNumber) {
-            await sock.sendMessage(from, {
-                text: '❌ هذا الأمر متاح فقط لمالك البوت'
-            });
-            return true;
-        }
-        
-        await showAdminMenu(sock, from, sender);
+    if (command === '/ادارة' || command === 'ادارة') {
+        await showAdminPoll(sock, from, msgSender);
         return true;
     }
     
     return false;
 }
 
-/**
- * عرض القائمة باستخدام List Messages
- */
-async function showMenu(sock, chatId, menuKey, userId) {
-    const menu = MENU_STRUCTURE[menuKey];
-    if (!menu) return;
+// ⭐⭐⭐ عرض Poll البسيط - مثل الكود القديم ⭐⭐⭐
+async function showPoll(sock, chatId, category, userId) {
+    const options = CATEGORIES[category];
+    if (!options) return;
     
-    // حفظ حالة المستخدم
-    userSessions[userId] = { currentMenu: menuKey };
+    userSessions[userId] = { currentCategory: category };
     
-    // إنشاء الصفوف للقائمة
-    const sections = [{
-        title: menu.title,
-        rows: menu.options.map((option, index) => ({
-            title: option,
-            rowId: `menu_${menuKey}_${index}`,
-            description: ''
-        }))
-    }];
-    
-    // إضافة خيار "رجوع" إذا لم تكن القائمة الرئيسية
-    if (menu.backTo) {
-        sections.push({
-            title: '🔙 التنقل',
-            rows: [{
-                title: 'رجوع',
-                rowId: `back_${menu.backTo}`,
-                description: 'العودة للقائمة السابقة'
-            }]
-        });
-    }
-    
-    const listMessage = {
-        text: menu.title + '\n\nاختر من القائمة:',
-        footer: CONFIG.botName || 'Islamic Bot',
-        title: menu.title,
-        buttonText: "📋 القائمة",
-        sections
-    };
-    
-    await sock.sendMessage(chatId, listMessage);
+    // Poll بسيط - pollName و options فقط
+    await sock.sendMessage(chatId, {
+        poll: {
+            name: category === 'main' ? '🕌 القائمة الرئيسية' : category,
+            values: options,
+            selectableCount: 1
+        }
+    });
 }
 
-/**
- * معالجة رسائل القائمة (List Messages)
- */
-async function handleListResponse(sock, msg) {
+async function handlePollResponse(sock, msg) {
     try {
         const from = msg.key.remoteJid;
         const sender = msg.key.participant || msg.key.remoteJid;
         
-        const listResponse = msg.message?.listResponseMessage;
-        if (!listResponse) return false;
-        
-        const selectedRowId = listResponse.singleSelectReply?.selectedRowId;
-        if (!selectedRowId) return false;
-        
-        // معالجة خيارات الإدارة
-        if (selectedRowId.startsWith('admin_')) {
-            const session = userSessions[sender];
-            if (!session || session.currentMenu !== 'admin') return false;
-            
-            switch (selectedRowId) {
-                case 'admin_add_lecture':
-                    await startAddLecture(sock, from, sender);
-                    break;
-                    
-                case 'admin_edit_time':
-                    await showTimeEditMenu(sock, from, sender);
-                    break;
-                    
-                case 'admin_edit_text':
-                    await sock.sendMessage(from, {
-                        text: '⚠️ هذه الميزة قيد التطوير'
-                    });
-                    break;
-            }
-            
-            return true;
-        }
-        
-        // معالجة اختيار قسم لإضافة محاضرة
-        if (selectedRowId.startsWith('category_add_')) {
-            const session = userSessions[sender];
-            if (!session || session.adminAction !== 'add_lecture') return false;
-            
-            const category = selectedRowId.replace('category_add_', '');
-            session.lectureData = { category };
-            session.step = 'enter_title';
-            
-            await sock.sendMessage(from, {
-                text: '📝 أرسل عنوان المحاضرة'
-            });
-            
-            return true;
-        }
-        
-        // معالجة اختيار قسم لتعديل الوقت
-        if (selectedRowId.startsWith('category_time_')) {
-            const session = userSessions[sender];
-            if (!session || session.adminAction !== 'edit_time') return false;
-            
-            const category = selectedRowId.replace('category_time_', '');
-            session.selectedCategory = category;
-            session.step = 'enter_cron';
-            
-            await sock.sendMessage(from, {
-                text: `⏰ أرسل وقت النشر بصيغة Cron\n\n📌 أمثلة:\n0 9 * * * - كل يوم 9 صباحاً\n0 */6 * * * - كل 6 ساعات\n0 12 * * 5 - كل جمعة 12 ظهراً`
-            });
-            
-            return true;
-        }
-        
-        // التحقق من وجود جلسة للمستخدم
-        if (!userSessions[sender]) {
-            // قد تكون جلسة قديمة، نبدأ من القائمة الرئيسية
-            await showMenu(sock, from, 'main', sender);
-            return true;
-        }
+        if (!isOwner(sender)) return false;
         
         const session = userSessions[sender];
+        if (!session) return false;
         
-        // معالجة زر الرجوع
-        if (selectedRowId.startsWith('back_')) {
-            const backTo = selectedRowId.replace('back_', '');
-            await showMenu(sock, from, backTo, sender);
+        const pollUpdate = msg.message?.pollUpdateMessage;
+        if (!pollUpdate || !pollUpdate.vote) return false;
+        
+        const selectedIndex = pollUpdate.vote.selectedOptions[0];
+        const currentOptions = CATEGORIES[session.currentCategory];
+        const selected = currentOptions[selectedIndex];
+        
+        // إذا قسم نهائي → Toggle
+        if (FINAL_CATEGORIES.includes(selected)) {
+            await toggleCategory(sock, from, selected);
             return true;
         }
         
-        // معالجة اختيار من القائمة
-        if (selectedRowId.startsWith('menu_')) {
-            const parts = selectedRowId.split('_');
-            const menuKey = parts[1];
-            const optionIndex = parseInt(parts[2]);
-            
-            const currentMenu = MENU_STRUCTURE[menuKey];
-            if (!currentMenu) return false;
-            
-            const selectedOption = currentMenu.options[optionIndex];
-            if (!selectedOption) return false;
-            
-            // التحقق من كون الخيار قسماً نهائياً
-            if (FINAL_CATEGORIES.includes(selectedOption)) {
-                await toggleCategory(sock, from, selectedOption, sender);
-                return true;
-            } else {
-                // الانتقال إلى قائمة فرعية
-                await showMenu(sock, from, selectedOption, sender);
-                return true;
-            }
+        // إذا قائمة فرعية → عرضها
+        if (CATEGORIES[selected]) {
+            await showPoll(sock, from, selected, sender);
+            return true;
         }
         
         return false;
-        
     } catch (error) {
-        console.error('❌ خطأ في معالجة القائمة:', error.message);
+        console.error('❌ Poll:', error.message);
         return false;
     }
 }
 
-/**
- * تفعيل/إلغاء تفعيل قسم (Toggle)
- */
-async function toggleCategory(sock, chatId, category, userId) {
+async function toggleCategory(sock, chatId, category) {
     try {
         const schedules = await db.getAllSchedules();
         const schedule = schedules.find(s => s.category === category);
         
-        // Toggle: إذا مفعل يصير معطل، وإذا معطل يصير مفعل
         const currentStatus = schedule ? schedule.enabled : false;
         const newStatus = !currentStatus;
         
         await db.toggleSchedule(category, newStatus);
         
-        const statusEmoji = newStatus ? '✅' : '❌';
-        const statusText = newStatus ? 'مُفعّل' : 'مُعطّل';
-        const actionText = newStatus ? 'تم تفعيل' : 'تم إلغاء تفعيل';
+        const emoji = newStatus ? '✅' : '❌';
+        const text = newStatus ? 'مُفعّل' : 'مُعطّل';
         
         await sock.sendMessage(chatId, {
-            text: `${statusEmoji} *${actionText}*\n\n📂 القسم: *${category}*\n📊 الحالة: ${statusText}\n\n💡 يمكنك إعادة الاختيار لتغيير الحالة`
+            text: `${emoji} ${category}\n📊 ${text}`
         });
         
-        // إعادة تحميل الجداول
         if (newStatus && schedule && schedule.groupId) {
             createScheduleJob(sock, { ...schedule, enabled: true });
         } else {
@@ -361,252 +305,55 @@ async function toggleCategory(sock, chatId, category, userId) {
                 delete scheduledJobs[jobKey];
             }
         }
-        
     } catch (error) {
-        console.error('❌ خطأ في تفعيل/إلغاء القسم:', error.message);
-        await sock.sendMessage(chatId, {
-            text: '❌ حدث خطأ في تحديث حالة القسم'
-        });
+        console.error('❌ Toggle:', error.message);
     }
 }
 
-/**
- * عرض حالة جميع الأقسام
- */
-async function showCategoriesStatus(sock, chatId) {
+async function showStatus(sock, chatId) {
     try {
         const schedules = await db.getAllSchedules();
         
-        let statusMessage = '📊 *حالة الأقسام الإسلامية*\n\n';
+        let msg = '📊 *حالة الأقسام*\n\n';
         
-        for (const category of FINAL_CATEGORIES) {
-            const schedule = schedules.find(s => s.category === category);
+        for (const cat of FINAL_CATEGORIES.slice(0, 50)) {
+            const schedule = schedules.find(s => s.category === cat);
             const enabled = schedule ? schedule.enabled : false;
-            const statusEmoji = enabled ? '✅' : '❌';
-            
-            statusMessage += `${statusEmoji} ${category}\n`;
+            const emoji = enabled ? '✅' : '❌';
+            msg += `${emoji} ${cat}\n`;
         }
         
-        statusMessage += '\n💡 استخدم /اسلامي لتفعيل/إلغاء الأقسام';
+        if (FINAL_CATEGORIES.length > 50) {
+            msg += `\n... +${FINAL_CATEGORIES.length - 50}`;
+        }
         
-        await sock.sendMessage(chatId, {
-            text: statusMessage
-        });
+        msg += '\n\n💡 /اسلامي';
         
+        await sock.sendMessage(chatId, { text: msg });
     } catch (error) {
-        console.error('❌ خطأ في عرض الحالة:', error.message);
+        console.error('❌ الحالة:', error.message);
     }
 }
 
-/**
- * عرض قائمة الإدارة
- */
-async function showAdminMenu(sock, chatId, userId) {
-    userSessions[userId] = { 
-        currentMenu: 'admin',
-        adminAction: null 
-    };
+async function showAdminPoll(sock, chatId, userId) {
+    userSessions[userId] = { currentCategory: 'admin' };
     
-    const listMessage = {
-        text: '⚙️ *لوحة الإدارة*\n\nاختر العملية المطلوبة:',
-        footer: CONFIG.botName || 'Islamic Bot',
-        title: 'لوحة الإدارة',
-        buttonText: "⚙️ الإدارة",
-        sections: [{
-            title: 'العمليات المتاحة',
-            rows: [
-                {
-                    title: '➕ إضافة محاضرة',
-                    rowId: 'admin_add_lecture',
-                    description: 'إضافة محاضرة جديدة للقسم'
-                },
-                {
-                    title: '⏰ تعديل الأوقات',
-                    rowId: 'admin_edit_time',
-                    description: 'تعديل أوقات النشر للأقسام'
-                },
-                {
-                    title: '✏️ تعديل النصوص',
-                    rowId: 'admin_edit_text',
-                    description: 'تعديل نصوص الأذكار (قريباً)'
-                }
-            ]
-        }]
-    };
-    
-    await sock.sendMessage(chatId, listMessage);
-}
-
-/**
- * بدء عملية إضافة محاضرة
- */
-async function startAddLecture(sock, chatId, userId) {
-    userSessions[userId] = {
-        currentMenu: 'admin',
-        adminAction: 'add_lecture',
-        step: 'select_category',
-        lectureData: {}
-    };
-    
-    const listMessage = {
-        text: '📂 *اختر القسم لإضافة محاضرة جديدة*',
-        footer: CONFIG.botName || 'Islamic Bot',
-        title: 'اختيار القسم',
-        buttonText: "📂 الأقسام",
-        sections: [{
-            title: 'الأقسام المتاحة',
-            rows: FINAL_CATEGORIES.map((category) => ({
-                title: category,
-                rowId: `category_add_${category}`,
-                description: `إضافة محاضرة في ${category}`
-            }))
-        }]
-    };
-    
-    await sock.sendMessage(chatId, listMessage);
-}
-
-/**
- * معالجة خطوات إضافة محاضرة
- */
-async function handleAddLectureSteps(sock, msg) {
-    const from = msg.key.remoteJid;
-    const sender = msg.key.participant || msg.key.remoteJid;
-    const session = userSessions[sender];
-    
-    if (!session || session.adminAction !== 'add_lecture') return;
-    
-    const messageText = msg.message?.conversation || 
-                       msg.message?.extendedTextMessage?.text || '';
-    
-    switch (session.step) {
-        case 'enter_title':
-            session.lectureData.title = messageText;
-            session.step = 'enter_url';
-            await sock.sendMessage(from, {
-                text: '🔗 أرسل رابط صفحة المحاضرة'
-            });
-            break;
-            
-        case 'enter_url':
-            session.lectureData.pageUrl = messageText;
-            session.step = 'confirm';
-            
-            const confirmText = `✅ تأكيد البيانات:\n\n` +
-                `📂 القسم: ${session.lectureData.category}\n` +
-                `📝 العنوان: ${session.lectureData.title}\n` +
-                `🔗 الرابط: ${session.lectureData.pageUrl}\n\n` +
-                `أرسل "نعم" للتأكيد أو "لا" للإلغاء`;
-            
-            await sock.sendMessage(from, { text: confirmText });
-            break;
-            
-        case 'confirm':
-            if (messageText.includes('نعم') || messageText.includes('yes')) {
-                try {
-                    await db.addLecture(session.lectureData);
-                    await sock.sendMessage(from, {
-                        text: '✅ تم إضافة المحاضرة بنجاح!'
-                    });
-                } catch (error) {
-                    await sock.sendMessage(from, {
-                        text: '❌ حدث خطأ في إضافة المحاضرة'
-                    });
-                }
-            } else {
-                await sock.sendMessage(from, {
-                    text: '❌ تم إلغاء العملية'
-                });
-            }
-            delete userSessions[sender];
-            break;
-    }
-}
-
-/**
- * عرض قائمة تعديل الأوقات
- */
-async function showTimeEditMenu(sock, chatId, userId) {
-    userSessions[userId] = {
-        currentMenu: 'admin',
-        adminAction: 'edit_time',
-        step: 'select_category'
-    };
-    
-    const listMessage = {
-        text: '⏰ *اختر القسم لتعديل وقت النشر*',
-        footer: CONFIG.botName || 'Islamic Bot',
-        title: 'تعديل الأوقات',
-        buttonText: "⏰ الأقسام",
-        sections: [{
-            title: 'الأقسام المتاحة',
-            rows: FINAL_CATEGORIES.map((category) => ({
-                title: category,
-                rowId: `category_time_${category}`,
-                description: `تعديل وقت ${category}`
-            }))
-        }]
-    };
-    
-    await sock.sendMessage(chatId, listMessage);
-}
-
-/**
- * معالجة تعديل الأوقات
- */
-async function handleTimeEditSteps(sock, msg) {
-    const from = msg.key.remoteJid;
-    const sender = msg.key.participant || msg.key.remoteJid;
-    const session = userSessions[sender];
-    
-    if (!session || session.adminAction !== 'edit_time') return;
-    
-    const messageText = msg.message?.conversation || 
-                       msg.message?.extendedTextMessage?.text || '';
-    
-    if (session.step === 'enter_cron') {
-        try {
-            await db.updateScheduleTime(session.selectedCategory, messageText);
-            await sock.sendMessage(from, {
-                text: `✅ تم تحديث وقت ${session.selectedCategory} إلى: ${messageText}`
-            });
-            
-            // إعادة تحميل الجدولة
-            await startIslamicSchedule(sock);
-            
-        } catch (error) {
-            await sock.sendMessage(from, {
-                text: '❌ حدث خطأ في تحديث الوقت'
-            });
+    await sock.sendMessage(chatId, {
+        poll: {
+            name: '⚙️ لوحة الإدارة',
+            values: ['➕ إضافة محاضرة', '⏰ تعديل الأوقات'],
+            selectableCount: 1
         }
-        delete userSessions[sender];
-    }
+    });
 }
 
-/**
- * معالجة الرسائل العامة
- */
 async function handleMessage(sock, msg) {
     const sender = msg.key.participant || msg.key.remoteJid;
-    const session = userSessions[sender];
     
-    // معالجة List responses
-    if (msg.message?.listResponseMessage) {
-        return await handleListResponse(sock, msg);
-    }
+    if (!isOwner(sender)) return false;
     
-    if (!session) return false;
-    
-    // معالجة خطوات إضافة محاضرة
-    if (session.adminAction === 'add_lecture') {
-        await handleAddLectureSteps(sock, msg);
-        return true;
-    }
-    
-    // معالجة تعديل الأوقات
-    if (session.adminAction === 'edit_time') {
-        await handleTimeEditSteps(sock, msg);
-        return true;
+    if (msg.message?.pollUpdateMessage) {
+        return await handlePollResponse(sock, msg);
     }
     
     return false;
@@ -619,3 +366,4 @@ module.exports = {
     stopIslamicSchedule,
     isEnabled: () => ISLAMIC_MODULE_ENABLED
 };
+ش
