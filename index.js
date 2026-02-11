@@ -12,7 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const NodeCache = require('node-cache');
 const { getAIResponse } = require('./ai');
-const islamicModule = require('./islamicModule');
+const { handleIslamicCommand, startIslamicSchedule, setupPollEventListeners } = require('./islamicModule');
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -814,6 +814,7 @@ async function startBot() {
         });
 
         globalSock = sock;
+        setupPollEventListeners(sock);
 
         // حفظ الجلسة محلياً فقط
         sock.ev.on('creds.update', saveCreds);
@@ -844,7 +845,7 @@ async function startBot() {
                 }
                 // ⭐⭐⭐ القسم الإسلامي - List Messages ⭐⭐⭐
 if (msg.message?.listResponseMessage || msg.message?.buttonsResponseMessage) {
-    const isHandled = await islamicModule.handleIslamicCommand(sock, msg, '', sender);
+    const isHandled = await handleIslamicCommand(sock, msg, '', sender);
     if (isHandled) {
         console.log('✅ List/Button معالج بواسطة القسم الإسلامي');
         return;
@@ -1122,24 +1123,7 @@ if (msg.message?.listResponseMessage || msg.message?.buttonsResponseMessage) {
                     return;
                 }
                 
-                // أخطاء أخرى - إعادة الاتصال
-                console.log(`🔄 إعادة الاتصال بعد 5 ثواني...\n`);
-                await delay(5000);
                 
-                sock.end();
-                await startBot();
-                
-            } else if (connection === 'open') {
-                console.log('✅ ════════════════════════════════════');
-                console.log(`   متصل بواتساب بنجاح! 🎉`);
-                console.log(`   البوت: ${CONFIG.botName}`);
-                console.log(`   الرقم: ${sock.user?.id?.split(':')[0] || '---'}`);
-                console.log(`   AI: ${AI_ENABLED ? '✅' : '❌'}`);
-                console.log(`   القسم الإسلامي: ${islamicModule.isEnabled() ? '✅' : '❌'}`);
-                console.log('════════════════════════════════════\n');
-                
-                processedMessages.clear();
-                botStartTime = Date.now();
                 
                 // ⭐⭐⭐ تغيير 5: إعادة تعيين عداد Bad MAC عند الاتصال الناجح ⭐⭐⭐
                 badMacErrorCount = 0;
