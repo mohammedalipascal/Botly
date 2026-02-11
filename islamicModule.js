@@ -252,9 +252,15 @@ async function handlePollResponse(sock, msg) {
             return true;
         }
         
+        // طباعة البنية الكاملة للتحليل
+        console.log('=== pollUpdate الكامل ===');
+        console.log(JSON.stringify(pollUpdate, null, 2));
+        console.log('========================');
+        
         const selectedOptions = pollUpdate.vote?.selectedOptions || [];
         if (selectedOptions.length === 0) {
             console.log('لم يتم اختيار أي خيار');
+            console.log('pollUpdate.vote:', pollUpdate.vote);
             return true;
         }
         
