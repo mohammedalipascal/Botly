@@ -12,7 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const NodeCache = require('node-cache');
 const { getAIResponse } = require('./ai');
-const { handleIslamicCommand, startIslamicSchedule, setupPollEventListeners } = require('./islamicModule');
+const { handleIslamicCommand, startIslamicSchedule, stopIslamicSchedule, isEnabled: islamicIsEnabled, setupPollEventListeners } = require('./islamicModule');
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -106,7 +106,6 @@ const AI_CONFIG = {
     temperature: parseFloat(process.env.AI_TEMPERATURE) || 0.7
 };
 
-// ⭐⭐⭐ التحقق من وجود جلسة في الـ repo ⭐⭐⭐
 const authPath = path.join(__dirname, 'auth_info');
 const hasSession = fs.existsSync(authPath) && fs.existsSync(path.join(authPath, 'creds.json'));
 
@@ -115,20 +114,19 @@ console.log(`📱 اسم البوت: ${CONFIG.botName}`);
 console.log(`👤 المالك: ${CONFIG.botOwner}`);
 console.log(`👥 الرد في المجموعات: ${CONFIG.replyInGroups ? '✅' : '❌'}`);
 console.log(`🤖 AI: ${AI_ENABLED ? '✅ مفعّل' : '❌ معطّل'}`);
-console.log(`📿 القسم الإسلامي: ${islamicModule.isEnabled() ? '✅ مفعّل' : '❌ معطّل'}`);
+console.log(`📿 القسم الإسلامي: ${islamicIsEnabled() ? '✅ مفعّل' : '❌ معطّل'}`);
 console.log(`💾 الجلسة: ${hasSession ? 'موجودة في الـ repo ✅' : '⚠️ غير موجودة - سيتم إنشاء جلسة جديدة'}`);
 console.log('═══════════════════════════════════\n');
 
 let requestCount = 0;
 let pairingCode = null;
-let pairingStatus = 'waiting'; // waiting, generating, ready, connected, error
+let pairingStatus = 'waiting';
 let pairingError = null;
 let phoneNumber = null;
 
 const server = http.createServer((req, res) => {
     requestCount++;
     
-    // الصفحة الرئيسية
     if (req.url === '/' || req.url === '/index.html') {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(`
@@ -289,21 +287,6 @@ const server = http.createServer((req, res) => {
             line-height: 1.6;
         }
         
-        .spinner {
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #667eea;
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            animation: spin 1s linear infinite;
-            margin: 20px auto;
-        }
-        
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        
         .footer {
             margin-top: 30px;
             color: #999;
@@ -397,7 +380,6 @@ const server = http.createServer((req, res) => {
                     statusBox.className = 'status ready';
                     statusBox.innerHTML = '✅ كود الربط جاهز!';
                     
-                    // التحديث التلقائي للحالة
                     checkStatus();
                 } else {
                     throw new Error(data.error || 'فشل الحصول على الكود');
@@ -431,7 +413,6 @@ const server = http.createServer((req, res) => {
             }, 2000);
         }
         
-        // Enter key support
         document.getElementById('phoneInput').addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
                 getPairingCode();
@@ -444,7 +425,6 @@ const server = http.createServer((req, res) => {
         return;
     }
     
-    // API للحصول على pairing code
     if (req.url.startsWith('/get-code')) {
         const url = new URL(req.url, `http://${req.headers.host}`);
         const phone = url.searchParams.get('phone');
@@ -460,7 +440,6 @@ const server = http.createServer((req, res) => {
         
         res.writeHead(200, { 'Content-Type': 'application/json' });
         
-        // انتظار توليد الكود (max 30 ثانية)
         const startTime = Date.now();
         const checkInterval = setInterval(() => {
             if (pairingCode && pairingStatus === 'ready') {
@@ -488,7 +467,6 @@ const server = http.createServer((req, res) => {
         return;
     }
     
-    // API للحصول على الحالة
     if (req.url === '/status') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
@@ -501,7 +479,6 @@ const server = http.createServer((req, res) => {
         return;
     }
     
-    // الحالة العادية
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
         status: 'online',
@@ -527,8 +504,6 @@ setInterval(() => {
     }).on('error', () => {});
 }, 5 * 60 * 1000);
 
-// ⭐⭐⭐ دوال إنشاء الجلسة بـ Pairing Code ⭐⭐⭐
-
 async function generateNewSession(attemptNumber = 1) {
     const MAX_SESSION_ATTEMPTS = 3;
     
@@ -543,7 +518,6 @@ async function generateNewSession(attemptNumber = 1) {
     console.log(`║    🔐 إنشاء جلسة جديدة - محاولة ${attemptNumber}/${MAX_SESSION_ATTEMPTS}     ║`);
     console.log('╚════════════════════════════════════════════════╝\n');
     
-    // إعادة تعيين حالة الربط
     pairingCode = null;
     pairingStatus = 'waiting';
     pairingError = null;
@@ -574,7 +548,7 @@ async function generateNewSession(attemptNumber = 1) {
             markOnlineOnConnect: true,
             syncFullHistory: false,
             msgRetryCounterCache,
-            getMessage: async () => undefined  // ⭐ تغيير 1: undefined بدلاً من { conversation: '' }
+            getMessage: async () => undefined
         });
         
         sock.ev.on('creds.update', saveCreds);
@@ -587,9 +561,8 @@ async function generateNewSession(attemptNumber = 1) {
                     sock.end();
                     reject(new Error('timeout'));
                 }
-            }, 10 * 60 * 1000); // 10 دقائق
+            }, 10 * 60 * 1000);
             
-            // ⭐ انتظار رقم الهاتف من الواجهة
             console.log('📱 في انتظار رقم الهاتف من الواجهة...');
             console.log(`🌐 افتح: http://localhost:${CONFIG.port}\n`);
             
@@ -601,7 +574,6 @@ async function generateNewSession(attemptNumber = 1) {
                         console.log(`📞 رقم الهاتف المُدخل: ${phoneNumber}`);
                         console.log('🔄 جاري توليد كود الربط...\n');
                         
-                        // ⭐ طلب pairing code
                         const code = await sock.requestPairingCode(phoneNumber);
                         pairingCode = code;
                         pairingStatus = 'ready';
@@ -694,7 +666,6 @@ const MAX_PROCESSED_CACHE = 1000;
 let globalSock = null;
 let botStartTime = Date.now();
 
-// ⭐⭐⭐ تغيير 2: إضافة عداد Bad MAC ⭐⭐⭐
 let badMacErrorCount = 0;
 const MAX_BAD_MAC_ERRORS = 10;
 let lastBadMacReset = Date.now();
@@ -731,7 +702,6 @@ function cleanProcessedMessages() {
 
 async function startBot() {
     try {
-        // ⭐⭐⭐ التحقق من وجود جلسة في الـ repo ⭐⭐⭐
         const authPath = path.join(__dirname, 'auth_info');
         const credsPath = path.join(authPath, 'creds.json');
         
@@ -744,16 +714,14 @@ async function startBot() {
                 console.error('❌ فشل إنشاء الجلسة:', error.message);
                 console.log('⏳ سيتم المحاولة مرة أخرى بعد 3 ثانية...\n');
                 await delay(3000);
-                return startBot(); // إعادة المحاولة
+                return startBot();
             }
             
-            // بعد إنشاء الجلسة، إعادة تشغيل
             console.log('🔄 إعادة التشغيل للاتصال بالجلسة الجديدة...\n');
             await delay(3000);
             process.exit(0);
         }
         
-        // التحقق من صحة الجلسة
         try {
             const creds = JSON.parse(fs.readFileSync(credsPath, 'utf-8'));
             if (!creds.noiseKey) {
@@ -771,7 +739,7 @@ async function startBot() {
                 console.error('❌ فشل إنشاء الجلسة:', error.message);
                 console.log('⏳ سيتم المحاولة مرة أخرى بعد 3 ثواني...\n');
                 await delay(3000);
-                return startBot(); // إعادة المحاولة
+                return startBot();
             }
             
             await delay(3000);
@@ -808,25 +776,25 @@ async function startBot() {
             
             msgRetryCounterCache,
             
-            getMessage: async (key) => undefined,  // ⭐ تغيير 3: undefined بدلاً من { conversation: '' }
+            getMessage: async (key) => undefined,
             
             shouldIgnoreJid: (jid) => jid.endsWith('@newsletter')
         });
 
         globalSock = sock;
+
+        // تفعيل مراقبة Poll Events
         setupPollEventListeners(sock);
 
-        // حفظ الجلسة محلياً فقط
         sock.ev.on('creds.update', saveCreds);
         
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
             try {
-                // ⭐ تنظيف cache بشكل صحيح لتجنب Bad MAC
                 if (msgRetryCounterCache) {
                     try {
                         msgRetryCounterCache.flushAll();
                     } catch (e) {
-                        // تجاهل الأخطاء
+                        // تجاهل
                     }
                 }
                 
@@ -843,14 +811,14 @@ async function startBot() {
                 if (messageTime < botStartTime - 60000) {
                     return;
                 }
-                // ⭐⭐⭐ القسم الإسلامي - List Messages ⭐⭐⭐
-if (msg.message?.listResponseMessage || msg.message?.buttonsResponseMessage) {
-    const isHandled = await handleIslamicCommand(sock, msg, '', sender);
-    if (isHandled) {
-        console.log('✅ List/Button معالج بواسطة القسم الإسلامي');
-        return;
-    }
-}
+
+                if (msg.message?.listResponseMessage || msg.message?.buttonsResponseMessage) {
+                    const isHandled = await handleIslamicCommand(sock, msg, '', sender);
+                    if (isHandled) {
+                        console.log('✅ List/Button معالج بواسطة القسم الإسلامي');
+                        return;
+                    }
+                }
                 
                 const messageText = 
                     msg.message.conversation ||
@@ -984,7 +952,7 @@ if (msg.message?.listResponseMessage || msg.message?.buttonsResponseMessage) {
                     }
                 }
                 
-                const isIslamicCommand = await islamicModule.handleIslamicCommand(sock, msg, messageText, sender);
+                const isIslamicCommand = await handleIslamicCommand(sock, msg, messageText, sender);
                 if (isIslamicCommand) return;
                                 
                 if (msg.key.fromMe) return;
@@ -1061,11 +1029,9 @@ if (msg.message?.listResponseMessage || msg.message?.buttonsResponseMessage) {
                 }
                 
             } catch (error) {
-                // ⭐⭐⭐ تغيير 4: كشف Bad MAC وإعادة التشغيل ⭐⭐⭐
                 if (error.message && error.message.includes('Bad MAC')) {
                     badMacErrorCount++;
                     
-                    // إعادة تعيين العداد كل 5 دقائق
                     if (Date.now() - lastBadMacReset > 5 * 60 * 1000) {
                         badMacErrorCount = 1;
                         lastBadMacReset = Date.now();
@@ -1073,7 +1039,6 @@ if (msg.message?.listResponseMessage || msg.message?.buttonsResponseMessage) {
                     
                     console.log(`⚠️ Bad MAC Error (#${badMacErrorCount}/${MAX_BAD_MAC_ERRORS})`);
                     
-                    // إعادة تشغيل عند تجاوز الحد
                     if (badMacErrorCount >= MAX_BAD_MAC_ERRORS) {
                         console.log('\n🔄 تجاوز حد أخطاء Bad MAC - إعادة تشغيل...\n');
                         sock.end();
@@ -1098,7 +1063,6 @@ if (msg.message?.listResponseMessage || msg.message?.buttonsResponseMessage) {
                 console.log('⏳ إعادة المحاولة بعد 10 ثواني...\n');
                 await delay(10000);
                 
-                // إعادة تشغيل البوت
                 sock.end();
                 await startBot();
                 return;
@@ -1123,14 +1087,29 @@ if (msg.message?.listResponseMessage || msg.message?.buttonsResponseMessage) {
                     return;
                 }
                 
+                console.log(`🔄 إعادة الاتصال بعد 5 ثواني...\n`);
+                await delay(5000);
                 
+                sock.end();
+                await startBot();
                 
-                // ⭐⭐⭐ تغيير 5: إعادة تعيين عداد Bad MAC عند الاتصال الناجح ⭐⭐⭐
+            } else if (connection === 'open') {
+                console.log('✅ ════════════════════════════════════');
+                console.log(`   متصل بواتساب بنجاح! 🎉`);
+                console.log(`   البوت: ${CONFIG.botName}`);
+                console.log(`   الرقم: ${sock.user?.id?.split(':')[0] || '---'}`);
+                console.log(`   AI: ${AI_ENABLED ? '✅' : '❌'}`);
+                console.log(`   القسم الإسلامي: ${islamicIsEnabled() ? '✅' : '❌'}`);
+                console.log('════════════════════════════════════\n');
+                
+                processedMessages.clear();
+                botStartTime = Date.now();
+                
                 badMacErrorCount = 0;
                 lastBadMacReset = Date.now();
                 
-                if (islamicModule.isEnabled()) {
-                    islamicModule.startIslamicSchedule(sock);
+                if (islamicIsEnabled()) {
+                    startIslamicSchedule(sock);
                 }
                 
                 if (CONFIG.ownerNumber) {
@@ -1161,14 +1140,14 @@ if (msg.message?.listResponseMessage || msg.message?.buttonsResponseMessage) {
 
 process.on('SIGINT', () => {
     console.log('\n👋 إيقاف...\n');
-    islamicModule.stopIslamicSchedule();
+    stopIslamicSchedule();
     server.close();
     process.exit(0);
 });
 
 process.on('SIGTERM', () => {
     console.log('\n👋 إيقاف...\n');
-    islamicModule.stopIslamicSchedule();
+    stopIslamicSchedule();
     server.close();
     process.exit(0);
 });
