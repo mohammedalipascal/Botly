@@ -1,4 +1,4 @@
-const db = require('../database/googleSheets');
+const db = require('../../database/googleSheets');
 
 // لوحة الإدارة
 class AdminPanel {
