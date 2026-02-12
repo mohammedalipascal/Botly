@@ -12,7 +12,8 @@ const fs = require('fs');
 const path = require('path');
 const NodeCache = require('node-cache');
 const { getAIResponse } = require('./ai');
-const { handleIslamicCommand, startIslamicSchedule, stopIslamicSchedule, isEnabled: islamicIsEnabled, setupPollEventListeners } = require('./islamicModule');
+const { handleIslamicCommand, startIslamicSchedule, stopIslamicSchedule, isEnabled: islamicIsEnabled } = require('./modules/islamic/islamicModule');
+const adminPanel = require('./modules/admin/adminPanel');
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -783,9 +784,6 @@ async function startBot() {
 
         globalSock = sock;
 
-        // تفعيل مراقبة Poll Events
-        setupPollEventListeners(sock);
-
         sock.ev.on('creds.update', saveCreds);
         
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
@@ -954,6 +952,10 @@ async function startBot() {
                 
                 const isIslamicCommand = await handleIslamicCommand(sock, msg, messageText, sender);
                 if (isIslamicCommand) return;
+                
+                // لوحة الإدارة
+                const isAdminCommand = await adminPanel.handleAdminCommand(sock, msg, messageText, sender);
+                if (isAdminCommand) return;
                                 
                 if (msg.key.fromMe) return;
                 
@@ -1112,16 +1114,7 @@ async function startBot() {
                     startIslamicSchedule(sock);
                 }
                 
-                if (CONFIG.ownerNumber) {
-                    try {
-                        await delay(3000);
-                        await sock.sendMessage(CONFIG.ownerNumber, {
-                            text: `✅ *${CONFIG.botName} متصل*\n\n📱 ${sock.user.id.split(':')[0]}\n⏰ ${new Date().toLocaleString('ar-EG')}`
-                        });
-                    } catch (e) {
-                        console.log('⚠️ لم يتم إرسال إشعار\n');
-                    }
-                }
+                // الرسالة التلقائية محذوفة حسب الطلب
                 
             } else if (connection === 'connecting') {
                 console.log('🔄 جاري الاتصال...');
