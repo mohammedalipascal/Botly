@@ -11,7 +11,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const NodeCache = require('node-cache');
-const { getAIResponse } = require('./ai');
+const { getAIResponse } = require('./modules/ai/ai');
 const { handleIslamicCommand, startIslamicSchedule, stopIslamicSchedule, isEnabled: islamicIsEnabled } = require('./modules/islamic/islamicModule');
 const adminPanel = require('./modules/admin/adminPanel');
 
