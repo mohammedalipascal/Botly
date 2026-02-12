@@ -3,12 +3,12 @@ const fs = require('fs');
 const path = require('path');
 const { fetchRandomFatwa, formatFatwaMessage } = require('./fatwaModule');
 const { fetchLectureContent, formatLecture } = require('./lectureHandler');
-const db = require('../database/googleSheets');
+const db = require('../../database/googleSheets');
 
 // القسم الاسلامي مع Google Sheets
 
 let ISLAMIC_MODULE_ENABLED = false;
-const ISLAMIC_STATE_FILE = path.join(__dirname, '../islamic_state.json');
+const ISLAMIC_STATE_FILE = path.join(__dirname, '../../islamic_state.json');
 
 let morningJob1 = null, morningJob2 = null, eveningJob1 = null, eveningJob2 = null;
 let fatwaJob = null;
