@@ -1,20 +1,25 @@
 {
   "name": "whatsapp-bot",
   "version": "1.0.0",
-  "description": "WhatsApp Bot",
+  "description": "WhatsApp Bot with Islamic content",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "dev": "nodemon index.js"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.8",
     "axios": "^1.7.9",
     "cheerio": "^1.0.0",
     "dotenv": "^16.4.7",
+    "googleapis": "^144.0.0",
     "groq-sdk": "^0.8.0",
     "node-cache": "^5.1.2",
     "node-cron": "^3.0.3",
     "pino": "^9.5.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
   },
   "engines": {
     "node": ">=18.0.0"
