@@ -54,6 +54,11 @@ class AdminPanel {
                 }
             }
             
+            // تعيين وقت الجدولة
+            if (session.level === 'setting_schedule_time') {
+                return await this.handleScheduleTime(sock, sender, cmd, session.section, session.sectionName);
+            }
+            
             // إنشاء قسم جديد
             if (session.level === 'creating_new_category') {
                 return await this.handleNewCategoryName(sock, sender, cmd, session.path);
@@ -94,6 +99,57 @@ class AdminPanel {
                 topicName: topicName,
                 timestamp: Date.now()
             });
+            
+            return true;
+            
+        } catch (error) {
+            await sock.sendMessage(sender, {
+                text: `❌ خطأ: ${error.message}`
+            });
+            return true;
+        }
+    }
+    
+    // معالج وقت الجدولة (تحويل من HH:MM إلى cron)
+    async handleScheduleTime(sock, sender, timeString, section, sectionName) {
+        try {
+            // التحقق من الصيغة HH:MM
+            const timeMatch = timeString.match(/^(\d{1,2}):(\d{2})$/);
+            
+            if (!timeMatch) {
+                await sock.sendMessage(sender, {
+                    text: '❌ صيغة خاطئة. استخدم:\n6:30\n15:00\n18:45'
+                });
+                return true;
+            }
+            
+            const hour = parseInt(timeMatch[1]);
+            const minute = parseInt(timeMatch[2]);
+            
+            if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+                await sock.sendMessage(sender, {
+                    text: '❌ وقت غير صحيح. الساعة من 0-23 والدقيقة من 0-59'
+                });
+                return true;
+            }
+            
+            // تحويل إلى cron
+            const cronExpression = `${minute} ${hour} * * *`;
+            
+            // حفظ في Google Sheets
+            const success = await db.updateScheduleTime(section, cronExpression);
+            
+            if (success) {
+                await sock.sendMessage(sender, {
+                    text: `✅ تم تعيين وقت ${sectionName}\n\n⏰ ${timeString} يومياً`
+                });
+                
+                await this.sendScheduleMenu(sock, sender);
+            } else {
+                await sock.sendMessage(sender, {
+                    text: '❌ فشل حفظ الوقت'
+                });
+            }
             
             return true;
             
@@ -236,8 +292,6 @@ class AdminPanel {
         const options = [
             '1️⃣ الأذكار',
             '2️⃣ الفتاوى',
-            '3️⃣ الفقه',
-            '4️⃣ الموضوعية',
             '0️⃣ رجوع'
         ];
         
@@ -289,7 +343,11 @@ class AdminPanel {
             const sections = [
                 { path: ['fiqh', 'ibadat', 'salah'], name: 'الفقه - الصلاة' },
                 { path: ['fiqh', 'ibadat', 'janazah'], name: 'الفقه - الجنائز' },
-                { path: ['fiqh', 'ibadat', 'zakah'], name: 'الفقه - الزكاة' }
+                { path: ['fiqh', 'ibadat', 'zakah'], name: 'الفقه - الزكاة' },
+                { path: ['fiqh', 'ibadat', 'siyam'], name: 'الفقه - الصيام' },
+                { path: ['fiqh', 'ibadat', 'hajj'], name: 'الفقه - الحج' },
+                { path: ['fiqh', 'ibadat', 'taharah'], name: 'الفقه - الطهارة' },
+                { path: ['fiqh', 'ibadat', 'jihad'], name: 'الفقه - الجهاد' }
             ];
 
             let activeCount = 0;
@@ -297,15 +355,44 @@ class AdminPanel {
             for (const section of sections) {
                 try {
                     const lectures = await db.getLectures(section.path);
-                    if (lectures && lectures.length > 0 && lectures[0].enabled) {
-                        activeCount++;
-                        const progress = lectures[0].lastSentIndex || 0;
-                        const total = lectures.length;
-                        stats += `✅ *${section.name}*\n   📊 ${progress}/${total} محاضرات\n\n`;
+                    
+                    if (lectures && lectures.length > 0) {
+                        // التحقق من أي محاضرة مفعلة
+                        const hasEnabled = lectures.some(l => l.enabled === true || l.enabled === 'TRUE');
+                        
+                        if (hasEnabled) {
+                            activeCount++;
+                            const firstLecture = lectures[0];
+                            const progress = firstLecture.lastSentIndex || 0;
+                            const total = lectures.length;
+                            stats += `✅ *${section.name}*\n   📊 ${progress}/${total} محاضرات\n\n`;
+                        }
                     }
                 } catch (e) {
                     // تجاهل الأقسام غير الموجودة
                 }
+            }
+            
+            // جلب حالة الأذكار والفتاوى
+            try {
+                const settings = await db.getScheduleSettings();
+                
+                if (settings.athkar_morning?.enabled) {
+                    activeCount++;
+                    stats += `✅ *الأذكار - الصباح*\n   ⏰ ${settings.athkar_morning.time}\n\n`;
+                }
+                
+                if (settings.athkar_evening?.enabled) {
+                    activeCount++;
+                    stats += `✅ *الأذكار - المساء*\n   ⏰ ${settings.athkar_evening.time}\n\n`;
+                }
+                
+                if (settings.fatawa?.enabled) {
+                    activeCount++;
+                    stats += `✅ *الفتاوى*\n   ⏰ ${settings.fatawa.time}\n\n`;
+                }
+            } catch (e) {
+                // تجاهل
             }
             
             if (activeCount === 0) {
@@ -446,14 +533,6 @@ class AdminPanel {
                 await this.sendScheduleSubMenu(sock, sender, 'fatawa', 'الفتاوى');
                 return true;
             }
-            else if (choice === 3) {
-                await sock.sendMessage(sender, { text: '🚧 الفقه قيد التطوير' });
-                return true;
-            }
-            else if (choice === 4) {
-                await sock.sendMessage(sender, { text: '🚧 الموضوعية قيد التطوير' });
-                return true;
-            }
         }
         
         // القائمة الفرعية للجدولة
@@ -465,7 +544,7 @@ class AdminPanel {
             else if (choice === 1) {
                 // تعيين الوقت
                 await sock.sendMessage(sender, {
-                    text: `⏰ *تعيين وقت ${session.sectionName}*\n\nأرسل الوقت بصيغة Cron:\n\nمثال:\n\`0 6 * * *\` = 6:00 صباحاً\n\`30 15 * * *\` = 3:30 مساءً\n\n📖 [شرح Cron](https://crontab.guru/)`
+                    text: `⏰ *تعيين وقت ${session.sectionName}*\n\nأرسل الوقت بالصيغة:\n\nمثال:\n\`6:30\` = 6:30 صباحاً\n\`15:45\` = 3:45 مساءً\n\`18:00\` = 6:00 مساءً`
                 });
                 
                 this.adminSessions.set(sender, {
