@@ -18,6 +18,7 @@ class AdminPanel {
         if (!this.isAdmin(sender)) return false;
 
         const cmd = messageText.trim();
+        const session = this.adminSessions.get(sender);
 
         // القائمة الرئيسية
         if (cmd === '/ادارة' || cmd === '/admin') {
@@ -26,45 +27,121 @@ class AdminPanel {
             return true;
         }
 
-        // معالجة الأرقام بناءً على الجلسة
-        const session = this.adminSessions.get(sender);
+        // معالجة الأرقام
+        if (/^[0-9]{1,2}$/.test(cmd)) {
+            if (session) {
+                return await this.handleNumberChoice(sock, sender, parseInt(cmd), session);
+            }
+        }
         
-        if (session && /^[0-9]{1,2}$/.test(cmd)) {
-            return await this.handleNumberChoice(sock, sender, parseInt(cmd), session);
-        }
-
-        // أوامر مباشرة
-        if (cmd.startsWith('/add_lecture ')) {
-            return await this.handleAddLectureCommand(sock, sender, cmd);
-        }
-
-        if (cmd.startsWith('/update_schedule ')) {
-            return await this.handleUpdateScheduleCommand(sock, sender, cmd);
+        // معالجة النصوص (روابط، أسماء أقسام، إلخ)
+        if (session) {
+            // انتظار رابط المحاضرة
+            if (session.level === 'waiting_lecture_url') {
+                if (cmd.startsWith('http')) {
+                    return await this.handleLectureUrl(sock, sender, cmd, session.path);
+                }
+            }
+            
+            // إنشاء قسم جديد
+            if (session.level === 'creating_new_category') {
+                return await this.handleNewCategoryName(sock, sender, cmd, session.path);
+            }
         }
 
         return false;
+    }
+    
+    // معالج رابط المحاضرة
+    async handleLectureUrl(sock, sender, url, path) {
+        try {
+            await sock.sendMessage(sender, {
+                text: `⏳ جاري جلب المحاضرة...`
+            });
+            
+            const { fetchLectureContent, formatLecture } = require('../islamic/lectureHandler');
+            const content = await fetchLectureContent(url);
+            
+            if (!content) {
+                await sock.sendMessage(sender, {
+                    text: `❌ فشل جلب المحاضرة من الرابط`
+                });
+                return true;
+            }
+            
+            // عرض المحاضرة واقتراح العنوان
+            await sock.sendMessage(sender, {
+                text: `✅ *تم جلب المحاضرة بنجاح!*\n\n📌 *العنوان المقترح:*\n${content.title}\n\n✍️ *أرسل عنوان جديد* أو اكتب *تم* لاستخدام العنوان الحالي`
+            });
+            
+            this.adminSessions.set(sender, {
+                level: 'editing_lecture_title',
+                path: path,
+                url: url,
+                suggestedTitle: content.title,
+                timestamp: Date.now()
+            });
+            
+            return true;
+            
+        } catch (error) {
+            await sock.sendMessage(sender, {
+                text: `❌ خطأ: ${error.message}`
+            });
+            return true;
+        }
+    }
+    
+    // معالج اسم القسم الجديد
+    async handleNewCategoryName(sock, sender, categoryName, parentPath) {
+        try {
+            const categoryKey = categoryName
+                .toLowerCase()
+                .replace(/\s+/g, '_')
+                .replace(/[^\w_]/g, '');
+            
+            // TODO: إضافة القسم الجديد في Google Sheets
+            
+            await sock.sendMessage(sender, {
+                text: `✅ تم إنشاء القسم: ${categoryName}\n\n📍 المسار: ${[...parentPath, categoryKey].join(' > ')}\n\n📎 أرسل رابط المحاضرة الآن`
+            });
+            
+            this.adminSessions.set(sender, {
+                level: 'waiting_lecture_url',
+                path: [...parentPath, categoryKey],
+                timestamp: Date.now()
+            });
+            
+            return true;
+            
+        } catch (error) {
+            await sock.sendMessage(sender, {
+                text: `❌ خطأ: ${error.message}`
+            });
+            return true;
+        }
     }
 
     // ═══════════════════════════════════════════════════════════
     // القوائم
     // ═══════════════════════════════════════════════════════════
 
-    // القائمة الرئيسية
+    // القائمة الرئيسية - Poll
     async sendMainMenu(sock, sender) {
-        const menu = `╔═══════════════════════════╗
-║   ⚙️ لوحة الإدارة      ║
-╚═══════════════════════════╝
-
-┌─────────────────────────┐
-│  1️⃣ إدارة المحاضرات      │
-│  2️⃣ إدارة الجدولة        │
-│  3️⃣ إحصائيات            │
-│  4️⃣ إعدادات عامة         │
-└─────────────────────────┘
-
-💬 اكتب الرقم للاختيار`;
-
-        await sock.sendMessage(sender, { text: menu });
+        const pollName = 'لوحة الإدارة';
+        const options = [
+            '1️⃣ إدارة المحاضرات',
+            '2️⃣ إدارة الجدولة',
+            '3️⃣ إحصائيات'
+        ];
+        
+        await sock.sendMessage(sender, {
+            poll: {
+                name: pollName,
+                values: options,
+                selectableCount: 1
+            }
+        });
         
         this.adminSessions.set(sender, {
             level: 'main',
@@ -72,24 +149,23 @@ class AdminPanel {
         });
     }
 
-    // قائمة إدارة المحاضرات
+    // قائمة إدارة المحاضرات - Poll
     async sendLecturesMenu(sock, sender) {
-        const menu = `╔═══════════════════════════╗
-║   📚 إدارة المحاضرات    ║
-╚═══════════════════════════╝
-
-┌─────────────────────────┐
-│  1️⃣ إضافة محاضرة جديدة   │
-│  2️⃣ عرض جميع المحاضرات   │
-│  3️⃣ تعديل محاضرة         │
-│  4️⃣ حذف محاضرة           │
-│  5️⃣ تفعيل/تعطيل محاضرة   │
-│  0️⃣ رجوع                 │
-└─────────────────────────┘
-
-💬 اكتب الرقم`;
-
-        await sock.sendMessage(sender, { text: menu });
+        const pollName = 'إدارة المحاضرات';
+        const options = [
+            '1️⃣ إضافة محاضرة',
+            '2️⃣ عرض المحاضرات',
+            '3️⃣ حذف محاضرة',
+            '0️⃣ رجوع'
+        ];
+        
+        await sock.sendMessage(sender, {
+            poll: {
+                name: pollName,
+                values: options,
+                selectableCount: 1
+            }
+        });
         
         this.adminSessions.set(sender, {
             level: 'lectures_menu',
@@ -97,46 +173,28 @@ class AdminPanel {
         });
     }
 
-    // قائمة إدارة الجدولة
+    // قائمة إدارة الجدولة - Poll
     async sendScheduleMenu(sock, sender) {
-        try {
-            const settings = await db.getScheduleSettings();
-            
-            let menu = `╔═══════════════════════════╗
-║   ⏰ إدارة الجدولة      ║
-╚═══════════════════════════╝
-
-*الجدولة الحالية:*
-
-`;
-
-            let index = 1;
-            for (const [section, config] of Object.entries(settings)) {
-                const status = config.enabled ? '✅' : '❌';
-                menu += `${index}️⃣ ${status} *${section}*\n   ⏰ ${config.time}\n\n`;
-                index++;
+        const pollName = 'إدارة الجدولة';
+        const options = [
+            '1️⃣ الأذكار الصباحية',
+            '2️⃣ الأذكار المسائية',
+            '3️⃣ الفتاوى',
+            '0️⃣ رجوع'
+        ];
+        
+        await sock.sendMessage(sender, {
+            poll: {
+                name: pollName,
+                values: options,
+                selectableCount: 1
             }
-
-            menu += `┌─────────────────────────┐
-│  تعديل وقت أي قسم      │
-│  0️⃣ رجوع                │
-└─────────────────────────┘
-
-💬 اكتب الرقم لتعديل الوقت`;
-
-            await sock.sendMessage(sender, { text: menu });
-            
-            this.adminSessions.set(sender, {
-                level: 'schedule_menu',
-                settings: settings,
-                timestamp: Date.now()
-            });
-
-        } catch (error) {
-            await sock.sendMessage(sender, {
-                text: `❌ فشل جلب إعدادات الجدولة: ${error.message}`
-            });
-        }
+        });
+        
+        this.adminSessions.set(sender, {
+            level: 'schedule_menu',
+            timestamp: Date.now()
+        });
     }
 
     // قائمة الإحصائيات
@@ -205,12 +263,6 @@ class AdminPanel {
                 await this.sendStatsMenu(sock, sender);
                 return true;
             }
-            else if (choice === 4) {
-                await sock.sendMessage(sender, {
-                    text: '⚠️ الإعدادات العامة قيد التطوير'
-                });
-                return true;
-            }
         }
 
         // قائمة المحاضرات
@@ -228,82 +280,241 @@ class AdminPanel {
                 return true;
             }
             else if (choice === 3) {
-                await sock.sendMessage(sender, {
-                    text: '⚠️ تعديل المحاضرات قيد التطوير'
-                });
-                return true;
-            }
-            else if (choice === 4) {
-                await sock.sendMessage(sender, {
-                    text: '⚠️ حذف المحاضرات قيد التطوير'
-                });
-                return true;
-            }
-            else if (choice === 5) {
-                await sock.sendMessage(sender, {
-                    text: '⚠️ تفعيل/تعطيل قيد التطوير'
-                });
+                await sock.sendMessage(sender, { text: '🚧 قيد التطوير' });
                 return true;
             }
         }
 
-        // قائمة الجدولة
+        // إضافة محاضرة - الخطوة 1: القسم الرئيسي
+        else if (level === 'add_lecture_step1') {
+            if (choice === 0) {
+                await this.sendLecturesMenu(sock, sender);
+                return true;
+            }
+            else if (choice === 1) {
+                await this.navigateFiqh(sock, sender, 'subsection');
+                return true;
+            }
+            else if (choice === 2) {
+                await sock.sendMessage(sender, { text: '🚧 الموضوعية قيد التطوير' });
+                return true;
+            }
+        }
+
+        // الفقه - اختيار القسم الفرعي
+        else if (level === 'add_lecture_fiqh_subsection') {
+            if (choice === 0) {
+                await this.startAddLectureWizard(sock, sender);
+                return true;
+            }
+            else if (choice === 1) {
+                session.selectedSubsection = 'ibadat';
+                this.adminSessions.set(sender, session);
+                await this.navigateFiqh(sock, sender, 'topic');
+                return true;
+            }
+        }
+
+        // العبادات - اختيار الموضوع
+        else if (level === 'add_lecture_fiqh_topic') {
+            if (choice === 0) {
+                await this.navigateFiqh(sock, sender, 'subsection');
+                return true;
+            }
+            else if (choice === 1) {
+                session.selectedTopic = 'salah';
+                this.adminSessions.set(sender, session);
+                await this.navigateFiqh(sock, sender, 'category');
+                return true;
+            }
+        }
+
+        // الصلاة - اختيار القسم النهائي
+        else if (level === 'add_lecture_fiqh_category') {
+            if (choice === 0) {
+                await this.navigateFiqh(sock, sender, 'topic');
+                return true;
+            }
+            else if (choice === 11) { // ➕ إنشاء قسم جديد
+                await this.createNewCategory(sock, sender, session.path);
+                return true;
+            }
+            else if (choice >= 1 && choice <= 10) {
+                const categories = [
+                    'hukmSalah', 'rukoo', 'waqt', 'taharah', 'satr',
+                    'qiblah', 'qiyam', 'takbeer', 'sujoodTilawa', 'adhan'
+                ];
+                const finalPath = [...session.path, categories[choice - 1]];
+                await this.askForLectureUrl(sock, sender, finalPath);
+                return true;
+            }
+        }
+
+        // قائمة الجدولة - Toggle
         else if (level === 'schedule_menu') {
             if (choice === 0) {
                 await this.sendMainMenu(sock, sender);
                 return true;
             }
-            else {
-                const sections = Object.keys(session.settings);
-                if (choice > 0 && choice <= sections.length) {
-                    const selectedSection = sections[choice - 1];
-                    await this.startScheduleEditWizard(sock, sender, selectedSection);
-                    return true;
-                }
+            // Toggle الأذكار أو الفتاوى
+            else if (choice === 1) {
+                await this.toggleSchedule(sock, sender, 'athkar_morning');
+                return true;
             }
-        }
-
-        // قائمة الإحصائيات
-        else if (level === 'stats_menu') {
-            if (choice === 0) {
-                await this.sendMainMenu(sock, sender);
+            else if (choice === 2) {
+                await this.toggleSchedule(sock, sender, 'athkar_evening');
+                return true;
+            }
+            else if (choice === 3) {
+                await this.toggleSchedule(sock, sender, 'fatawa');
                 return true;
             }
         }
 
         return false;
     }
+    
+    // Toggle جدولة
+    async toggleSchedule(sock, sender, section) {
+        try {
+            const settings = await db.getScheduleSettings();
+            const currentStatus = settings[section]?.enabled || false;
+            const newStatus = !currentStatus;
+            
+            // تحديث في Google Sheets
+            // TODO: إضافة دالة updateScheduleStatus في googleSheets.js
+            
+            const statusText = newStatus ? '✅ مفعّل' : '❌ معطّل';
+            await sock.sendMessage(sender, {
+                text: `${section}: ${statusText}`
+            });
+            
+            await this.sendScheduleMenu(sock, sender);
+            return true;
+            
+        } catch (error) {
+            await sock.sendMessage(sender, {
+                text: `❌ خطأ: ${error.message}`
+            });
+            return false;
+        }
+    }
 
     // ═══════════════════════════════════════════════════════════
     // معالجات متقدمة
     // ═══════════════════════════════════════════════════════════
 
-    // بدء معالج إضافة محاضرة
+    // بدء معالج إضافة محاضرة تفاعلي
     async startAddLectureWizard(sock, sender) {
-        const msg = `📝 *إضافة محاضرة جديدة*
-
-أرسل البيانات بالتنسيق التالي:
-
-\`\`\`
-/add_lecture
-القسم: fiqh/ibadat/salah/hukmSalah
-العنوان: محاضرة جديدة
-رابط الصفحة: https://...
-رابط الصوت: https://...
-النوع: lecture
-\`\`\`
-
-مثال:
-\`\`\`
-/add_lecture
-fiqh/ibadat/salah/hukmSalah
-محاضرة تجريبية
-https://binbaz.org.sa/...
-https://files.zadapps.info/...
-lecture
-\`\`\``;
-
-        await sock.sendMessage(sender, { text: msg });
+        const pollName = 'اختر القسم الرئيسي';
+        const options = [
+            '1️⃣ الفقه',
+            '2️⃣ الموضوعية',
+            '0️⃣ إلغاء'
+        ];
+        
+        await sock.sendMessage(sender, {
+            poll: {
+                name: pollName,
+                values: options,
+                selectableCount: 1
+            }
+        });
+        
+        this.adminSessions.set(sender, {
+            level: 'add_lecture_step1',
+            path: [],
+            timestamp: Date.now()
+        });
+    }
+    
+    // التنقل في أقسام الفقه
+    async navigateFiqh(sock, sender, step) {
+        let pollName = '';
+        let options = [];
+        let nextLevel = '';
+        let currentPath = [];
+        
+        if (step === 'subsection') {
+            pollName = 'الفقه - اختر القسم';
+            options = ['1️⃣ العبادات', '2️⃣ المعاملات', '3️⃣ فقه الأسرة', '4️⃣ العادات', '0️⃣ رجوع'];
+            nextLevel = 'add_lecture_fiqh_subsection';
+            currentPath = ['fiqh'];
+        }
+        else if (step === 'topic') {
+            const session = this.adminSessions.get(sender);
+            const subsection = session.selectedSubsection;
+            
+            if (subsection === 'ibadat') {
+                pollName = 'العبادات - اختر الموضوع';
+                options = [
+                    '1️⃣ الصلاة', '2️⃣ الجنائز', '3️⃣ الزكاة', '4️⃣ الصيام',
+                    '5️⃣ الحج والعمرة', '6️⃣ الطهارة', '7️⃣ الجهاد', '0️⃣ رجوع'
+                ];
+                currentPath = ['fiqh', 'ibadat'];
+            }
+            nextLevel = 'add_lecture_fiqh_topic';
+        }
+        else if (step === 'category') {
+            const session = this.adminSessions.get(sender);
+            const topic = session.selectedTopic;
+            
+            if (topic === 'salah') {
+                pollName = 'الصلاة - اختر القسم الفرعي';
+                options = [
+                    '1️⃣ حكم الصلاة', '2️⃣ الركوع والسجود', '3️⃣ وقت الصلاة',
+                    '4️⃣ الطهارة', '5️⃣ ستر العورة', '6️⃣ استقبال القبلة',
+                    '7️⃣ القيام', '8️⃣ التكبير', '9️⃣ سجود التلاوة', '🔟 الأذان',
+                    '➕ إنشاء قسم جديد', '0️⃣ رجوع'
+                ];
+                currentPath = ['fiqh', 'ibadat', 'salah'];
+            }
+            nextLevel = 'add_lecture_fiqh_category';
+        }
+        
+        await sock.sendMessage(sender, {
+            poll: {
+                name: pollName,
+                values: options,
+                selectableCount: 1
+            }
+        });
+        
+        const session = this.adminSessions.get(sender) || {};
+        this.adminSessions.set(sender, {
+            ...session,
+            level: nextLevel,
+            path: currentPath,
+            timestamp: Date.now()
+        });
+    }
+    
+    // طلب رابط المحاضرة
+    async askForLectureUrl(sock, sender, finalPath) {
+        const pathString = finalPath.join(' > ');
+        
+        await sock.sendMessage(sender, {
+            text: `📍 *المسار المختار:*\n${pathString}\n\n📎 *أرسل رابط المحاضرة الآن*\n\nمثال:\nhttps://binbaz.org.sa/audios/187/...`
+        });
+        
+        this.adminSessions.set(sender, {
+            level: 'waiting_lecture_url',
+            path: finalPath,
+            timestamp: Date.now()
+        });
+    }
+    
+    // إنشاء قسم جديد
+    async createNewCategory(sock, sender, parentPath) {
+        await sock.sendMessage(sender, {
+            text: `➕ *إنشاء قسم جديد*\n\n📍 المسار: ${parentPath.join(' > ')}\n\n✍️ اكتب اسم القسم الجديد:`
+        });
+        
+        this.adminSessions.set(sender, {
+            level: 'creating_new_category',
+            path: parentPath,
+            timestamp: Date.now()
+        });
     }
 
     // معالج أمر إضافة محاضرة
