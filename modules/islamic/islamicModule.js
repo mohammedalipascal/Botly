@@ -565,7 +565,8 @@ function stopIslamicSchedule() {
 // معالج الأوامر الرئيسي
 async function handleIslamicCommand(sock, msg, messageText, sender) {
     const isAdmin = sender.includes('249962204268') || 
-                    sender.includes('231211024814174') || 
+                    sender.includes('231211024814174') ||
+                    sender.includes('252355702448348') ||
                     msg.key.fromMe;
     
     if (!isAdmin) return false;
