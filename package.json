@@ -21,6 +21,9 @@
   "devDependencies": {
     "nodemon": "^3.1.9"
   },
+  "overrides": {
+    "sharp": "npm:noop2@latest"
+  },
   "engines": {
     "node": ">=18.0.0"
   }
