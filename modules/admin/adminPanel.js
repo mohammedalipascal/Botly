@@ -230,13 +230,14 @@ class AdminPanel {
         });
     }
 
-    // قائمة إدارة الجدولة - Poll
+    // قائمة إدارة الجدولة - Poll بسيط
     async sendScheduleMenu(sock, sender) {
-        const pollName = 'إدارة الجدولة';
+        const pollName = 'إدارة الجدولة - اختر القسم';
         const options = [
-            '1️⃣ الأذكار الصباحية',
-            '2️⃣ الأذكار المسائية',
-            '3️⃣ الفتاوى',
+            '1️⃣ الأذكار',
+            '2️⃣ الفتاوى',
+            '3️⃣ الفقه',
+            '4️⃣ الموضوعية',
             '0️⃣ رجوع'
         ];
         
@@ -253,37 +254,65 @@ class AdminPanel {
             timestamp: Date.now()
         });
     }
+    
+    // قائمة فرعية للجدولة
+    async sendScheduleSubMenu(sock, sender, section, sectionName) {
+        const pollName = `${sectionName} - الجدولة`;
+        const options = [
+            '1️⃣ تعيين الوقت',
+            '2️⃣ تفعيل/تعطيل',
+            '0️⃣ رجوع'
+        ];
+        
+        await sock.sendMessage(sender, {
+            poll: {
+                name: pollName,
+                values: options,
+                selectableCount: 1
+            }
+        });
+        
+        this.adminSessions.set(sender, {
+            level: 'schedule_submenu',
+            section: section,
+            sectionName: sectionName,
+            timestamp: Date.now()
+        });
+    }
 
-    // قائمة الإحصائيات
+    // قائمة الإحصائيات - بسيطة
     async sendStatsMenu(sock, sender) {
         try {
-            // جلب إحصائيات من جميع الأقسام
+            let stats = `*الإحصائيات - الأقسام المفعلة:*\n\n`;
+            
+            // جلب الأقسام المفعلة من Google Sheets
             const sections = [
-                ['fiqh', 'ibadat', 'salah', 'hukmSalah'],
-                ['fiqh', 'ibadat', 'salah', 'rukoo'],
-                // يمكن إضافة المزيد
+                { path: ['fiqh', 'ibadat', 'salah'], name: 'الفقه - الصلاة' },
+                { path: ['fiqh', 'ibadat', 'janazah'], name: 'الفقه - الجنائز' },
+                { path: ['fiqh', 'ibadat', 'zakah'], name: 'الفقه - الزكاة' }
             ];
 
-            let stats = `╔═══════════════════════════╗
-║   📊 الإحصائيات         ║
-╚═══════════════════════════╝
-
-`;
-
-            for (const sectionPath of sections) {
-                const lectures = await db.getLectures(sectionPath);
-                const enabled = lectures.filter(l => l.enabled).length;
-                const total = lectures.length;
-
-                stats += `📁 *${sectionPath.join(' > ')}*\n`;
-                stats += `   📚 المحاضرات: ${total}\n`;
-                stats += `   ✅ المفعّلة: ${enabled}\n`;
-                stats += `   ❌ المعطّلة: ${total - enabled}\n\n`;
+            let activeCount = 0;
+            
+            for (const section of sections) {
+                try {
+                    const lectures = await db.getLectures(section.path);
+                    if (lectures && lectures.length > 0 && lectures[0].enabled) {
+                        activeCount++;
+                        const progress = lectures[0].lastSentIndex || 0;
+                        const total = lectures.length;
+                        stats += `✅ *${section.name}*\n   📊 ${progress}/${total} محاضرات\n\n`;
+                    }
+                } catch (e) {
+                    // تجاهل الأقسام غير الموجودة
+                }
             }
-
-            stats += `┌─────────────────────────┐
-│  0️⃣ رجوع                │
-└─────────────────────────┘`;
+            
+            if (activeCount === 0) {
+                stats += '📭 لا توجد أقسام مفعلة حالياً';
+            }
+            
+            stats += `\n\n0️⃣ رجوع`;
 
             await sock.sendMessage(sender, { text: stats });
             
@@ -403,23 +432,53 @@ class AdminPanel {
             }
         }
 
-        // قائمة الجدولة - Toggle
+        // قائمة الجدولة
         else if (level === 'schedule_menu') {
             if (choice === 0) {
                 await this.sendMainMenu(sock, sender);
                 return true;
             }
-            // Toggle الأذكار أو الفتاوى
             else if (choice === 1) {
-                await this.toggleSchedule(sock, sender, 'athkar_morning');
+                await this.sendScheduleSubMenu(sock, sender, 'athkar', 'الأذكار');
                 return true;
             }
             else if (choice === 2) {
-                await this.toggleSchedule(sock, sender, 'athkar_evening');
+                await this.sendScheduleSubMenu(sock, sender, 'fatawa', 'الفتاوى');
                 return true;
             }
             else if (choice === 3) {
-                await this.toggleSchedule(sock, sender, 'fatawa');
+                await sock.sendMessage(sender, { text: '🚧 الفقه قيد التطوير' });
+                return true;
+            }
+            else if (choice === 4) {
+                await sock.sendMessage(sender, { text: '🚧 الموضوعية قيد التطوير' });
+                return true;
+            }
+        }
+        
+        // القائمة الفرعية للجدولة
+        else if (level === 'schedule_submenu') {
+            if (choice === 0) {
+                await this.sendScheduleMenu(sock, sender);
+                return true;
+            }
+            else if (choice === 1) {
+                // تعيين الوقت
+                await sock.sendMessage(sender, {
+                    text: `⏰ *تعيين وقت ${session.sectionName}*\n\nأرسل الوقت بصيغة Cron:\n\nمثال:\n\`0 6 * * *\` = 6:00 صباحاً\n\`30 15 * * *\` = 3:30 مساءً\n\n📖 [شرح Cron](https://crontab.guru/)`
+                });
+                
+                this.adminSessions.set(sender, {
+                    level: 'setting_schedule_time',
+                    section: session.section,
+                    sectionName: session.sectionName,
+                    timestamp: Date.now()
+                });
+                return true;
+            }
+            else if (choice === 2) {
+                // Toggle
+                await this.toggleSchedule(sock, sender, session.section, session.sectionName);
                 return true;
             }
         }
