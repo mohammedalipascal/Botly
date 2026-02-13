@@ -594,3 +594,4 @@ module.exports = {
     stopIslamicSchedule,
     isEnabled: () => ISLAMIC_MODULE_ENABLED
 };
+
