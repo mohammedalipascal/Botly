@@ -1,598 +1,450 @@
-const cron = require('node-cron');
-const fs = require('fs');
-const path = require('path');
-const { fetchRandomFatwa, formatFatwaMessage } = require('./fatwaModule');
-const { fetchLectureContent, formatLecture } = require('./lectureHandler');
-const db = require('../../database/googleSheets');
+const { google } = require('googleapis');
 
-// القسم الاسلامي مع Google Sheets
-
-let ISLAMIC_MODULE_ENABLED = false;
-const ISLAMIC_STATE_FILE = path.join(__dirname, '../../islamic_state.json');
-
-let morningJob1 = null, morningJob2 = null, eveningJob1 = null, eveningJob2 = null;
-let fatwaJob = null;
-const activeLectureJobs = new Map();
-
-// تتبع موقع كل مستخدم في التنقل
-const userNavigation = new Map();
-const NAV_TIMEOUT = 30 * 60 * 1000; // 30 دقيقة
-
-const MORNING_EVENING_ATHKAR = [
-    { text: `أَصْبَحْنَا وَأَصْبَحَ الْمُلْكُ لِلَّهِ، وَالْحَمْدُ لِلَّهِ، لَا إِلَهَ إِلَّا اللهُ وَحْدَهُ لَا شَرِيكَ لَهُ، لَهُ الْمُلْكُ وَلَهُ الْحَمْدُ، وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ\n\nرَبِّ أَسْأَلُكَ خَيْرَ مَا فِي هَذَا الْيَوْمِ وَخَيْرَ مَا بَعْدَهُ، وَأَعُوذُ بِكَ مِنْ شَرِّ مَا فِي هَذَا الْيَوْمِ وَشَرِّ مَا بَعْدَهُ\n\nرَبِّ أَعُوذُ بِكَ مِنَ الْكَسَلِ وَسُوءِ الْكِبَرِ، رَبِّ أَعُوذُ بِكَ مِنْ عَذَابٍ فِي النَّارِ وَعَذَابٍ فِي الْقَبْرِ` },
-    { text: `اللَّهُمَّ بِكَ أَصْبَحْنَا، وَبِكَ أَمْسَيْنَا، وَبِكَ نَحْيَا، وَبِكَ نَمُوتُ، وَإِلَيْكَ النُّشُورُ` },
-    { text: `اللَّهُمَّ أَنْتَ رَبِّي لَا إِلَهَ إِلَّا أَنْتَ، خَلَقْتَنِي وَأَنَا عَبْدُكَ، وَأَنَا عَلَى عَهْدِكَ وَوَعْدِكَ مَا اسْتَطَعْتُ، أَعُوذُ بِكَ مِنْ شَرِّ مَا صَنَعْتُ، أَبُوءُ لَكَ بِنِعْمَتِكَ عَلَيَّ، وَأَبُوءُ بِذَنْبِي فَاغْفِرْ لِي، فَإِنَّهُ لَا يَغْفِرُ الذُّنُوبَ إِلَّا أَنْتَ` },
-    { text: `بِسْمِ اللهِ الَّذِي لَا يَضُرُّ مَعَ اسْمِهِ شَيْءٌ فِي الْأَرْضِ وَلَا فِي السَّمَاءِ وَهُوَ السَّمِيعُ الْعَلِيمُ`, repeat: 3 },
-    { text: `رَضِيتُ بِاللهِ رَبًّا، وَبِالْإِسْلَامِ دِينًا، وَبِمُحَمَّدٍ صَلَّى اللهُ عَلَيْهِ وَسَلَّمَ نَبِيًّا`, repeat: 3 }
-];
-
-let currentThikrIndex = 0;
-
-// دوال التحميل والحفظ
-function loadIslamicState() {
-    try {
-        if (fs.existsSync(ISLAMIC_STATE_FILE)) {
-            const state = JSON.parse(fs.readFileSync(ISLAMIC_STATE_FILE, 'utf-8'));
-            ISLAMIC_MODULE_ENABLED = state.enabled || false;
-            currentThikrIndex = state.currentThikrIndex || 0;
-        }
-    } catch (error) {
-        console.error('خطأ في قراءة حالة القسم الاسلامي:', error.message);
+// Google Sheets Database Handler
+class GoogleSheetsDB {
+    constructor() {
+        this.sheets = null;
+        this.spreadsheetId = process.env.GOOGLE_SHEET_ID;
+        this.isInitialized = false;
     }
-}
 
-function saveIslamicState() {
-    try {
-        fs.writeFileSync(ISLAMIC_STATE_FILE, JSON.stringify({ 
-            enabled: ISLAMIC_MODULE_ENABLED, 
-            currentThikrIndex 
-        }), 'utf-8');
-    } catch (error) {
-        console.error('خطأ في حفظ حالة القسم الاسلامي:', error.message);
-    }
-}
+    // تهيئة الاتصال
+    async initialize() {
+        try {
+            if (this.isInitialized) return true;
 
-loadIslamicState();
-
-// تنظيف Navigation Map
-function cleanupNavigationMap() {
-    const now = Date.now();
-    for (const [sender, data] of userNavigation.entries()) {
-        if (now - data.timestamp > NAV_TIMEOUT) {
-            userNavigation.delete(sender);
-        }
-    }
-}
-
-setInterval(cleanupNavigationMap, 5 * 60 * 1000);
-
-// نظام الـ Poll + أرقام
-async function sendPollMenu(sock, sender, level, path = []) {
-    try {
-        let pollName = '';
-        let options = [];
-        
-        if (level === 'main') {
-            pollName = 'القسم الاسلامي - اختر';
-            options = ['1️⃣ الأذكار', '2️⃣ الفتاوى', '3️⃣ الفقه', '4️⃣ الموضوعية'];
-        }
-        else if (level === 'fiqh_main') {
-            pollName = 'الفقه - اختر القسم';
-            options = ['1️⃣ العبادات', '2️⃣ المعاملات', '3️⃣ فقه الأسرة', '4️⃣ العادات'];
-        }
-        else if (level === 'fiqh_ibadat') {
-            pollName = 'العبادات - اختر الموضوع';
-            options = [
-                '1️⃣ الصلاة',
-                '2️⃣ الجنائز',
-                '3️⃣ الزكاة',
-                '4️⃣ الصيام',
-                '5️⃣ الحج والعمرة',
-                '6️⃣ الطهارة',
-                '7️⃣ الجهاد والسير'
-            ];
-        }
-        else if (level === 'fiqh_ibadat_salah') {
-            pollName = 'الصلاة - اختر الموضوع';
-            options = [
-                '1️⃣ حكم الصلاة وأهميتها',
-                '2️⃣ الركوع والسجود',
-                '3️⃣ وقت الصلاة',
-                '4️⃣ الطهارة لصحة الصلاة',
-                '5️⃣ ستر العورة',
-                '6️⃣ استقبال القبلة',
-                '7️⃣ القيام في الصلاة',
-                '8️⃣ التكبير والاستفتاح',
-                '9️⃣ سجود التلاوة',
-                '🔟 الأذان والإقامة'
-            ];
-        }
-        else if (level === 'mawdooiya_main') {
-            pollName = 'الموضوعية - اختر الموضوع';
-            options = [
-                '1️⃣ القرآن وعلومه',
-                '2️⃣ العقيدة',
-                '3️⃣ الحديث وعلومه',
-                '4️⃣ التفسير',
-                '5️⃣ الدعوة والدعاة',
-                '6️⃣ الفرق والمذاهب',
-                '7️⃣ البدع والمحدثات',
-                '8️⃣ أصول الفقه',
-                '9️⃣ العالم والمتعلم',
-                '🔟 الآداب والأخلاق'
-            ];
-        }
-        
-        if (options.length > 0) {
-            // إرسال Poll فقط (بدون نص)
-            await sock.sendMessage(sender, {
-                poll: {
-                    name: pollName,
-                    values: options,
-                    selectableCount: 1
-                }
-            });
+            // قراءة credentials من ENV
+            const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS || '{}');
             
-            userNavigation.set(sender, { level, path, timestamp: Date.now() });
-            console.log(`✅ تم إرسال Poll: ${pollName}`);
-        }
-        
-    } catch (error) {
-        console.error('❌ خطأ في إرسال Poll:', error.message);
-    }
-}
+            if (!credentials.client_email || !credentials.private_key) {
+                throw new Error('GOOGLE_CREDENTIALS غير صالح في .env');
+            }
 
-// معالجة الاختيار بالأرقام
-async function handleNumberChoice(sock, sender, choice) {
-    const userNav = userNavigation.get(sender);
-    
-    if (!userNav) {
-        await sock.sendMessage(sender, { 
-            text: 'انتهت الجلسة. اكتب /اسلام للبدء من جديد' 
-        });
-        return true;
-    }
-    
-    const { level, path } = userNav;
-    
-    // المستوى الرئيسي
-    if (level === 'main') {
-        if (choice === 1) {
-            return await toggleAthkar(sock, sender);
-        }
-        else if (choice === 2) {
-            return await toggleFatawa(sock, sender);
-        }
-        else if (choice === 3) {
-            await sendPollMenu(sock, sender, 'fiqh_main', ['fiqh']);
-            return true;
-        }
-        else if (choice === 4) {
-            await sendPollMenu(sock, sender, 'mawdooiya_main', ['mawdooiya']);
-            return true;
-        }
-    }
-    
-    // أقسام الفقه
-    else if (level === 'fiqh_main') {
-        if (choice === 1) {
-            await sendPollMenu(sock, sender, 'fiqh_ibadat', ['fiqh', 'ibadat']);
-            return true;
-        }
-        else if (choice === 2) {
-            await sock.sendMessage(sender, {
-                text: 'قسم المعاملات قيد التطوير'
-            });
-            return true;
-        }
-        else if (choice === 3) {
-            await sock.sendMessage(sender, {
-                text: 'قسم فقه الأسرة قيد التطوير'
-            });
-            return true;
-        }
-        else if (choice === 4) {
-            await sock.sendMessage(sender, {
-                text: 'قسم العادات قيد التطوير'
-            });
-            return true;
-        }
-    }
-    
-    // العبادات
-    else if (level === 'fiqh_ibadat') {
-        if (choice === 1) {
-            await sendPollMenu(sock, sender, 'fiqh_ibadat_salah', ['fiqh', 'ibadat', 'salah']);
-            return true;
-        }
-        else {
-            await sock.sendMessage(sender, {
-                text: 'هذا القسم قيد التطوير'
-            });
-            return true;
-        }
-    }
-    
-    // الصلاة - الوصول للمحاضرات
-    else if (level === 'fiqh_ibadat_salah') {
-        if (choice >= 1 && choice <= 10) {
-            const categories = [
-                'hukmSalah', 'rukoo', 'waqt', 'taharah', 'satr', 
-                'qiblah', 'qiyam', 'takbeer', 'sujoodTilawa', 'adhan'
-            ];
-            const categoryNames = [
-                'حكم الصلاة وأهميتها', 'الركوع والسجود', 'وقت الصلاة', 
-                'الطهارة لصحة الصلاة', 'ستر العورة للمصلي', 'استقبال القبلة',
-                'القيام في الصلاة', 'التكبير والاستفتاح', 'سجود التلاوة والشكر', 'الأذان والإقامة'
-            ];
-            
-            const categoryKey = categories[choice - 1];
-            const categoryName = categoryNames[choice - 1];
-            
-            // مسار بسيط: fiqh > ibadat > salah
-            return await toggleLectureCategory(
-                sock, 
-                sender, 
-                ['fiqh', 'ibadat', 'salah'],
-                `الصلاة - ${categoryName}`
+            // إنشاء JWT client
+            const auth = new google.auth.JWT(
+                credentials.client_email,
+                null,
+                credentials.private_key.replace(/\\n/g, '\n'),
+                ['https://www.googleapis.com/auth/spreadsheets']
             );
-        }
-    }
-    
-    // الموضوعية
-    else if (level === 'mawdooiya_main') {
-        await sock.sendMessage(sender, {
-            text: 'أقسام الموضوعية قيد التطوير'
-        });
-        return true;
-    }
-    
-    return false;
-}
 
-// دوال Toggle
-async function toggleAthkar(sock, sender) {
-    // جلب الإعدادات من Google Sheets
-    const settings = await db.getScheduleSettings();
-    const athkarEnabled = settings.athkar_morning?.enabled && settings.athkar_evening?.enabled;
-    
-    // Toggle
-    await db.updateScheduleTime('athkar_morning', settings.athkar_morning?.time || '50 6 * * *');
-    await db.updateScheduleTime('athkar_evening', settings.athkar_evening?.time || '50 15 * * *');
-    
-    if (!athkarEnabled) {
-        startAthkarSchedule(sock);
-        await sock.sendMessage(sender, {
-            text: '*تم تفعيل قسم الأذكار*\n\nالصباح: 6:50 و 7:00\nالمساء: 3:50 و 4:00\n\nسيتم الإرسال في المجموعة المحددة'
-        });
-        console.log('تم تفعيل الأذكار');
-    } else {
-        stopAthkarSchedule();
-        await sock.sendMessage(sender, {
-            text: '*تم تعطيل قسم الأذكار*'
-        });
-        console.log('تم تعطيل الأذكار');
-    }
-    
-    userNavigation.delete(sender);
-    return true;
-}
-
-async function toggleFatawa(sock, sender) {
-    const settings = await db.getScheduleSettings();
-    const fatawaEnabled = settings.fatawa?.enabled;
-    
-    if (!fatawaEnabled) {
-        startFatawaSchedule(sock);
-        await sock.sendMessage(sender, {
-            text: '*تم تفعيل قسم الفتاوى*\n\nيومياً: 12:00 ظهراً\n\nسيتم الإرسال في المجموعة المحددة'
-        });
-        console.log('تم تفعيل الفتاوى');
-    } else {
-        stopFatawaSchedule();
-        await sock.sendMessage(sender, {
-            text: '*تم تعطيل قسم الفتاوى*'
-        });
-        console.log('تم تعطيل الفتاوى');
-    }
-    
-    userNavigation.delete(sender);
-    return true;
-}
-
-async function toggleLectureCategory(sock, sender, pathArray, displayName) {
-    try {
-        const targetGroup = process.env.ISLAMIC_GROUP_ID;
-        
-        // جلب المحاضرات من Google Sheets
-        const lectures = await db.getLectures(pathArray);
-        
-        if (!lectures || lectures.length === 0) {
-            await sock.sendMessage(sender, {
-                text: `*${displayName}*\n\nلا توجد محاضرات متاحة حالياً\n\nاستخدم /ادارة لإضافة محاضرات`
-            });
-            userNavigation.delete(sender);
+            // تهيئة Google Sheets API
+            this.sheets = google.sheets({ version: 'v4', auth });
+            
+            // اختبار الاتصال
+            await this.testConnection();
+            
+            this.isInitialized = true;
+            console.log('✅ تم الاتصال بـ Google Sheets بنجاح');
             return true;
+
+        } catch (error) {
+            console.error('❌ فشل الاتصال بـ Google Sheets:', error.message);
+            throw error;
         }
-        
-        // التحقق من الحالة الحالية
-        const isEnabled = lectures[0].enabled;
-        
-        if (!isEnabled) {
-            // تفعيل
-            const firstLecture = lectures[0];
-            
-            await sock.sendMessage(sender, {
-                text: `*تم تفعيل قسم:*\n\n${displayName}\n\nجاري إرسال أول محاضرة...`
+    }
+
+    // اختبار الاتصال
+    async testConnection() {
+        try {
+            const response = await this.sheets.spreadsheets.get({
+                spreadsheetId: this.spreadsheetId
             });
-            
-            console.log(`جاري جلب: ${firstLecture.title}`);
-            
-            try {
-                const content = await fetchLectureContent(firstLecture.pageUrl);
-                const message = formatLecture(content);
-                
-                if (targetGroup) {
-                    await sock.sendMessage(targetGroup, { text: message });
-                    console.log(`تم إرسال: ${firstLecture.title}`);
-                    
-                    // تحديث المؤشر في Google Sheets
-                    await db.updateLastSentIndex(pathArray, firstLecture.id, 1);
-                    await db.updateLectureStatus(pathArray, firstLecture.id, true);
-                } else {
-                    console.error('ISLAMIC_GROUP_ID غير محدد في .env');
-                }
-                
-                // بدء الجدولة
-                startLectureSchedule(sock, pathArray, lectures, displayName);
-                
-            } catch (err) {
-                console.error('فشل جلب المحاضرة:', err.message);
-                await sock.sendMessage(sender, {
-                    text: `فشل جلب المحاضرة: ${firstLecture.title}`
-                });
-            }
-            
-        } else {
-            // تعطيل
-            stopLectureSchedule(pathArray);
-            
-            // تحديث الحالة في Google Sheets
-            for (const lecture of lectures) {
-                await db.updateLectureStatus(pathArray, lecture.id, false);
-            }
-            
-            await sock.sendMessage(sender, {
-                text: `*تم تعطيل قسم:*\n\n${displayName}`
-            });
-            
-            console.log(`تم تعطيل: ${displayName}`);
+            console.log(`📊 Google Sheet: ${response.data.properties.title}`);
+            return true;
+        } catch (error) {
+            throw new Error(`فشل الاتصال: ${error.message}`);
         }
-        
-        userNavigation.delete(sender);
-        return true;
-        
-    } catch (error) {
-        console.error('خطأ في toggleLectureCategory:', error.message);
-        return false;
     }
-}
 
-// الجدولة
-async function sendMorningThikr(sock) {
-    try {
-        const targetGroup = process.env.ISLAMIC_GROUP_ID;
-        if (!targetGroup) return;
-        
-        const thikr = MORNING_EVENING_ATHKAR[currentThikrIndex];
-        let message = `*ذكر الصباح*\n\n${thikr.text}`;
-        if (thikr.repeat) message += `\n\nيُقال ${thikr.repeat} مرة`;
-        if (thikr.reward) message += `\n\n${thikr.reward}`;
-        
-        await sock.sendMessage(targetGroup, { text: message });
-        currentThikrIndex = (currentThikrIndex + 1) % MORNING_EVENING_ATHKAR.length;
-        saveIslamicState();
-        console.log('تم إرسال ذكر الصباح');
-    } catch (error) {
-        console.error('خطأ في إرسال ذكر الصباح:', error.message);
-    }
-}
+    // ═══════════════════════════════════════════════════════════
+    // دوال CRUD للمحاضرات
+    // ═══════════════════════════════════════════════════════════
 
-async function sendEveningThikr(sock) {
-    try {
-        const targetGroup = process.env.ISLAMIC_GROUP_ID;
-        if (!targetGroup) return;
-        
-        const thikr = MORNING_EVENING_ATHKAR[currentThikrIndex];
-        let message = `*ذكر المساء*\n\n${thikr.text}`;
-        if (thikr.repeat) message += `\n\nيُقال ${thikr.repeat} مرة`;
-        if (thikr.reward) message += `\n\n${thikr.reward}`;
-        
-        await sock.sendMessage(targetGroup, { text: message });
-        currentThikrIndex = (currentThikrIndex + 1) % MORNING_EVENING_ATHKAR.length;
-        saveIslamicState();
-        console.log('تم إرسال ذكر المساء');
-    } catch (error) {
-        console.error('خطأ في إرسال ذكر المساء:', error.message);
-    }
-}
-
-async function sendFatwa(sock) {
-    try {
-        const targetGroup = process.env.ISLAMIC_GROUP_ID;
-        if (!targetGroup) return;
-        
-        const fatwa = await fetchRandomFatwa();
-        await sock.sendMessage(targetGroup, { text: formatFatwaMessage(fatwa) });
-        console.log('تم إرسال فتوى');
-    } catch (error) {
-        console.error('خطأ في إرسال الفتوى:', error.message);
-    }
-}
-
-async function sendNextLecture(sock, pathArray, lectures, displayName) {
-    try {
-        const targetGroup = process.env.ISLAMIC_GROUP_ID;
-        if (!targetGroup) return;
-        
-        // جلب آخر مؤشر من Google Sheets
-        const updatedLectures = await db.getLectures(pathArray);
-        const currentLecture = updatedLectures.find(l => l.enabled);
-        
-        if (!currentLecture) {
-            console.log(`القسم ${displayName} معطل - إيقاف الإرسال`);
-            return;
-        }
-        
-        const currentIndex = currentLecture.lastSentIndex || 0;
-        
-        if (currentIndex >= updatedLectures.length) {
-            console.log(`تم الانتهاء من جميع محاضرات: ${displayName}`);
-            return;
-        }
-        
-        const lecture = updatedLectures[currentIndex];
-        
-        console.log(`جاري جلب: ${lecture.title} (${currentIndex + 1}/${updatedLectures.length})`);
+    // الحصول على جميع المحاضرات لقسم معين
+    async getLectures(sectionPath) {
+        await this.initialize();
         
         try {
-            const content = await fetchLectureContent(lecture.pageUrl);
-            const message = formatLecture(content);
+            const sheetName = this.getSheetName(sectionPath);
+            const range = `${sheetName}!A2:G`; // من الصف 2 (بعد الهيدر)
             
-            await sock.sendMessage(targetGroup, { text: message });
-            console.log(`تم إرسال: ${lecture.title}`);
+            const response = await this.sheets.spreadsheets.values.get({
+                spreadsheetId: this.spreadsheetId,
+                range: range
+            });
+
+            const rows = response.data.values || [];
             
-            // تحديث المؤشر في Google Sheets
-            await db.updateLastSentIndex(pathArray, lecture.id, currentIndex + 1);
-            
-        } catch (err) {
-            console.error(`فشل جلب المحاضرة: ${lecture.title}`, err.message);
+            return rows.map((row, index) => ({
+                id: row[0] || `lecture_${index + 1}`,
+                title: row[1] || '',
+                pageUrl: row[2] || '',
+                audioUrl: row[3] || '',
+                type: row[4] || 'lecture',
+                lastSentIndex: parseInt(row[5]) || 0,
+                enabled: row[6] === 'TRUE' || row[6] === 'true'
+            }));
+
+        } catch (error) {
+            console.error(`❌ فشل جلب المحاضرات من ${sectionPath}:`, error.message);
+            return [];
         }
+    }
+
+    // إضافة محاضرة جديدة
+    async addLecture(sectionPath, lecture) {
+        await this.initialize();
         
-    } catch (error) {
-        console.error('خطأ في sendNextLecture:', error.message);
+        try {
+            const sheetName = this.getSheetName(sectionPath);
+            console.log(`📝 محاولة إضافة محاضرة في: ${sheetName}`);
+            console.log(`📍 المسار: ${sectionPath.join(' > ')}`);
+            
+            // إنشاء Sheet إذا لم يكن موجوداً
+            await this.createSheetIfNotExists(sheetName);
+            
+            const range = `${sheetName}!A:G`;
+            
+            const values = [[
+                lecture.id || `lecture_${Date.now()}`,
+                lecture.title || '',
+                lecture.pageUrl || '',
+                lecture.audioUrl || '',
+                lecture.type || 'lecture',
+                0, // lastSentIndex
+                lecture.enabled !== false ? 'TRUE' : 'FALSE' // Google Sheets format
+            ]];
+
+            console.log(`💾 جاري الإضافة في Range: ${range}`);
+            
+            const result = await this.sheets.spreadsheets.values.append({
+                spreadsheetId: this.spreadsheetId,
+                range: range,
+                valueInputOption: 'RAW',
+                resource: { values }
+            });
+
+            console.log(`✅ تم إضافة محاضرة: ${lecture.title} في ${sheetName}`);
+            console.log(`📊 الصفوف المضافة: ${result.data.updates.updatedRows}`);
+            return true;
+
+        } catch (error) {
+            console.error('❌ فشل إضافة المحاضرة:');
+            console.error('   الخطأ:', error.message);
+            console.error('   المسار:', sectionPath);
+            console.error('   Sheet:', this.getSheetName(sectionPath));
+            return false;
+        }
+    }
+
+    // تحديث آخر محاضرة تم إرسالها
+    async updateLastSentIndex(sectionPath, lectureId, newIndex) {
+        await this.initialize();
+        
+        try {
+            const sheetName = this.getSheetName(sectionPath);
+            
+            // البحث عن الصف
+            const lectures = await this.getLectures(sectionPath);
+            const rowIndex = lectures.findIndex(l => l.id === lectureId);
+            
+            if (rowIndex === -1) {
+                throw new Error('المحاضرة غير موجودة');
+            }
+
+            // تحديث العمود F (lastSentIndex)
+            const range = `${sheetName}!F${rowIndex + 2}`; // +2 لأن الهيدر في الصف 1
+            
+            await this.sheets.spreadsheets.values.update({
+                spreadsheetId: this.spreadsheetId,
+                range: range,
+                valueInputOption: 'RAW',
+                resource: { values: [[newIndex]] }
+            });
+
+            console.log(`✅ تم تحديث المؤشر: ${lectureId} -> ${newIndex}`);
+            return true;
+
+        } catch (error) {
+            console.error('❌ فشل تحديث المؤشر:', error.message);
+            return false;
+        }
+    }
+
+    // تحديث حالة التفعيل
+    async updateLectureStatus(sectionPath, lectureId, enabled) {
+        await this.initialize();
+        
+        try {
+            const sheetName = this.getSheetName(sectionPath);
+            
+            const lectures = await this.getLectures(sectionPath);
+            const rowIndex = lectures.findIndex(l => l.id === lectureId);
+            
+            if (rowIndex === -1) {
+                throw new Error('المحاضرة غير موجودة');
+            }
+
+            const range = `${sheetName}!G${rowIndex + 2}`;
+            
+            await this.sheets.spreadsheets.values.update({
+                spreadsheetId: this.spreadsheetId,
+                range: range,
+                valueInputOption: 'RAW',
+                resource: { values: [[enabled]] }
+            });
+
+            console.log(`✅ تم تحديث حالة: ${lectureId} -> ${enabled}`);
+            return true;
+
+        } catch (error) {
+            console.error('❌ فشل تحديث الحالة:', error.message);
+            return false;
+        }
+    }
+
+    // حذف محاضرة
+    async deleteLecture(sectionPath, lectureId) {
+        await this.initialize();
+        
+        try {
+            const sheetName = this.getSheetName(sectionPath);
+            
+            const lectures = await this.getLectures(sectionPath);
+            const rowIndex = lectures.findIndex(l => l.id === lectureId);
+            
+            if (rowIndex === -1) {
+                throw new Error('المحاضرة غير موجودة');
+            }
+
+            // حذف الصف
+            const sheetId = await this.getSheetId(sheetName);
+            
+            await this.sheets.spreadsheets.batchUpdate({
+                spreadsheetId: this.spreadsheetId,
+                resource: {
+                    requests: [{
+                        deleteDimension: {
+                            range: {
+                                sheetId: sheetId,
+                                dimension: 'ROWS',
+                                startIndex: rowIndex + 1, // +1 لأن الهيدر في 0
+                                endIndex: rowIndex + 2
+                            }
+                        }
+                    }]
+                }
+            });
+
+            console.log(`✅ تم حذف المحاضرة: ${lectureId}`);
+            return true;
+
+        } catch (error) {
+            console.error('❌ فشل حذف المحاضرة:', error.message);
+            return false;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // دوال الجدولة (Schedule Settings)
+    // ═══════════════════════════════════════════════════════════
+
+    // الحصول على إعدادات الجدولة
+    async getScheduleSettings() {
+        await this.initialize();
+        
+        try {
+            const range = 'Settings!A2:C';
+            
+            const response = await this.sheets.spreadsheets.values.get({
+                spreadsheetId: this.spreadsheetId,
+                range: range
+            });
+
+            const rows = response.data.values || [];
+            
+            const settings = {};
+            rows.forEach(row => {
+                settings[row[0]] = {
+                    time: row[1] || '',
+                    enabled: row[2] === 'TRUE' || row[2] === 'true'
+                };
+            });
+
+            return settings;
+
+        } catch (error) {
+            console.error('❌ فشل جلب إعدادات الجدولة:', error.message);
+            return {};
+        }
+    }
+
+    // تحديث وقت الجدولة
+    async updateScheduleTime(section, newTime) {
+        await this.initialize();
+        
+        try {
+            const settings = await this.getScheduleSettings();
+            const sectionKeys = Object.keys(settings);
+            const rowIndex = sectionKeys.indexOf(section);
+            
+            if (rowIndex === -1) {
+                throw new Error('القسم غير موجود');
+            }
+
+            const range = `Settings!B${rowIndex + 2}`;
+            
+            await this.sheets.spreadsheets.values.update({
+                spreadsheetId: this.spreadsheetId,
+                range: range,
+                valueInputOption: 'RAW',
+                resource: { values: [[newTime]] }
+            });
+
+            console.log(`✅ تم تحديث وقت ${section}: ${newTime}`);
+            return true;
+
+        } catch (error) {
+            console.error('❌ فشل تحديث الوقت:', error.message);
+            return false;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // دوال مساعدة
+    // ═══════════════════════════════════════════════════════════
+
+    // تحويل مسار القسم إلى اسم Sheet
+    getSheetName(sectionPath) {
+        // مثال: ['fiqh', 'ibadat', 'salah'] -> 'Fiqh_Ibadat_Salah'
+        return sectionPath
+            .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+            .join('_');
+    }
+
+    // الحصول على Sheet ID
+    async getSheetId(sheetName) {
+        const response = await this.sheets.spreadsheets.get({
+            spreadsheetId: this.spreadsheetId
+        });
+
+        const sheet = response.data.sheets.find(s => s.properties.title === sheetName);
+        
+        if (!sheet) {
+            throw new Error(`Sheet not found: ${sheetName}`);
+        }
+
+        return sheet.properties.sheetId;
+    }
+
+    // إنشاء Sheet جديد (إذا لم يكن موجوداً)
+    async createSheetIfNotExists(sheetName) {
+        await this.initialize();
+        
+        try {
+            // محاولة الوصول للـ Sheet
+            const response = await this.sheets.spreadsheets.get({
+                spreadsheetId: this.spreadsheetId
+            });
+            
+            const sheetExists = response.data.sheets.some(
+                sheet => sheet.properties.title === sheetName
+            );
+            
+            if (sheetExists) {
+                console.log(`✅ Sheet موجود: ${sheetName}`);
+                return true;
+            }
+            
+            // Sheet غير موجود - إنشاء جديد
+            console.log(`📝 إنشاء Sheet جديد: ${sheetName}`);
+            
+            await this.sheets.spreadsheets.batchUpdate({
+                spreadsheetId: this.spreadsheetId,
+                resource: {
+                    requests: [{
+                        addSheet: {
+                            properties: {
+                                title: sheetName
+                            }
+                        }
+                    }]
+                }
+            });
+
+            // إضافة Header
+            await this.sheets.spreadsheets.values.update({
+                spreadsheetId: this.spreadsheetId,
+                range: `${sheetName}!A1:G1`,
+                valueInputOption: 'RAW',
+                resource: {
+                    values: [[
+                        'ID',
+                        'Title',
+                        'Page URL',
+                        'Audio URL',
+                        'Type',
+                        'Last Sent Index',
+                        'Enabled'
+                    ]]
+                }
+            });
+
+            console.log(`✅ تم إنشاء Sheet: ${sheetName}`);
+            return true;
+
+        } catch (error) {
+            console.error(`❌ فشل إنشاء Sheet ${sheetName}:`, error.message);
+            throw error;
+        }
+    }
+
+    // إنشاء Sheet الإعدادات
+    async setupSettingsSheet() {
+        await this.initialize();
+        
+        try {
+            await this.createSheetIfNotExists('Settings');
+            
+            // التحقق من وجود بيانات
+            const range = 'Settings!A1:C1';
+            const check = await this.sheets.spreadsheets.values.get({
+                spreadsheetId: this.spreadsheetId,
+                range: range
+            });
+
+            if (!check.data.values || check.data.values.length === 0) {
+                // إضافة Header والبيانات الافتراضية
+                const defaultSettings = [
+                    ['Section', 'Schedule Time (Cron)', 'Enabled'],
+                    ['athkar_morning', '50 6 * * *', 'TRUE'],
+                    ['athkar_evening', '50 15 * * *', 'TRUE'],
+                    ['fatawa', '0 12 * * *', 'TRUE'],
+                    ['fiqh', '0 * * * *', 'FALSE'],
+                    ['mawdooiya', '0 * * * *', 'FALSE']
+                ];
+
+                await this.sheets.spreadsheets.values.update({
+                    spreadsheetId: this.spreadsheetId,
+                    range: 'Settings!A1:C',
+                    valueInputOption: 'RAW',
+                    resource: { values: defaultSettings }
+                });
+
+                console.log('✅ تم إنشاء Settings Sheet بالبيانات الافتراضية');
+            }
+
+            return true;
+
+        } catch (error) {
+            console.error('❌ فشل إعداد Settings:', error.message);
+            return false;
+        }
     }
 }
 
-// Cron Jobs
-function startAthkarSchedule(sock) {
-    stopAthkarSchedule();
-    morningJob1 = cron.schedule('50 6 * * *', () => sendMorningThikr(sock), { timezone: "Africa/Cairo" });
-    morningJob2 = cron.schedule('0 7 * * *', () => sendMorningThikr(sock), { timezone: "Africa/Cairo" });
-    eveningJob1 = cron.schedule('50 15 * * *', () => sendEveningThikr(sock), { timezone: "Africa/Cairo" });
-    eveningJob2 = cron.schedule('0 16 * * *', () => sendEveningThikr(sock), { timezone: "Africa/Cairo" });
-    console.log('تم بدء جدولة الأذكار');
-}
+// تصدير instance واحد (Singleton)
+const db = new GoogleSheetsDB();
 
-function stopAthkarSchedule() {
-    if (morningJob1) { morningJob1.stop(); morningJob1 = null; }
-    if (morningJob2) { morningJob2.stop(); morningJob2 = null; }
-    if (eveningJob1) { eveningJob1.stop(); eveningJob1 = null; }
-    if (eveningJob2) { eveningJob2.stop(); eveningJob2 = null; }
-    console.log('تم إيقاف جدولة الأذكار');
-}
-
-function startFatawaSchedule(sock) {
-    stopFatawaSchedule();
-    fatwaJob = cron.schedule('0 12 * * *', () => sendFatwa(sock), { timezone: "Africa/Cairo" });
-    console.log('تم بدء جدولة الفتاوى');
-}
-
-function stopFatawaSchedule() {
-    if (fatwaJob) { fatwaJob.stop(); fatwaJob = null; }
-    console.log('تم إيقاف جدولة الفتاوى');
-}
-
-function startLectureSchedule(sock, pathArray, lectures, displayName) {
-    const pathKey = pathArray.join('_');
-    
-    stopLectureSchedule(pathArray);
-    
-    const job = cron.schedule('0 * * * *', () => {
-        sendNextLecture(sock, pathArray, lectures, displayName);
-    }, { timezone: "Africa/Cairo" });
-    
-    activeLectureJobs.set(pathKey, job);
-    console.log(`تم بدء جدولة: ${displayName}`);
-}
-
-function stopLectureSchedule(pathArray) {
-    const pathKey = pathArray.join('_');
-    const job = activeLectureJobs.get(pathKey);
-    
-    if (job) {
-        job.stop();
-        activeLectureJobs.delete(pathKey);
-        console.log(`تم إيقاف جدولة: ${pathKey}`);
-    }
-}
-
-async function startIslamicSchedule(sock) {
-    // تهيئة Google Sheets
-    try {
-        await db.initialize();
-        await db.setupSettingsSheet();
-    } catch (error) {
-        console.error('فشل تهيئة Google Sheets:', error.message);
-        return;
-    }
-    
-    // جلب الإعدادات وبدء الجداول المفعلة
-    const settings = await db.getScheduleSettings();
-    
-    if (settings.athkar_morning?.enabled || settings.athkar_evening?.enabled) {
-        startAthkarSchedule(sock);
-    }
-    
-    if (settings.fatawa?.enabled) {
-        startFatawaSchedule(sock);
-    }
-    
-    console.log('تم بدء جميع الجداول المفعلة');
-}
-
-function stopIslamicSchedule() {
-    stopAthkarSchedule();
-    stopFatawaSchedule();
-    
-    for (const job of activeLectureJobs.values()) {
-        job.stop();
-    }
-    activeLectureJobs.clear();
-    
-    console.log('تم إيقاف جميع الجداول');
-}
-
-// معالج الأوامر الرئيسي
-async function handleIslamicCommand(sock, msg, messageText, sender) {
-    const isAdmin = sender.includes('249962204268') || 
-                    sender.includes('231211024814174') ||
-                    sender.includes('252355702448348') ||
-                    msg.key.fromMe;
-    
-    if (!isAdmin) return false;
-    
-    const cmd = messageText.trim();
-    
-    // القائمة الرئيسية
-    if (cmd === '/اسلام') {
-        await sendPollMenu(sock, sender, 'main');
-        ISLAMIC_MODULE_ENABLED = true;
-        saveIslamicState();
-        return true;
-    }
-    
-    // معالجة الأرقام
-    if (/^[0-9]{1,2}$/.test(cmd)) {
-        return await handleNumberChoice(sock, sender, parseInt(cmd));
-    }
-    
-    return false;
-}
-
-module.exports = {
-    handleIslamicCommand,
-    startIslamicSchedule,
-    stopIslamicSchedule,
-    isEnabled: () => ISLAMIC_MODULE_ENABLED
-};
+module.exports = db;
