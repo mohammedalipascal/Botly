@@ -39,7 +39,18 @@ class AdminPanel {
             // انتظار رابط المحاضرة
             if (session.level === 'waiting_lecture_url') {
                 if (cmd.startsWith('http')) {
-                    return await this.handleLectureUrl(sock, sender, cmd, session.path);
+                    return await this.handleLectureUrl(sock, sender, cmd, session.path, session.topicName);
+                }
+            }
+            
+            // تعديل العنوان أو الحفظ
+            if (session.level === 'editing_lecture_title') {
+                if (cmd === 'تم') {
+                    // استخدام العنوان المقترح
+                    return await this.saveLecture(sock, sender, session.path, session.url, session.suggestedTitle);
+                } else {
+                    // استخدام العنوان الجديد
+                    return await this.saveLecture(sock, sender, session.path, session.url, cmd);
                 }
             }
             
@@ -53,13 +64,13 @@ class AdminPanel {
     }
     
     // معالج رابط المحاضرة
-    async handleLectureUrl(sock, sender, url, path) {
+    async handleLectureUrl(sock, sender, url, path, topicName) {
         try {
             await sock.sendMessage(sender, {
                 text: `⏳ جاري جلب المحاضرة...`
             });
             
-            const { fetchLectureContent, formatLecture } = require('../islamic/lectureHandler');
+            const { fetchLectureContent } = require('../islamic/lectureHandler');
             const content = await fetchLectureContent(url);
             
             if (!content) {
@@ -71,14 +82,16 @@ class AdminPanel {
             
             // عرض المحاضرة واقتراح العنوان
             await sock.sendMessage(sender, {
-                text: `✅ *تم جلب المحاضرة بنجاح!*\n\n📌 *العنوان المقترح:*\n${content.title}\n\n✍️ *أرسل عنوان جديد* أو اكتب *تم* لاستخدام العنوان الحالي`
+                text: `✅ *تم جلب المحاضرة بنجاح!*\n\n📌 *العنوان المقترح:*\n${content.title}\n\n✍️ *اكتب عنوان جديد* أو اكتب *تم* لاستخدام العنوان الحالي`
             });
             
             this.adminSessions.set(sender, {
                 level: 'editing_lecture_title',
                 path: path,
                 url: url,
+                audioUrl: content.audioUrl || '',
                 suggestedTitle: content.title,
+                topicName: topicName,
                 timestamp: Date.now()
             });
             
@@ -87,6 +100,50 @@ class AdminPanel {
         } catch (error) {
             await sock.sendMessage(sender, {
                 text: `❌ خطأ: ${error.message}`
+            });
+            return true;
+        }
+    }
+    
+    // حفظ المحاضرة في Google Sheets
+    async saveLecture(sock, sender, path, pageUrl, title) {
+        try {
+            const session = this.adminSessions.get(sender);
+            
+            await sock.sendMessage(sender, {
+                text: `💾 جاري الحفظ...`
+            });
+            
+            const lecture = {
+                id: `lecture_${Date.now()}`,
+                title: title,
+                pageUrl: pageUrl,
+                audioUrl: session.audioUrl || '',
+                type: 'lecture',
+                enabled: true
+            };
+            
+            const success = await db.addLecture(path, lecture);
+            
+            if (success) {
+                await sock.sendMessage(sender, {
+                    text: `✅ *تم حفظ المحاضرة بنجاح!*\n\n📚 ${title}\n📍 ${session.topicName}\n\n💡 يمكنك الآن تفعيل القسم من القائمة الإسلامية`
+                });
+                
+                // العودة للقائمة الرئيسية
+                this.adminSessions.delete(sender);
+                await this.sendMainMenu(sock, sender);
+            } else {
+                await sock.sendMessage(sender, {
+                    text: `❌ فشل حفظ المحاضرة في قاعدة البيانات`
+                });
+            }
+            
+            return true;
+            
+        } catch (error) {
+            await sock.sendMessage(sender, {
+                text: `❌ خطأ في الحفظ: ${error.message}`
             });
             return true;
         }
@@ -315,37 +372,33 @@ class AdminPanel {
             }
         }
 
-        // العبادات - اختيار الموضوع
-        else if (level === 'add_lecture_fiqh_topic') {
+        // العبادات - اختيار الموضوع (نهائي)
+        else if (level === 'add_lecture_fiqh_final') {
             if (choice === 0) {
                 await this.navigateFiqh(sock, sender, 'subsection');
                 return true;
             }
-            else if (choice === 1) {
-                session.selectedTopic = 'salah';
-                this.adminSessions.set(sender, session);
-                await this.navigateFiqh(sock, sender, 'category');
-                return true;
-            }
-        }
-
-        // الصلاة - اختيار القسم النهائي
-        else if (level === 'add_lecture_fiqh_category') {
-            if (choice === 0) {
-                await this.navigateFiqh(sock, sender, 'topic');
-                return true;
-            }
-            else if (choice === 11) { // ➕ إنشاء قسم جديد
+            else if (choice === 8) { // ➕ إنشاء قسم جديد
                 await this.createNewCategory(sock, sender, session.path);
                 return true;
             }
-            else if (choice >= 1 && choice <= 10) {
-                const categories = [
-                    'hukmSalah', 'rukoo', 'waqt', 'taharah', 'satr',
-                    'qiblah', 'qiyam', 'takbeer', 'sujoodTilawa', 'adhan'
-                ];
-                const finalPath = [...session.path, categories[choice - 1]];
-                await this.askForLectureUrl(sock, sender, finalPath);
+            else if (choice >= 1 && choice <= 7) {
+                const topics = ['salah', 'janazah', 'zakah', 'siyam', 'hajj', 'taharah', 'jihad'];
+                const topicNames = ['الصلاة', 'الجنائز', 'الزكاة', 'الصيام', 'الحج والعمرة', 'الطهارة', 'الجهاد'];
+                
+                const finalPath = [...session.path, topics[choice - 1]];
+                const topicName = topicNames[choice - 1];
+                
+                await sock.sendMessage(sender, {
+                    text: `📍 *المسار المختار:*\nالعبادات > ${topicName}\n\n📎 *أرسل رابط المحاضرة الآن*\n\nمثال:\nhttps://binbaz.org.sa/audios/187/...`
+                });
+                
+                this.adminSessions.set(sender, {
+                    level: 'waiting_lecture_url',
+                    path: finalPath,
+                    topicName: topicName,
+                    timestamp: Date.now()
+                });
                 return true;
             }
         }
@@ -428,7 +481,7 @@ class AdminPanel {
         });
     }
     
-    // التنقل في أقسام الفقه
+    // التنقل في أقسام الفقه (مبسط)
     async navigateFiqh(sock, sender, step) {
         let pollName = '';
         let options = [];
@@ -449,27 +502,12 @@ class AdminPanel {
                 pollName = 'العبادات - اختر الموضوع';
                 options = [
                     '1️⃣ الصلاة', '2️⃣ الجنائز', '3️⃣ الزكاة', '4️⃣ الصيام',
-                    '5️⃣ الحج والعمرة', '6️⃣ الطهارة', '7️⃣ الجهاد', '0️⃣ رجوع'
-                ];
-                currentPath = ['fiqh', 'ibadat'];
-            }
-            nextLevel = 'add_lecture_fiqh_topic';
-        }
-        else if (step === 'category') {
-            const session = this.adminSessions.get(sender);
-            const topic = session.selectedTopic;
-            
-            if (topic === 'salah') {
-                pollName = 'الصلاة - اختر القسم الفرعي';
-                options = [
-                    '1️⃣ حكم الصلاة', '2️⃣ الركوع والسجود', '3️⃣ وقت الصلاة',
-                    '4️⃣ الطهارة', '5️⃣ ستر العورة', '6️⃣ استقبال القبلة',
-                    '7️⃣ القيام', '8️⃣ التكبير', '9️⃣ سجود التلاوة', '🔟 الأذان',
+                    '5️⃣ الحج والعمرة', '6️⃣ الطهارة', '7️⃣ الجهاد',
                     '➕ إنشاء قسم جديد', '0️⃣ رجوع'
                 ];
-                currentPath = ['fiqh', 'ibadat', 'salah'];
+                currentPath = ['fiqh', 'ibadat'];
+                nextLevel = 'add_lecture_fiqh_final';
             }
-            nextLevel = 'add_lecture_fiqh_category';
         }
         
         await sock.sendMessage(sender, {
@@ -485,21 +523,6 @@ class AdminPanel {
             ...session,
             level: nextLevel,
             path: currentPath,
-            timestamp: Date.now()
-        });
-    }
-    
-    // طلب رابط المحاضرة
-    async askForLectureUrl(sock, sender, finalPath) {
-        const pathString = finalPath.join(' > ');
-        
-        await sock.sendMessage(sender, {
-            text: `📍 *المسار المختار:*\n${pathString}\n\n📎 *أرسل رابط المحاضرة الآن*\n\nمثال:\nhttps://binbaz.org.sa/audios/187/...`
-        });
-        
-        this.adminSessions.set(sender, {
-            level: 'waiting_lecture_url',
-            path: finalPath,
             timestamp: Date.now()
         });
     }
