@@ -950,12 +950,13 @@ async function startBot() {
                     }
                 }
                 
-                const isIslamicCommand = await handleIslamicCommand(sock, msg, messageText, sender);
-                if (isIslamicCommand) return;
-                
-                // لوحة الإدارة
+                // لوحة الإدارة (قبل القسم الإسلامي)
                 const isAdminCommand = await adminPanel.handleAdminCommand(sock, msg, messageText, sender);
                 if (isAdminCommand) return;
+                
+                // القسم الإسلامي
+                const isIslamicCommand = await handleIslamicCommand(sock, msg, messageText, sender);
+                if (isIslamicCommand) return;
                                 
                 if (msg.key.fromMe) return;
                 
