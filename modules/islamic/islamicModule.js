@@ -92,21 +92,6 @@ async function sendPollMenu(sock, sender, level, path = []) {
                 '7️⃣ الجهاد والسير'
             ];
         }
-        else if (level === 'fiqh_ibadat_salah') {
-            pollName = 'الصلاة - اختر الموضوع';
-            options = [
-                '1️⃣ حكم الصلاة وأهميتها',
-                '2️⃣ الركوع والسجود',
-                '3️⃣ وقت الصلاة',
-                '4️⃣ الطهارة لصحة الصلاة',
-                '5️⃣ ستر العورة',
-                '6️⃣ استقبال القبلة',
-                '7️⃣ القيام في الصلاة',
-                '8️⃣ التكبير والاستفتاح',
-                '9️⃣ سجود التلاوة',
-                '🔟 الأذان والإقامة'
-            ];
-        }
         else if (level === 'mawdooiya_main') {
             pollName = 'الموضوعية - اختر الموضوع';
             options = [
@@ -202,40 +187,19 @@ async function handleNumberChoice(sock, sender, choice) {
     // العبادات
     else if (level === 'fiqh_ibadat') {
         if (choice === 1) {
-            await sendPollMenu(sock, sender, 'fiqh_ibadat_salah', ['fiqh', 'ibadat', 'salah']);
-            return true;
+            // تفعيل/تعطيل الصلاة مباشرة
+            return await toggleLectureCategory(
+                sock, 
+                sender, 
+                ['fiqh', 'ibadat', 'salah'],
+                'الصلاة'
+            );
         }
         else {
             await sock.sendMessage(sender, {
                 text: 'هذا القسم قيد التطوير'
             });
             return true;
-        }
-    }
-    
-    // الصلاة - الوصول للمحاضرات
-    else if (level === 'fiqh_ibadat_salah') {
-        if (choice >= 1 && choice <= 10) {
-            const categories = [
-                'hukmSalah', 'rukoo', 'waqt', 'taharah', 'satr', 
-                'qiblah', 'qiyam', 'takbeer', 'sujoodTilawa', 'adhan'
-            ];
-            const categoryNames = [
-                'حكم الصلاة وأهميتها', 'الركوع والسجود', 'وقت الصلاة', 
-                'الطهارة لصحة الصلاة', 'ستر العورة للمصلي', 'استقبال القبلة',
-                'القيام في الصلاة', 'التكبير والاستفتاح', 'سجود التلاوة والشكر', 'الأذان والإقامة'
-            ];
-            
-            const categoryKey = categories[choice - 1];
-            const categoryName = categoryNames[choice - 1];
-            
-            // مسار بسيط: fiqh > ibadat > salah
-            return await toggleLectureCategory(
-                sock, 
-                sender, 
-                ['fiqh', 'ibadat', 'salah'],
-                `الصلاة - ${categoryName}`
-            );
         }
     }
     
@@ -596,4 +560,3 @@ module.exports = {
     stopIslamicSchedule,
     isEnabled: () => ISLAMIC_MODULE_ENABLED
 };
-
