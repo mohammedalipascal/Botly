@@ -8,18 +8,26 @@ class AdminPanel {
 
     // التحقق من صلاحيات الأدمن
     isAdmin(sender) {
-        return sender.includes('249962204268') || 
-               sender.includes('231211024814174');
+        const isAdminCheck = sender.includes('249962204268') || 
+                            sender.includes('231211024814174');
+        console.log(`🔐 Admin check for ${sender}: ${isAdminCheck}`);
+        return isAdminCheck;
     }
 
     // معالج الأوامر الرئيسي
     async handleAdminCommand(sock, msg, messageText, sender) {
-        if (!this.isAdmin(sender)) return false;
+        console.log(`📝 Admin handler called: ${messageText} from ${sender}`);
+        
+        if (!this.isAdmin(sender)) {
+            console.log('⛔ Not admin - ignoring');
+            return false;
+        }
 
         const cmd = messageText.trim();
 
         // القائمة الرئيسية
         if (cmd === '/ادارة' || cmd === '/admin') {
+            console.log('✅ Showing admin main menu');
             await this.sendMainMenu(sock, sender);
             return true;
         }
