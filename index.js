@@ -1035,13 +1035,18 @@ async function startBot() {
                 if (error.message && error.message.includes('Bad MAC')) {
                     badMacErrorCount++;
                     
+                    // إعادة تعيين العداد كل 5 دقائق
                     if (Date.now() - lastBadMacReset > 5 * 60 * 1000) {
                         badMacErrorCount = 1;
                         lastBadMacReset = Date.now();
                     }
                     
-                    console.log(`⚠️ Bad MAC Error (#${badMacErrorCount}/${MAX_BAD_MAC_ERRORS})`);
+                    // log فقط كل 5 أخطاء
+                    if (badMacErrorCount % 5 === 0) {
+                        console.log(`⚠️ Bad MAC Errors: ${badMacErrorCount}/${MAX_BAD_MAC_ERRORS}`);
+                    }
                     
+                    // إعادة تشغيل عند تجاوز الحد
                     if (badMacErrorCount >= MAX_BAD_MAC_ERRORS) {
                         console.log('\n🔄 تجاوز حد أخطاء Bad MAC - إعادة تشغيل...\n');
                         sock.end();
