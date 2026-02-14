@@ -61,7 +61,11 @@ class GoogleSheetsDB {
     // دوال CRUD للمحاضرات
     // ═══════════════════════════════════════════════════════════
 
-    // الحصول على جميع المحاضرات لقسم معين
+    // الحصول على جميع المحاضرات/المحتوى لقسم معين
+    async getContent(sectionPath) {
+        return await this.getLectures(sectionPath);
+    }
+    
     async getLectures(sectionPath) {
         await this.initialize();
         
