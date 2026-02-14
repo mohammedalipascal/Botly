@@ -2,31 +2,20 @@ const cron = require('node-cron');
 const fs = require('fs');
 const path = require('path');
 const { fetchRandomFatwa, formatFatwaMessage } = require('./fatwaModule');
-const { fetchLectureContent, formatLecture } = require('./lectureHandler');
 const db = require('../../database/googleSheets');
 
-// القسم الاسلامي مع Google Sheets
+// القسم الاسلامي مع Google Sheets (بدون أذكار مدمجة)
 
 let ISLAMIC_MODULE_ENABLED = false;
 const ISLAMIC_STATE_FILE = path.join(__dirname, '../../islamic_state.json');
 
-let morningJob1 = null, morningJob2 = null, eveningJob1 = null, eveningJob2 = null;
+let morningJob = null, eveningJob = null;
 let fatwaJob = null;
 const activeLectureJobs = new Map();
 
 // تتبع موقع كل مستخدم في التنقل
 const userNavigation = new Map();
 const NAV_TIMEOUT = 30 * 60 * 1000; // 30 دقيقة
-
-const MORNING_EVENING_ATHKAR = [
-    { text: `أَصْبَحْنَا وَأَصْبَحَ الْمُلْكُ لِلَّهِ، وَالْحَمْدُ لِلَّهِ، لَا إِلَهَ إِلَّا اللهُ وَحْدَهُ لَا شَرِيكَ لَهُ، لَهُ الْمُلْكُ وَلَهُ الْحَمْدُ، وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ\n\nرَبِّ أَسْأَلُكَ خَيْرَ مَا فِي هَذَا الْيَوْمِ وَخَيْرَ مَا بَعْدَهُ، وَأَعُوذُ بِكَ مِنْ شَرِّ مَا فِي هَذَا الْيَوْمِ وَشَرِّ مَا بَعْدَهُ\n\nرَبِّ أَعُوذُ بِكَ مِنَ الْكَسَلِ وَسُوءِ الْكِبَرِ، رَبِّ أَعُوذُ بِكَ مِنْ عَذَابٍ فِي النَّارِ وَعَذَابٍ فِي الْقَبْرِ` },
-    { text: `اللَّهُمَّ بِكَ أَصْبَحْنَا، وَبِكَ أَمْسَيْنَا، وَبِكَ نَحْيَا، وَبِكَ نَمُوتُ، وَإِلَيْكَ النُّشُورُ` },
-    { text: `اللَّهُمَّ أَنْتَ رَبِّي لَا إِلَهَ إِلَّا أَنْتَ، خَلَقْتَنِي وَأَنَا عَبْدُكَ، وَأَنَا عَلَى عَهْدِكَ وَوَعْدِكَ مَا اسْتَطَعْتُ، أَعُوذُ بِكَ مِنْ شَرِّ مَا صَنَعْتُ، أَبُوءُ لَكَ بِنِعْمَتِكَ عَلَيَّ، وَأَبُوءُ بِذَنْبِي فَاغْفِرْ لِي، فَإِنَّهُ لَا يَغْفِرُ الذُّنُوبَ إِلَّا أَنْتَ` },
-    { text: `بِسْمِ اللهِ الَّذِي لَا يَضُرُّ مَعَ اسْمِهِ شَيْءٌ فِي الْأَرْضِ وَلَا فِي السَّمَاءِ وَهُوَ السَّمِيعُ الْعَلِيمُ`, repeat: 3 },
-    { text: `رَضِيتُ بِاللهِ رَبًّا، وَبِالْإِسْلَامِ دِينًا، وَبِمُحَمَّدٍ صَلَّى اللهُ عَلَيْهِ وَسَلَّمَ نَبِيًّا`, repeat: 3 }
-];
-
-let currentThikrIndex = 0;
 
 // دوال التحميل والحفظ
 function loadIslamicState() {
@@ -343,51 +332,66 @@ async function toggleLectureCategory(sock, sender, pathArray, displayName) {
 }
 
 // الجدولة
-async function sendMorningThikr(sock) {
+// إرسال ذكر من قاعدة البيانات
+async function sendThikr(sock, type) {
     try {
         const targetGroup = process.env.ISLAMIC_GROUP_ID;
         if (!targetGroup) return;
         
-        const thikr = MORNING_EVENING_ATHKAR[currentThikrIndex];
-        let message = `*ذكر الصباح*\n\n${thikr.text}`;
-        if (thikr.repeat) message += `\n\nيُقال ${thikr.repeat} مرة`;
-        if (thikr.reward) message += `\n\n${thikr.reward}`;
+        // جلب الأذكار من DB
+        const athkar = await db.getContent(['athkar', type]);
+        
+        if (!athkar || athkar.length === 0) {
+            console.log(`لا توجد أذكار في القسم: ${type}`);
+            return;
+        }
+        
+        // جلب آخر ذكر تم إرساله
+        const lastIndex = athkar[0].lastSentIndex || 0;
+        const nextIndex = lastIndex >= athkar.length ? 0 : lastIndex;
+        
+        const thikr = athkar[nextIndex];
+        const title = type === 'morning' ? 'ذكر الصباح' : 'ذكر المساء';
+        
+        const message = `*${title}*\n\n${thikr.text}`;
         
         await sock.sendMessage(targetGroup, { text: message });
-        currentThikrIndex = (currentThikrIndex + 1) % MORNING_EVENING_ATHKAR.length;
-        saveIslamicState();
-        console.log('تم إرسال ذكر الصباح');
+        
+        // تحديث المؤشر
+        await db.updateLastSentIndex(['athkar', type], thikr.id, nextIndex + 1);
+        
+        console.log(`تم إرسال ${title}`);
     } catch (error) {
-        console.error('خطأ في إرسال ذكر الصباح:', error.message);
+        console.error(`خطأ في إرسال ${type}:`, error.message);
     }
 }
 
-async function sendEveningThikr(sock) {
-    try {
-        const targetGroup = process.env.ISLAMIC_GROUP_ID;
-        if (!targetGroup) return;
-        
-        const thikr = MORNING_EVENING_ATHKAR[currentThikrIndex];
-        let message = `*ذكر المساء*\n\n${thikr.text}`;
-        if (thikr.repeat) message += `\n\nيُقال ${thikr.repeat} مرة`;
-        if (thikr.reward) message += `\n\n${thikr.reward}`;
-        
-        await sock.sendMessage(targetGroup, { text: message });
-        currentThikrIndex = (currentThikrIndex + 1) % MORNING_EVENING_ATHKAR.length;
-        saveIslamicState();
-        console.log('تم إرسال ذكر المساء');
-    } catch (error) {
-        console.error('خطأ في إرسال ذكر المساء:', error.message);
-    }
-}
-
+// إرسال فتوى من قاعدة البيانات
 async function sendFatwa(sock) {
     try {
         const targetGroup = process.env.ISLAMIC_GROUP_ID;
         if (!targetGroup) return;
         
-        const fatwa = await fetchRandomFatwa();
-        await sock.sendMessage(targetGroup, { text: formatFatwaMessage(fatwa) });
+        // جلب الفتاوى من DB
+        const fatawa = await db.getContent(['fatawa']);
+        
+        if (!fatawa || fatawa.length === 0) {
+            console.log('لا توجد فتاوى في قاعدة البيانات');
+            return;
+        }
+        
+        // جلب آخر فتوى تم إرسالها
+        const lastIndex = fatawa[0].lastSentIndex || 0;
+        const nextIndex = lastIndex >= fatawa.length ? 0 : lastIndex;
+        
+        const fatwa = fatawa[nextIndex];
+        const message = `*فتوى*\n\n${fatwa.text}`;
+        
+        await sock.sendMessage(targetGroup, { text: message });
+        
+        // تحديث المؤشر
+        await db.updateLastSentIndex(['fatawa'], fatwa.id, nextIndex + 1);
+        
         console.log('تم إرسال فتوى');
     } catch (error) {
         console.error('خطأ في إرسال الفتوى:', error.message);
@@ -400,15 +404,21 @@ async function sendNextLecture(sock, pathArray, lectures, displayName) {
         if (!targetGroup) return;
         
         // جلب آخر مؤشر من Google Sheets
-        const updatedLectures = await db.getLectures(pathArray);
-        const currentLecture = updatedLectures.find(l => l.enabled);
+        const updatedLectures = await db.getContent(pathArray);
         
-        if (!currentLecture) {
-            console.log(`القسم ${displayName} معطل - إيقاف الإرسال`);
+        if (!updatedLectures || updatedLectures.length === 0) {
+            console.log(`لا محاضرات في: ${displayName}`);
             return;
         }
         
-        const currentIndex = currentLecture.lastSentIndex || 0;
+        const firstLecture = updatedLectures[0];
+        
+        if (!firstLecture.enabled) {
+            console.log(`القسم ${displayName} معطل`);
+            return;
+        }
+        
+        const currentIndex = firstLecture.lastSentIndex || 0;
         
         if (currentIndex >= updatedLectures.length) {
             console.log(`تم الانتهاء من جميع محاضرات: ${displayName}`);
@@ -417,28 +427,16 @@ async function sendNextLecture(sock, pathArray, lectures, displayName) {
         
         const lecture = updatedLectures[currentIndex];
         
-        console.log(`جاري جلب: ${lecture.title} (${currentIndex + 1}/${updatedLectures.length})`);
+        console.log(`إرسال: ${lecture.title} (${currentIndex + 1}/${updatedLectures.length})`);
         
-        try {
-            const content = await fetchLectureContent(lecture.pageUrl);
-            const message = formatLecture(content);
-            
-            await sock.sendMessage(targetGroup, { text: message });
-            console.log(`✅ تم إرسال: ${lecture.title}`);
-            
-            // تحديث المؤشر في Google Sheets
-            await db.updateLastSentIndex(pathArray, lecture.id, currentIndex + 1);
-            
-        } catch (err) {
-            console.error(`❌ فشل جلب المحاضرة: ${lecture.title}`, err.message);
-            
-            // إرسال رابط فقط في حالة الفشل
-            const fallbackMessage = `*${lecture.title}*\n\nالمزيد: ${lecture.pageUrl}`;
-            await sock.sendMessage(targetGroup, { text: fallbackMessage });
-            
-            // تحديث المؤشر حتى لو فشل الجلب
-            await db.updateLastSentIndex(pathArray, lecture.id, currentIndex + 1);
-        }
+        // إرسال النص مباشرة
+        const message = `*${lecture.title}*\n\n${lecture.text}`;
+        
+        await sock.sendMessage(targetGroup, { text: message });
+        console.log(`✅ تم إرسال: ${lecture.title}`);
+        
+        // تحديث المؤشر
+        await db.updateLastSentIndex(pathArray, lecture.id, currentIndex + 1);
         
     } catch (error) {
         console.error('خطأ في sendNextLecture:', error.message);
@@ -448,18 +446,14 @@ async function sendNextLecture(sock, pathArray, lectures, displayName) {
 // Cron Jobs
 function startAthkarSchedule(sock) {
     stopAthkarSchedule();
-    morningJob1 = cron.schedule('50 6 * * *', () => sendMorningThikr(sock), { timezone: "Africa/Cairo" });
-    morningJob2 = cron.schedule('0 7 * * *', () => sendMorningThikr(sock), { timezone: "Africa/Cairo" });
-    eveningJob1 = cron.schedule('50 15 * * *', () => sendEveningThikr(sock), { timezone: "Africa/Cairo" });
-    eveningJob2 = cron.schedule('0 16 * * *', () => sendEveningThikr(sock), { timezone: "Africa/Cairo" });
+    morningJob = cron.schedule('30 6 * * *', () => sendThikr(sock, 'morning'), { timezone: "Africa/Cairo" });
+    eveningJob = cron.schedule('30 15 * * *', () => sendThikr(sock, 'evening'), { timezone: "Africa/Cairo" });
     console.log('تم بدء جدولة الأذكار');
 }
 
 function stopAthkarSchedule() {
-    if (morningJob1) { morningJob1.stop(); morningJob1 = null; }
-    if (morningJob2) { morningJob2.stop(); morningJob2 = null; }
-    if (eveningJob1) { eveningJob1.stop(); eveningJob1 = null; }
-    if (eveningJob2) { eveningJob2.stop(); eveningJob2 = null; }
+    if (morningJob) { morningJob.stop(); morningJob = null; }
+    if (eveningJob) { eveningJob.stop(); eveningJob = null; }
     console.log('تم إيقاف جدولة الأذكار');
 }
 
