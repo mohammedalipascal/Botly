@@ -26,17 +26,29 @@ async function sendContent(sock, path, title) {
         if (index >= content.length) return;
         
         const item = content[index];
-        let text = (item.text || '').replace(/[\u200B-\u200D\uFEFF]/g, '');
-        if (text.length > 4000) text = text.substring(0, 4000);
         
+        // تنظيف شامل للنص
+        let text = (item.text || '')
+            .replace(/[\u200B-\u200D\uFEFF]/g, '') // zero-width chars
+            .replace(/[*_~`]/g, '') // markdown
+            .trim();
+        
+        // حد أقصى 2000 حرف
+        if (text.length > 2000) {
+            text = text.substring(0, 2000);
+        }
+        
+        // رسالة بسيطة جداً
         const message = `${item.title}\n\n${text}`;
         
         try {
+            console.log(`📤 إرسال إلى ${group}: ${item.title}`);
             await sock.sendMessage(group, { text: message });
             await db.updateIndex(path, item.id, index + 1);
-            console.log(`✅ تم إرسال: ${item.title}`);
-        } catch (e) {
-            await sock.sendMessage(group, { text: item.title });
+            console.log(`✅ تم الإرسال`);
+        } catch (sendErr) {
+            console.error(`❌ فشل الإرسال: ${sendErr.message}`);
+            // تخطي وتحديث المؤشر
             await db.updateIndex(path, item.id, index + 1);
         }
     } catch (e) {
@@ -550,16 +562,30 @@ async function initialize(sock) {
 
         const settings = await db.getSettings();
         for (const [section, config] of Object.entries(settings)) {
-            if (config.enabled) {
-                const times = config.time.split(',');
-                times.forEach(cron => {
-                    if (section.includes('athkar')) {
-                        const type = section.split('_')[1];
-                        startSchedule(sock, ['athkar', type], 'الأذكار');
-                    } else if (section === 'fatawa') {
-                        startSchedule(sock, ['fatawa'], 'الفتاوى');
-                    }
-                });
+            if (config.enabled && config.time) {
+                console.log(`🔄 تحميل جدولة: ${section}`);
+                
+                // تحديد المسار الصحيح
+                let path, title;
+                
+                if (section === 'athkar_morning') {
+                    path = ['athkar', 'morning'];
+                    title = 'الأذكار - الصباح';
+                } else if (section === 'athkar_evening') {
+                    path = ['athkar', 'evening'];
+                    title = 'الأذكار - المساء';
+                } else if (section === 'fatawa') {
+                    path = ['fatawa'];
+                    title = 'الفتاوى';
+                } else if (section.startsWith('fiqh_')) {
+                    const parts = section.split('_');
+                    path = parts;
+                    title = `الفقه - ${parts[parts.length - 1]}`;
+                } else {
+                    continue;
+                }
+                
+                await startSchedule(sock, path, title);
             }
         }
 
