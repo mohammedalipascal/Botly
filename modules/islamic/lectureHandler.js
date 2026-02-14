@@ -1,11 +1,6 @@
-const axios = require('axios');
-const cheerio = require('cheerio');
-
-// جلب محتوى المحاضرة
+// جلب محتوى المحاضرة (بدون صوت)
 async function fetchLectureContent(url) {
     try {
-        console.log(`📥 جلب المحاضرة من: ${url}`);
-        
         const response = await axios.get(url, {
             timeout: 15000,
             headers: {
@@ -24,29 +19,6 @@ async function fetchLectureContent(url) {
             title = 'محاضرة من موقع ابن باز';
         }
 
-        // جلب رابط الصوت
-        let audioUrl = '';
-        
-        // البحث عن رابط MP3
-        $('a[href*=".mp3"]').each((i, elem) => {
-            const href = $(elem).attr('href');
-            if (href && href.includes('.mp3')) {
-                audioUrl = href.startsWith('http') ? href : `https://binbaz.org.sa${href}`;
-                return false; // break
-            }
-        });
-
-        // البحث في source tags
-        if (!audioUrl) {
-            $('source[src*=".mp3"]').each((i, elem) => {
-                const src = $(elem).attr('src');
-                if (src && src.includes('.mp3')) {
-                    audioUrl = src.startsWith('http') ? src : `https://binbaz.org.sa${src}`;
-                    return false;
-                }
-            });
-        }
-
         // جلب المحتوى النصي
         let content = '';
         $('.content p, article p, .lecture-content p').each((i, elem) => {
@@ -60,13 +32,9 @@ async function fetchLectureContent(url) {
             content = $('.content, article, .lecture-content').first().text().trim();
         }
 
-        console.log(`✅ تم جلب: ${title}`);
-        console.log(`🎵 الصوت: ${audioUrl || 'غير متوفر'}`);
-
         return {
             title: title,
             content: content.substring(0, 1500),
-            audioUrl: audioUrl,
             pageUrl: url
         };
 
@@ -76,21 +44,15 @@ async function fetchLectureContent(url) {
     }
 }
 
-// تنسيق رسالة المحاضرة
+// تنسيق رسالة المحاضرة (نص بسيط فقط)
 function formatLecture(lecture) {
-    let message = `📚 *${lecture.title}*\n\n`;
+    let message = `*${lecture.title}*\n\n`;
     
-    if (lecture.content) {
+    if (lecture.content && lecture.content.length > 50) {
         message += `${lecture.content}\n\n`;
     }
     
-    if (lecture.audioUrl) {
-        message += `🎵 [استماع للمحاضرة](${lecture.audioUrl})\n\n`;
-    }
-    
-    if (lecture.pageUrl) {
-        message += `🔗 [المزيد](${lecture.pageUrl})`;
-    }
+    message += `المزيد: ${lecture.pageUrl}`;
     
     return message;
 }
