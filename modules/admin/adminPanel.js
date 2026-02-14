@@ -34,24 +34,11 @@ class AdminPanel {
             }
         }
         
-        // معالجة النصوص (روابط، أسماء أقسام، إلخ)
+        // معالجة النصوص
         if (session) {
-            // انتظار رابط المحاضرة
-            if (session.level === 'waiting_lecture_url') {
-                if (cmd.startsWith('http')) {
-                    return await this.handleLectureUrl(sock, sender, cmd, session.path, session.topicName);
-                }
-            }
-            
-            // تعديل العنوان أو الحفظ
-            if (session.level === 'editing_lecture_title') {
-                if (cmd === 'تم') {
-                    // استخدام العنوان المقترح
-                    return await this.saveLecture(sock, sender, session.path, session.url, session.suggestedTitle);
-                } else {
-                    // استخدام العنوان الجديد
-                    return await this.saveLecture(sock, sender, session.path, session.url, cmd);
-                }
+            // انتظار نص المحتوى (محاضرة/فتوى/ذكر)
+            if (session.level === 'waiting_content_text') {
+                return await this.handleContentText(sock, sender, cmd, session);
             }
             
             // تعيين وقت الجدولة
@@ -99,6 +86,48 @@ class AdminPanel {
                 topicName: topicName,
                 timestamp: Date.now()
             });
+            
+            return true;
+            
+        } catch (error) {
+            await sock.sendMessage(sender, {
+                text: `❌ خطأ: ${error.message}`
+            });
+            return true;
+        }
+    }
+    
+    // معالج النص المباشر (بدلاً من جلب من URL)
+    async handleContentText(sock, sender, text, session) {
+        try {
+            const { path, contentType, topicName } = session;
+            
+            await sock.sendMessage(sender, {
+                text: `💾 جاري الحفظ...`
+            });
+            
+            const content = {
+                id: `content_${Date.now()}`,
+                title: topicName || contentType,
+                text: text,
+                type: contentType || 'محاضرة',
+                enabled: false // معطل افتراضياً
+            };
+            
+            const success = await db.addContent(path, content);
+            
+            if (success) {
+                await sock.sendMessage(sender, {
+                    text: `✅ *تم حفظ ${contentType} بنجاح!*\n\n📚 ${content.title}\n\n💡 يمكنك الآن تفعيله من القائمة الإسلامية`
+                });
+                
+                this.adminSessions.delete(sender);
+                await this.sendMainMenu(sock, sender);
+            } else {
+                await sock.sendMessage(sender, {
+                    text: `❌ فشل حفظ ${contentType}`
+                });
+            }
             
             return true;
             
@@ -485,17 +514,45 @@ class AdminPanel {
             }
         }
 
-        // إضافة محاضرة - الخطوة 1: القسم الرئيسي
-        else if (level === 'add_lecture_step1') {
+        // إضافة محتوى - الخطوة 1: القسم الرئيسي
+        else if (level === 'add_content_step1') {
             if (choice === 0) {
                 await this.sendLecturesMenu(sock, sender);
                 return true;
             }
             else if (choice === 1) {
-                await this.navigateFiqh(sock, sender, 'subsection');
+                // الأذكار - طلب النص مباشرة
+                await sock.sendMessage(sender, {
+                    text: `📝 *إضافة ذكر جديد*\n\n✍️ اكتب أو الصق نص الذكر:`
+                });
+                
+                this.adminSessions.set(sender, {
+                    level: 'waiting_content_text',
+                    path: ['athkar'],
+                    contentType: 'ذكر',
+                    timestamp: Date.now()
+                });
                 return true;
             }
             else if (choice === 2) {
+                // الفتاوى - طلب النص مباشرة
+                await sock.sendMessage(sender, {
+                    text: `📝 *إضافة فتوى جديدة*\n\n✍️ اكتب أو الصق نص الفتوى:`
+                });
+                
+                this.adminSessions.set(sender, {
+                    level: 'waiting_content_text',
+                    path: ['fatawa'],
+                    contentType: 'فتوى',
+                    timestamp: Date.now()
+                });
+                return true;
+            }
+            else if (choice === 3) {
+                await this.navigateFiqh(sock, sender, 'subsection');
+                return true;
+            }
+            else if (choice === 4) {
                 await sock.sendMessage(sender, { text: '🚧 الموضوعية قيد التطوير' });
                 return true;
             }
@@ -533,12 +590,13 @@ class AdminPanel {
                 const topicName = topicNames[choice - 1];
                 
                 await sock.sendMessage(sender, {
-                    text: `📍 *المسار المختار:*\nالعبادات > ${topicName}\n\n📎 *أرسل رابط المحاضرة الآن*\n\nمثال:\nhttps://binbaz.org.sa/audios/187/...`
+                    text: `📝 *إضافة محاضرة - ${topicName}*\n\n✍️ اكتب أو الصق نص المحاضرة:`
                 });
                 
                 this.adminSessions.set(sender, {
-                    level: 'waiting_lecture_url',
+                    level: 'waiting_content_text',
                     path: finalPath,
+                    contentType: 'محاضرة',
                     topicName: topicName,
                     timestamp: Date.now()
                 });
@@ -652,12 +710,14 @@ class AdminPanel {
     // معالجات متقدمة
     // ═══════════════════════════════════════════════════════════
 
-    // بدء معالج إضافة محاضرة تفاعلي
+    // بدء معالج إضافة محتوى يدوي
     async startAddLectureWizard(sock, sender) {
         const pollName = 'اختر القسم الرئيسي';
         const options = [
-            '1️⃣ الفقه',
-            '2️⃣ الموضوعية',
+            '1️⃣ الأذكار',
+            '2️⃣ الفتاوى',
+            '3️⃣ الفقه',
+            '4️⃣ الموضوعية',
             '0️⃣ إلغاء'
         ];
         
@@ -670,7 +730,7 @@ class AdminPanel {
         });
         
         this.adminSessions.set(sender, {
-            level: 'add_lecture_step1',
+            level: 'add_content_step1',
             path: [],
             timestamp: Date.now()
         });
