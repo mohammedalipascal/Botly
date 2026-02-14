@@ -292,6 +292,8 @@ class AdminPanel {
         const options = [
             '1️⃣ الأذكار',
             '2️⃣ الفتاوى',
+            '3️⃣ الفقه',
+            '4️⃣ الموضوعية',
             '0️⃣ رجوع'
         ];
         
@@ -305,6 +307,31 @@ class AdminPanel {
         
         this.adminSessions.set(sender, {
             level: 'schedule_menu',
+            timestamp: Date.now()
+        });
+    }
+    
+    // قائمة أقسام الفقه للجدولة
+    async sendFiqhScheduleMenu(sock, sender) {
+        const pollName = 'الفقه - اختر القسم';
+        const options = [
+            '1️⃣ الصلاة',
+            '2️⃣ الجنائز',
+            '3️⃣ الزكاة',
+            '4️⃣ الصيام',
+            '0️⃣ رجوع'
+        ];
+        
+        await sock.sendMessage(sender, {
+            poll: {
+                name: pollName,
+                values: options,
+                selectableCount: 1
+            }
+        });
+        
+        this.adminSessions.set(sender, {
+            level: 'schedule_fiqh_menu',
             timestamp: Date.now()
         });
     }
@@ -533,6 +560,29 @@ class AdminPanel {
                 await this.sendScheduleSubMenu(sock, sender, 'fatawa', 'الفتاوى');
                 return true;
             }
+            else if (choice === 3) {
+                await this.sendFiqhScheduleMenu(sock, sender);
+                return true;
+            }
+            else if (choice === 4) {
+                await sock.sendMessage(sender, { text: '🚧 الموضوعية قيد التطوير' });
+                return true;
+            }
+        }
+        
+        // قائمة أقسام الفقه للجدولة
+        else if (level === 'schedule_fiqh_menu') {
+            if (choice === 0) {
+                await this.sendScheduleMenu(sock, sender);
+                return true;
+            }
+            const sections = ['salah', 'janazah', 'zakah', 'siyam'];
+            const names = ['الصلاة', 'الجنائز', 'الزكاة', 'الصيام'];
+            
+            if (choice >= 1 && choice <= 4) {
+                await this.sendScheduleSubMenu(sock, sender, `fiqh_${sections[choice - 1]}`, `الفقه - ${names[choice - 1]}`);
+                return true;
+            }
         }
         
         // القائمة الفرعية للجدولة
@@ -566,21 +616,28 @@ class AdminPanel {
     }
     
     // Toggle جدولة
-    async toggleSchedule(sock, sender, section) {
+    async toggleSchedule(sock, sender, section, sectionName) {
         try {
             const settings = await db.getScheduleSettings();
             const currentStatus = settings[section]?.enabled || false;
             const newStatus = !currentStatus;
             
             // تحديث في Google Sheets
-            // TODO: إضافة دالة updateScheduleStatus في googleSheets.js
+            const success = await db.updateScheduleStatus(section, newStatus);
             
-            const statusText = newStatus ? '✅ مفعّل' : '❌ معطّل';
-            await sock.sendMessage(sender, {
-                text: `${section}: ${statusText}`
-            });
+            if (success) {
+                const statusText = newStatus ? '✅ مفعّل' : '❌ معطّل';
+                await sock.sendMessage(sender, {
+                    text: `*${sectionName}*\n\n${statusText}`
+                });
+                
+                await this.sendScheduleMenu(sock, sender);
+            } else {
+                await sock.sendMessage(sender, {
+                    text: '❌ فشل تحديث الحالة'
+                });
+            }
             
-            await this.sendScheduleMenu(sock, sender);
             return true;
             
         } catch (error) {
