@@ -280,6 +280,48 @@ class GoogleSheetsDB {
         }
     }
 
+    // تحديث حالة التفعيل للجدولة
+    async updateScheduleStatus(section, enabled) {
+        await this.initialize();
+        
+        try {
+            const settings = await this.getScheduleSettings();
+            const sections = Object.keys(settings);
+            const rowIndex = sections.indexOf(section);
+            
+            if (rowIndex === -1) {
+                // القسم غير موجود - إضافته
+                const newRow = [[section, '0 12 * * *', enabled ? 'TRUE' : 'FALSE']];
+                
+                await this.sheets.spreadsheets.values.append({
+                    spreadsheetId: this.spreadsheetId,
+                    range: 'Settings!A:C',
+                    valueInputOption: 'RAW',
+                    resource: { values: newRow }
+                });
+                
+                console.log(`✅ تم إضافة قسم جديد: ${section}`);
+                return true;
+            }
+
+            const range = `Settings!C${rowIndex + 2}`;
+            
+            await this.sheets.spreadsheets.values.update({
+                spreadsheetId: this.spreadsheetId,
+                range: range,
+                valueInputOption: 'RAW',
+                resource: { values: [[enabled ? 'TRUE' : 'FALSE']] }
+            });
+
+            console.log(`✅ تم تحديث حالة ${section}: ${enabled}`);
+            return true;
+
+        } catch (error) {
+            console.error('❌ فشل تحديث الحالة:', error.message);
+            return false;
+        }
+    }
+    
     // تحديث وقت الجدولة
     async updateScheduleTime(section, newTime) {
         await this.initialize();
@@ -405,36 +447,44 @@ class GoogleSheetsDB {
         await this.initialize();
         
         try {
+            console.log('📝 إعداد Settings Sheet...');
+            
+            // إنشاء Sheet إذا لم يكن موجوداً
             await this.createSheetIfNotExists('Settings');
             
             // التحقق من وجود بيانات
-            const range = 'Settings!A1:C1';
-            const check = await this.sheets.spreadsheets.values.get({
-                spreadsheetId: this.spreadsheetId,
-                range: range
-            });
-
-            if (!check.data.values || check.data.values.length === 0) {
-                // إضافة Header والبيانات الافتراضية
-                const defaultSettings = [
-                    ['Section', 'Schedule Time (Cron)', 'Enabled'],
-                    ['athkar_morning', '50 6 * * *', 'TRUE'],
-                    ['athkar_evening', '50 15 * * *', 'TRUE'],
-                    ['fatawa', '0 12 * * *', 'TRUE'],
-                    ['fiqh', '0 * * * *', 'FALSE'],
-                    ['mawdooiya', '0 * * * *', 'FALSE']
-                ];
-
-                await this.sheets.spreadsheets.values.update({
+            try {
+                const check = await this.sheets.spreadsheets.values.get({
                     spreadsheetId: this.spreadsheetId,
-                    range: 'Settings!A1:C',
-                    valueInputOption: 'RAW',
-                    resource: { values: defaultSettings }
+                    range: 'Settings!A1:C10'
                 });
 
-                console.log('✅ تم إنشاء Settings Sheet بالبيانات الافتراضية');
+                if (check.data.values && check.data.values.length > 1) {
+                    console.log('✅ Settings Sheet موجود ومُعد');
+                    return true;
+                }
+            } catch (e) {
+                // Sheet موجود لكن فارغ
             }
+            
+            console.log('📝 إضافة بيانات Settings الافتراضية...');
+            
+            // إضافة Header والبيانات الافتراضية
+            const defaultSettings = [
+                ['Section', 'Schedule Time (Cron)', 'Enabled'],
+                ['athkar_morning', '30 6 * * *', 'FALSE'],
+                ['athkar_evening', '30 15 * * *', 'FALSE'],
+                ['fatawa', '0 12 * * *', 'FALSE']
+            ];
 
+            await this.sheets.spreadsheets.values.update({
+                spreadsheetId: this.spreadsheetId,
+                range: 'Settings!A1:C4',
+                valueInputOption: 'RAW',
+                resource: { values: defaultSettings }
+            });
+
+            console.log('✅ تم إنشاء Settings Sheet بالبيانات الافتراضية');
             return true;
 
         } catch (error) {
