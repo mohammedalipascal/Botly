@@ -213,7 +213,12 @@ async function initializeIslamicModule(sock) {
     }
 }
 
+function islamicIsEnabled() {
+    return !!(process.env.ISLAMIC_GROUP_ID && process.env.GOOGLE_SHEET_ID);
+}
+
 module.exports = {
     handleIslamicCommand,
-    initializeIslamicModule
+    initializeIslamicModule,
+    islamicIsEnabled
 };
