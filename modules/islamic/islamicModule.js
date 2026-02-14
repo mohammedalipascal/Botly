@@ -103,31 +103,70 @@ async function toggle(sock, sender, path, title) {
 // الجدولة
 async function startSchedule(sock, path, title) {
     const key = path.join('_');
+    
+    console.log(`🔧 بدء جدولة: ${title} (${key})`);
+    
     if (jobs[key]) {
         (Array.isArray(jobs[key]) ? jobs[key] : [jobs[key]]).forEach(j => j.stop());
         delete jobs[key];
     }
     
-    const settings = await db.getSettings();
-    let section = '';
-    if (path[0] === 'athkar') section = `athkar_${path[1]}`;
-    else if (path[0] === 'fatawa') section = 'fatawa';
-    else section = path.join('_');
-    
-    const times = settings[section]?.time || '';
-    if (!times) return;
-    
-    const timesList = times.split(',').filter(t => t.trim());
-    jobs[key] = [];
-    
-    timesList.forEach(cronTime => {
-        const job = cron.schedule(cronTime.trim(), () => {
-            sendContent(sock, path, title);
-        }, { timezone: "Africa/Cairo", scheduled: true });
-        jobs[key].push(job);
-    });
-    
-    console.log(`⏰ جدولة ${title}: ${timesList.length} وقت`);
+    try {
+        const settings = await db.getSettings();
+        
+        let section = '';
+        if (path[0] === 'athkar') section = `athkar_${path[1]}`;
+        else if (path[0] === 'fatawa') section = 'fatawa';
+        else section = path.join('_');
+        
+        console.log(`   📍 Section: ${section}`);
+        
+        const times = settings[section]?.time || '';
+        if (!times) {
+            console.log(`   ❌ لا أوقات للقسم: ${section}`);
+            return;
+        }
+        
+        const timesList = times.split(',').filter(t => t.trim());
+        jobs[key] = [];
+        
+        const now = new Date();
+        const cairoNow = now.toLocaleString('en-US', {
+            timeZone: 'Africa/Cairo',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+        });
+        
+        console.log(`   🕐 الوقت الآن بالقاهرة: ${cairoNow}`);
+        
+        timesList.forEach((cronTime, index) => {
+            const parts = cronTime.trim().split(' ');
+            const scheduleTime = `${parts[1]}:${parts[0].padStart(2, '0')}`;
+            
+            console.log(`   ⏰ وقت ${index + 1}: ${scheduleTime} (cron: ${cronTime.trim()})`);
+            
+            const job = cron.schedule(cronTime.trim(), () => {
+                const execTime = new Date().toLocaleString('en-US', {
+                    timeZone: 'Africa/Cairo',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                });
+                console.log(`🔔 [${execTime}] تشغيل جدولة: ${title}`);
+                sendContent(sock, path, title);
+            }, { 
+                timezone: "Africa/Cairo",
+                scheduled: true
+            });
+            
+            jobs[key].push(job);
+        });
+        
+        console.log(`✅ جدولة ${title}: ${timesList.length} وقت`);
+    } catch (e) {
+        console.error(`❌ خطأ في جدولة ${title}:`, e.message);
+    }
 }
 
 function stopSchedule(path) {
@@ -149,13 +188,18 @@ async function handleNumber(sock, sender, num) {
         } else if (num === 2) {
             return await toggle(sock, sender, ['fatawa'], 'الفتاوى');
         } else if (num === 3) {
-            await sendPoll(sock, sender, 'الفقه', ['1️⃣ العبادات', '0️⃣ رجوع'], 'fiqh_menu');
+            await sendPoll(sock, sender, 'الفقه', [
+                '1️⃣ العبادات', '2️⃣ المعاملات', 
+                '3️⃣ فقه الأسرة', '4️⃣ العادات', '0️⃣ رجوع'
+            ], 'fiqh_menu');
         } else if (num === 4) {
             await sock.sendMessage(sender, { text: '🚧 قيد التطوير' });
         } else if (num === 5) {
             await sendPoll(sock, sender, 'إضافة محتوى', ['1️⃣ ذكر', '2️⃣ فتوى', '3️⃣ محاضرة', '0️⃣ رجوع'], 'add_menu');
         } else if (num === 6) {
-            await sendPoll(sock, sender, 'الجدولة', ['1️⃣ الأذكار', '2️⃣ الفتاوى', '0️⃣ رجوع'], 'schedule_menu');
+            await sendPoll(sock, sender, 'الجدولة', [
+                '1️⃣ الأذكار', '2️⃣ الفتاوى', '3️⃣ الفقه', '0️⃣ رجوع'
+            ], 'schedule_menu');
         } else if (num === 7) {
             await sendStats(sock, sender);
         }
@@ -173,22 +217,34 @@ async function handleNumber(sock, sender, num) {
     
     if (s.level === 'fiqh_menu') {
         if (num === 0) return await sendMainMenu(sock, sender);
-        if (num === 1) {
-            await sendPoll(sock, sender, 'العبادات', [
-                '1️⃣ الصلاة', '2️⃣ الجنائز', '3️⃣ الزكاة', '0️⃣ رجوع'
-            ], 'ibadat_menu');
+        const sections = ['ibadat', 'muamalat', 'usra', 'adat'];
+        const names = ['العبادات', 'المعاملات', 'فقه الأسرة', 'العادات'];
+        
+        if (num >= 1 && num <= 4) {
+            if (num === 1) {
+                await sendPoll(sock, sender, 'العبادات', [
+                    '1️⃣ الصلاة', '2️⃣ الجنائز', '3️⃣ الزكاة', 
+                    '4️⃣ الصيام', '5️⃣ الحج', '6️⃣ الطهارة',
+                    '7️⃣ الجهاد', '0️⃣ رجوع'
+                ], 'ibadat_menu');
+            } else {
+                await sock.sendMessage(sender, { text: '🚧 قيد التطوير' });
+            }
         }
         return true;
     }
     
     if (s.level === 'ibadat_menu') {
         if (num === 0) {
-            await sendPoll(sock, sender, 'الفقه', ['1️⃣ العبادات', '0️⃣ رجوع'], 'fiqh_menu');
+            await sendPoll(sock, sender, 'الفقه', [
+                '1️⃣ العبادات', '2️⃣ المعاملات', '3️⃣ فقه الأسرة', 
+                '4️⃣ العادات', '0️⃣ رجوع'
+            ], 'fiqh_menu');
             return true;
         }
-        const topics = ['salah', 'janazah', 'zakah'];
-        const names = ['الصلاة', 'الجنائز', 'الزكاة'];
-        if (num >= 1 && num <= 3) {
+        const topics = ['salah', 'janazah', 'zakah', 'siyam', 'hajj', 'taharah', 'jihad'];
+        const names = ['الصلاة', 'الجنائز', 'الزكاة', 'الصيام', 'الحج', 'الطهارة', 'الجهاد'];
+        if (num >= 1 && num <= 7) {
             return await toggle(sock, sender, ['fiqh', 'ibadat', topics[num-1]], names[num-1]);
         }
     }
@@ -227,8 +283,12 @@ async function handleNumber(sock, sender, num) {
         }
         if (num === 1) {
             await sendPoll(sock, sender, 'العبادات', [
-                '1️⃣ الصلاة', '2️⃣ الجنائز', '3️⃣ الزكاة', '0️⃣ رجوع'
+                '1️⃣ الصلاة', '2️⃣ الجنائز', '3️⃣ الزكاة', 
+                '4️⃣ الصيام', '5️⃣ الحج', '6️⃣ الطهارة',
+                '7️⃣ الجهاد', '0️⃣ رجوع'
             ], 'add_ibadat');
+        } else {
+            await sock.sendMessage(sender, { text: '🚧 قيد التطوير' });
         }
         return true;
     }
@@ -238,9 +298,9 @@ async function handleNumber(sock, sender, num) {
             await sendPoll(sock, sender, 'الفقه', ['1️⃣ العبادات', '0️⃣ رجوع'], 'add_fiqh');
             return true;
         }
-        const topics = ['salah', 'janazah', 'zakah'];
-        const names = ['الصلاة', 'الجنائز', 'الزكاة'];
-        if (num >= 1 && num <= 3) {
+        const topics = ['salah', 'janazah', 'zakah', 'siyam', 'hajj', 'taharah', 'jihad'];
+        const names = ['الصلاة', 'الجنائز', 'الزكاة', 'الصيام', 'الحج', 'الطهارة', 'الجهاد'];
+        if (num >= 1 && num <= 7) {
             await sock.sendMessage(sender, { text: `✍️ اكتب نص ${names[num-1]} (فرصة واحدة):` });
             sessions.set(sender, { 
                 level: 'text_lecture', 
@@ -253,13 +313,43 @@ async function handleNumber(sock, sender, num) {
     
     if (s.level === 'schedule_menu') {
         if (num === 0) return await sendMainMenu(sock, sender);
-        const sections = ['athkar', 'fatawa'];
-        const names = ['الأذكار', 'الفتاوى'];
-        if (num >= 1 && num <= 2) {
+        
+        if (num === 1) {
+            await sendPoll(sock, sender, `الأذكار - الجدولة`, [
+                '1️⃣ إضافة وقت', '2️⃣ عرض/حذف أوقات', '3️⃣ تفعيل/تعطيل', '0️⃣ رجوع'
+            ], 'schedule_sub');
+            sessions.set(sender, { level: 'schedule_sub', section: 'athkar', name: 'الأذكار' });
+        } else if (num === 2) {
+            await sendPoll(sock, sender, `الفتاوى - الجدولة`, [
+                '1️⃣ إضافة وقت', '2️⃣ عرض/حذف أوقات', '3️⃣ تفعيل/تعطيل', '0️⃣ رجوع'
+            ], 'schedule_sub');
+            sessions.set(sender, { level: 'schedule_sub', section: 'fatawa', name: 'الفتاوى' });
+        } else if (num === 3) {
+            await sendPoll(sock, sender, 'الفقه - الجدولة', [
+                '1️⃣ الصلاة', '2️⃣ الجنائز', '3️⃣ الزكاة', '0️⃣ رجوع'
+            ], 'schedule_fiqh');
+        }
+        return true;
+    }
+    
+    if (s.level === 'schedule_fiqh') {
+        if (num === 0) {
+            await sendPoll(sock, sender, 'الجدولة', [
+                '1️⃣ الأذكار', '2️⃣ الفتاوى', '3️⃣ الفقه', '0️⃣ رجوع'
+            ], 'schedule_menu');
+            return true;
+        }
+        const topics = ['salah', 'janazah', 'zakah'];
+        const names = ['الصلاة', 'الجنائز', 'الزكاة'];
+        if (num >= 1 && num <= 3) {
             await sendPoll(sock, sender, `${names[num-1]} - الجدولة`, [
                 '1️⃣ إضافة وقت', '2️⃣ عرض/حذف أوقات', '3️⃣ تفعيل/تعطيل', '0️⃣ رجوع'
             ], 'schedule_sub');
-            sessions.set(sender, { level: 'schedule_sub', section: sections[num-1], name: names[num-1] });
+            sessions.set(sender, { 
+                level: 'schedule_sub', 
+                section: `fiqh_ibadat_${topics[num-1]}`, 
+                name: names[num-1] 
+            });
         }
         return true;
     }
@@ -429,6 +519,11 @@ async function handleCommand(sock, msg, text, sender) {
                     msg.key.fromMe;
 
     if (!isAdmin) return false;
+
+    // تجاهل poll responses لمنع الحلقة اللانهائية
+    if (msg.message?.pollUpdateMessage || msg.message?.pollCreationMessage) {
+        return false;
+    }
 
     if (text === '/اسلام' || text === '/islam' || text === '/ادارة' || text === '/admin') {
         await sendMainMenu(sock, sender);
