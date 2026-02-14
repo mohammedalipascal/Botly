@@ -807,13 +807,21 @@ async function startBot() {
                 const messageId = msg.key.id;
                 const isGroup = sender.endsWith('@g.us');
                 
-                // Message Deduplication - منع الحلقة اللانهائية
+                // تجاهل poll updates/creation تماماً
+                if (msg.message?.pollUpdateMessage || 
+                    msg.message?.pollCreationMessage ||
+                    msg.message?.pollCreationMessageV2 ||
+                    msg.message?.pollCreationMessageV3) {
+                    return;
+                }
+                
+                // Message Deduplication
                 const msgKey = `${sender}_${messageId}`;
                 if (processedMessages.has(msgKey)) {
-                    return; // تم معالجة هذه الرسالة مسبقاً
+                    return;
                 }
                 processedMessages.add(msgKey);
-                setTimeout(() => processedMessages.delete(msgKey), 60000); // حذف بعد دقيقة
+                setTimeout(() => processedMessages.delete(msgKey), 60000);
                 
                 const messageTime = msg.messageTimestamp * 1000;
                 if (messageTime < botStartTime - 60000) {
