@@ -1,7 +1,7 @@
 const cron = require('node-cron');
 const db = require('../../database/googleSheets');
 
-const userNav = new Map();
+const islamicNav = new Map(); // مفتاح منفصل عن Admin
 const NAV_TIMEOUT = 30 * 60 * 1000;
 
 let jobs = {};
@@ -45,15 +45,18 @@ async function sendPoll(sock, sender, level, path = []) {
     let name = '';
     let opts = [];
     
-    if (level === 'main') {
+    if (level === 'islamic_main') {
         name = 'القسم الاسلامي';
         opts = ['1️⃣ الأذكار', '2️⃣ الفتاوى', '3️⃣ الفقه', '4️⃣ الموضوعية'];
-    } else if (level === 'fiqh_main') {
+    } else if (level === 'islamic_athkar') {
+        name = 'الأذكار';
+        opts = ['1️⃣ صباحي', '2️⃣ مسائي', '0️⃣ رجوع'];
+    } else if (level === 'islamic_fiqh_main') {
         name = 'الفقه';
-        opts = ['1️⃣ العبادات', '2️⃣ المعاملات', '3️⃣ فقه الأسرة', '4️⃣ العادات'];
-    } else if (level === 'fiqh_ibadat') {
+        opts = ['1️⃣ العبادات', '2️⃣ المعاملات', '3️⃣ فقه الأسرة', '4️⃣ العادات', '0️⃣ رجوع'];
+    } else if (level === 'islamic_fiqh_ibadat') {
         name = 'العبادات';
-        opts = ['1️⃣ الصلاة', '2️⃣ الجنائز', '3️⃣ الزكاة', '4️⃣ الصيام', '5️⃣ الحج', '6️⃣ الطهارة', '7️⃣ الجهاد'];
+        opts = ['1️⃣ الصلاة', '2️⃣ الجنائز', '3️⃣ الزكاة', '4️⃣ الصيام', '5️⃣ الحج', '6️⃣ الطهارة', '7️⃣ الجهاد', '0️⃣ رجوع'];
     }
     
     if (opts.length > 0) {
@@ -61,7 +64,7 @@ async function sendPoll(sock, sender, level, path = []) {
             poll: { name, values: opts, selectableCount: 1 }
         });
         
-        userNav.set(sender, { level, path, timestamp: Date.now() });
+        islamicNav.set(sender, { level, path, timestamp: Date.now() });
         console.log(`✅ Poll: ${name}`);
     }
 }
@@ -72,7 +75,7 @@ async function toggleContent(sock, sender, path, title) {
         const content = await db.getContent(path);
         
         if (!content || content.length === 0) {
-            await sock.sendMessage(sender, { text: `لا محتوى في ${title}` });
+            await sock.sendMessage(sender, { text: `لا محتوى في ${title}\n\nأضف من /ادارة أولاً` });
             return true;
         }
         
@@ -98,53 +101,93 @@ async function toggleContent(sock, sender, path, title) {
     }
 }
 
-// Schedules
+// Schedules - دعم أوقات متعددة
 function startSchedule(sock, path, title) {
     const key = path.join('_');
-    if (jobs[key]) jobs[key].stop();
+    if (jobs[key]) {
+        jobs[key].forEach(j => j.stop());
+        delete jobs[key];
+    }
     
-    jobs[key] = cron.schedule('0 * * * *', () => sendContent(sock, path, title), {
-        timezone: "Africa/Cairo"
+    // جلب الأوقات من Settings
+    db.getSettings().then(settings => {
+        const section = key.replace('_', '_');
+        const times = settings[section]?.time || '';
+        
+        if (!times) return;
+        
+        const timesList = times.split(',');
+        jobs[key] = [];
+        
+        timesList.forEach((cron, index) => {
+            const job = require('node-cron').schedule(cron.trim(), () => {
+                sendContent(sock, path, title);
+            }, { timezone: "Africa/Cairo" });
+            
+            jobs[key].push(job);
+        });
+        
+        console.log(`⏰ جدولة ${title}: ${timesList.length} وقت`);
     });
-    
-    console.log(`⏰ جدولة: ${title}`);
 }
 
 function stopSchedule(path) {
     const key = path.join('_');
     if (jobs[key]) {
-        jobs[key].stop();
+        jobs[key].forEach(j => j.stop());
         delete jobs[key];
     }
 }
 
 // التنقل
 async function handleNumber(sock, sender, num) {
-    const session = userNav.get(sender);
+    const session = islamicNav.get(sender);
     if (!session) return false;
     
     const { level } = session;
     
-    if (level === 'main') {
+    if (level === 'islamic_main') {
         if (num === 1) {
-            await sock.sendMessage(sender, { text: '🚧 الأذكار - أضف محتوى من /ادارة' });
+            await sendPoll(sock, sender, 'islamic_athkar', ['athkar']);
             return true;
         } else if (num === 2) {
-            await sock.sendMessage(sender, { text: '🚧 الفتاوى - أضف محتوى من /ادارة' });
-            return true;
+            return await toggleContent(sock, sender, ['fatawa'], 'الفتاوى');
         } else if (num === 3) {
-            await sendPoll(sock, sender, 'fiqh_main', ['fiqh']);
+            await sendPoll(sock, sender, 'islamic_fiqh_main', ['fiqh']);
             return true;
         } else if (num === 4) {
             await sock.sendMessage(sender, { text: '🚧 قيد التطوير' });
             return true;
         }
-    } else if (level === 'fiqh_main') {
-        if (num === 1) {
-            await sendPoll(sock, sender, 'fiqh_ibadat', ['fiqh', 'ibadat']);
+    } 
+    else if (level === 'islamic_athkar') {
+        if (num === 0) {
+            await sendPoll(sock, sender, 'islamic_main');
             return true;
         }
-    } else if (level === 'fiqh_ibadat') {
+        const types = ['morning', 'evening'];
+        const names = ['الأذكار الصباحية', 'الأذكار المسائية'];
+        if (num >= 1 && num <= 2) {
+            return await toggleContent(sock, sender, ['athkar', types[num-1]], names[num-1]);
+        }
+    }
+    else if (level === 'islamic_fiqh_main') {
+        if (num === 0) {
+            await sendPoll(sock, sender, 'islamic_main');
+            return true;
+        } else if (num === 1) {
+            await sendPoll(sock, sender, 'islamic_fiqh_ibadat', ['fiqh', 'ibadat']);
+            return true;
+        } else {
+            await sock.sendMessage(sender, { text: '🚧 قيد التطوير' });
+            return true;
+        }
+    } 
+    else if (level === 'islamic_fiqh_ibadat') {
+        if (num === 0) {
+            await sendPoll(sock, sender, 'islamic_fiqh_main', ['fiqh']);
+            return true;
+        }
         const topics = ['salah', 'janazah', 'zakah', 'siyam', 'hajj', 'taharah', 'jihad'];
         const names = ['الصلاة', 'الجنائز', 'الزكاة', 'الصيام', 'الحج', 'الطهارة', 'الجهاد'];
         
@@ -169,9 +212,13 @@ async function handleIslamicCommand(sock, msg, text, sender) {
     const cmd = text.trim();
 
     if (cmd === '/اسلام' || cmd === '/islam') {
-        await sendPoll(sock, sender, 'main');
+        await sendPoll(sock, sender, 'islamic_main');
         return true;
     }
+
+    // فقط معالجة الأرقام إذا كانت هناك جلسة islamic
+    const session = islamicNav.get(sender);
+    if (!session) return false;
 
     if (/^\d{1,2}$/.test(cmd)) {
         return await handleNumber(sock, sender, parseInt(cmd));
@@ -195,15 +242,26 @@ async function initializeIslamicModule(sock) {
         
         for (const [section, config] of Object.entries(settings)) {
             if (config.enabled) {
-                const key = section;
-                jobs[key] = cron.schedule(config.time, () => {
+                const times = config.time.split(',');
+                times.forEach(cron => {
                     if (section.includes('athkar')) {
                         const type = section.split('_')[1];
-                        sendContent(sock, ['athkar', type], `الأذكار - ${type}`);
+                        const job = require('node-cron').schedule(cron.trim(), () => {
+                            sendContent(sock, ['athkar', type], `الأذكار`);
+                        }, { timezone: "Africa/Cairo" });
+                        
+                        const key = `athkar_${type}`;
+                        if (!jobs[key]) jobs[key] = [];
+                        jobs[key].push(job);
                     } else if (section === 'fatawa') {
-                        sendContent(sock, ['fatawa'], 'الفتاوى');
+                        const job = require('node-cron').schedule(cron.trim(), () => {
+                            sendContent(sock, ['fatawa'], 'الفتاوى');
+                        }, { timezone: "Africa/Cairo" });
+                        
+                        if (!jobs['fatawa']) jobs['fatawa'] = [];
+                        jobs['fatawa'].push(job);
                     }
-                }, { timezone: "Africa/Cairo" });
+                });
             }
         }
 
