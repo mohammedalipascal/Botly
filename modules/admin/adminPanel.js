@@ -85,7 +85,7 @@ class AdminPanel {
         await sock.sendMessage(sender, {
             poll: {
                 name: `${name} - الجدولة`,
-                values: ['1️⃣ إضافة وقت', '2️⃣ عرض الأوقات', '3️⃣ تفعيل/تعطيل', '0️⃣ رجوع'],
+                values: ['1️⃣ إضافة وقت', '2️⃣ عرض الأوقات', '3️⃣ حذف وقت', '4️⃣ تفعيل/تعطيل', '0️⃣ رجوع'],
                 selectableCount: 1
             }
         });
@@ -200,6 +200,9 @@ class AdminPanel {
                 await this.showTimes(sock, sender, s.section);
                 return true;
             } else if (num === 3) {
+                await this.showTimesForDelete(sock, sender, s.section, s.name);
+                return true;
+            } else if (num === 4) {
                 const settings = await db.getSettings();
                 const current = settings[s.section]?.enabled || false;
                 await db.updateScheduleStatus(s.section, !current);
@@ -215,6 +218,17 @@ class AdminPanel {
     async handleText(sock, sender, text) {
         const s = this.adminSessions.get(sender);
         if (!s) return false;
+
+        // حذف وقت
+        if (s.level === 'admin_delete_time') {
+            const num = parseInt(text);
+            if (isNaN(num)) {
+                await sock.sendMessage(sender, { text: '❌ اكتب رقم صحيح' });
+                return true;
+            }
+            await this.deleteTime(sock, sender, num, s.section, s.name, s.times);
+            return true;
+        }
 
         if (s.level === 'admin_text_athkar') {
             const success = await db.addContent(['athkar', s.athkarType], {
@@ -317,6 +331,51 @@ class AdminPanel {
         }).join('\n');
         
         await sock.sendMessage(sender, { text: `⏰ الأوقات:\n${timeList}` });
+    }
+
+    async showTimesForDelete(sock, sender, section, name) {
+        const settings = await db.getSettings();
+        const times = settings[section]?.time || '';
+        
+        if (!times) {
+            await sock.sendMessage(sender, { text: 'لا توجد أوقات' });
+            return;
+        }
+        
+        const timesList = times.split(',');
+        const message = `⏰ الأوقات:\n\n` + timesList.map((cron, i) => {
+            const parts = cron.trim().split(' ');
+            const h = parts[1];
+            const m = parts[0];
+            return `${i+1}. ${h}:${m.padStart(2, '0')}`;
+        }).join('\n') + `\n\n✍️ اكتب رقم الوقت للحذف:`;
+        
+        await sock.sendMessage(sender, { text: message });
+        
+        this.adminSessions.set(sender, { 
+            level: 'admin_delete_time', 
+            section, 
+            name,
+            times: timesList 
+        });
+    }
+
+    async deleteTime(sock, sender, num, section, name, times) {
+        const index = num - 1;
+        
+        if (index < 0 || index >= times.length) {
+            await sock.sendMessage(sender, { text: '❌ رقم خاطئ' });
+            return;
+        }
+        
+        times.splice(index, 1);
+        const newTime = times.join(',');
+        
+        await db.updateTime(section, newTime);
+        await sock.sendMessage(sender, { text: `✅ تم حذف الوقت` });
+        
+        this.adminSessions.delete(sender);
+        await this.sendScheduleMenu(sock, sender);
     }
 
     async sendStats(sock, sender) {
