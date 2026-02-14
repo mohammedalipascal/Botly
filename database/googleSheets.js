@@ -92,7 +92,52 @@ class GoogleSheetsDB {
         }
     }
 
-    // إضافة محاضرة جديدة
+    // إضافة محتوى نصي مباشر (محاضرة/فتوى/ذكر)
+    async addContent(sectionPath, content) {
+        await this.initialize();
+        
+        try {
+            const sheetName = this.getSheetName(sectionPath);
+            console.log(`📝 محاولة إضافة محتوى في: ${sheetName}`);
+            console.log(`📍 المسار: ${sectionPath.join(' > ')}`);
+            
+            // إنشاء Sheet إذا لم يكن موجوداً
+            await this.createSheetIfNotExists(sheetName);
+            
+            const range = `${sheetName}!A:F`;
+            
+            const values = [[
+                content.id || `content_${Date.now()}`,
+                content.title || '',
+                content.text || '',
+                content.type || 'محاضرة',
+                0, // lastSentIndex
+                content.enabled !== false ? 'TRUE' : 'FALSE'
+            ]];
+
+            console.log(`💾 جاري الإضافة في Range: ${range}`);
+            
+            const result = await this.sheets.spreadsheets.values.append({
+                spreadsheetId: this.spreadsheetId,
+                range: range,
+                valueInputOption: 'RAW',
+                resource: { values }
+            });
+
+            console.log(`✅ تم إضافة محتوى: ${content.title} في ${sheetName}`);
+            console.log(`📊 الصفوف المضافة: ${result.data.updates.updatedRows}`);
+            return true;
+
+        } catch (error) {
+            console.error('❌ فشل إضافة المحتوى:');
+            console.error('   الخطأ:', error.message);
+            console.error('   المسار:', sectionPath);
+            console.error('   Sheet:', this.getSheetName(sectionPath));
+            return false;
+        }
+    }
+    
+    // إضافة محاضرة جديدة (backward compatibility)
     async addLecture(sectionPath, lecture) {
         await this.initialize();
         
