@@ -421,15 +421,7 @@ async function sendNextLecture(sock, pathArray, lectures, displayName) {
         
         try {
             const content = await fetchLectureContent(lecture.pageUrl);
-            
-            // إرسال نص بسيط بدون صوت
-            let message = `📚 *${content.title}*\n\n`;
-            
-            if (content.content && content.content.length > 50) {
-                message += `${content.content.substring(0, 1000)}\n\n`;
-            }
-            
-            message += `🔗 [المزيد](${lecture.pageUrl})`;
+            const message = formatLecture(content);
             
             await sock.sendMessage(targetGroup, { text: message });
             console.log(`✅ تم إرسال: ${lecture.title}`);
@@ -441,9 +433,8 @@ async function sendNextLecture(sock, pathArray, lectures, displayName) {
             console.error(`❌ فشل جلب المحاضرة: ${lecture.title}`, err.message);
             
             // إرسال رابط فقط في حالة الفشل
-            await sock.sendMessage(targetGroup, { 
-                text: `📚 *${lecture.title}*\n\n🔗 ${lecture.pageUrl}` 
-            });
+            const fallbackMessage = `*${lecture.title}*\n\nالمزيد: ${lecture.pageUrl}`;
+            await sock.sendMessage(targetGroup, { text: fallbackMessage });
             
             // تحديث المؤشر حتى لو فشل الجلب
             await db.updateLastSentIndex(pathArray, lecture.id, currentIndex + 1);
