@@ -2,7 +2,7 @@ const db = require('../../database/googleSheets');
 
 class AdminPanel {
     constructor() {
-        this.sessions = new Map();
+        this.adminSessions = new Map(); // مفتاح منفصل عن Islamic
     }
 
     isAdmin(sender) {
@@ -19,40 +19,55 @@ class AdminPanel {
                 selectableCount: 1
             }
         });
-        this.sessions.set(sender, { level: 'main' });
+        this.adminSessions.set(sender, { level: 'admin_main' });
     }
 
     async sendAddMenu(sock, sender) {
         await sock.sendMessage(sender, {
             poll: {
                 name: 'إضافة محتوى',
-                values: ['1️⃣ ذكر', '2️⃣ فتوى', '3️⃣ محاضرة', '0️⃣ رجوع'],
+                values: ['1️⃣ أذكار', '2️⃣ فتاوى', '3️⃣ فقه', '4️⃣ موضوعية', '0️⃣ رجوع'],
                 selectableCount: 1
             }
         });
-        this.sessions.set(sender, { level: 'add_menu' });
+        this.adminSessions.set(sender, { level: 'admin_add_menu' });
+    }
+
+    async sendAthkarTypeMenu(sock, sender) {
+        await sock.sendMessage(sender, {
+            poll: {
+                name: 'نوع الذكر',
+                values: ['1️⃣ صباحي', '2️⃣ مسائي', '0️⃣ رجوع'],
+                selectableCount: 1
+            }
+        });
+        this.adminSessions.set(sender, { level: 'admin_athkar_type' });
     }
 
     async sendFiqhMenu(sock, sender) {
         await sock.sendMessage(sender, {
             poll: {
-                name: 'الفقه',
-                values: ['1️⃣ العبادات', '0️⃣ رجوع'],
+                name: 'الفقه - اختر القسم',
+                values: ['1️⃣ العبادات', '2️⃣ المعاملات', '3️⃣ فقه الأسرة', '4️⃣ العادات', '0️⃣ رجوع'],
                 selectableCount: 1
             }
         });
-        this.sessions.set(sender, { level: 'fiqh_menu' });
+        this.adminSessions.set(sender, { level: 'admin_fiqh_menu' });
     }
 
     async sendIbadatMenu(sock, sender) {
         await sock.sendMessage(sender, {
             poll: {
-                name: 'العبادات',
-                values: ['1️⃣ الصلاة', '2️⃣ الجنائز', '3️⃣ الزكاة', '0️⃣ رجوع'],
+                name: 'العبادات - اختر الموضوع',
+                values: [
+                    '1️⃣ الصلاة', '2️⃣ الجنائز', '3️⃣ الزكاة', 
+                    '4️⃣ الصيام', '5️⃣ الحج', '6️⃣ الطهارة', 
+                    '7️⃣ الجهاد', '0️⃣ رجوع'
+                ],
                 selectableCount: 1
             }
         });
-        this.sessions.set(sender, { level: 'ibadat_menu' });
+        this.adminSessions.set(sender, { level: 'admin_ibadat_menu' });
     }
 
     async sendScheduleMenu(sock, sender) {
@@ -63,25 +78,25 @@ class AdminPanel {
                 selectableCount: 1
             }
         });
-        this.sessions.set(sender, { level: 'schedule_menu' });
+        this.adminSessions.set(sender, { level: 'admin_schedule_menu' });
     }
 
     async sendScheduleSubMenu(sock, sender, section, name) {
         await sock.sendMessage(sender, {
             poll: {
                 name: `${name} - الجدولة`,
-                values: ['1️⃣ تعيين الوقت', '2️⃣ تفعيل/تعطيل', '0️⃣ رجوع'],
+                values: ['1️⃣ إضافة وقت', '2️⃣ عرض الأوقات', '3️⃣ تفعيل/تعطيل', '0️⃣ رجوع'],
                 selectableCount: 1
             }
         });
-        this.sessions.set(sender, { level: 'schedule_sub', section, name });
+        this.adminSessions.set(sender, { level: 'admin_schedule_sub', section, name });
     }
 
     async handleNumber(sock, sender, num) {
-        const s = this.sessions.get(sender);
+        const s = this.adminSessions.get(sender);
         if (!s) return false;
 
-        if (s.level === 'main') {
+        if (s.level === 'admin_main') {
             if (num === 1) {
                 await this.sendAddMenu(sock, sender);
                 return true;
@@ -92,52 +107,78 @@ class AdminPanel {
                 await this.sendStats(sock, sender);
                 return true;
             }
-        } else if (s.level === 'add_menu') {
+        } 
+        else if (s.level === 'admin_add_menu') {
             if (num === 0) {
                 await this.sendMain(sock, sender);
                 return true;
             } else if (num === 1) {
-                await sock.sendMessage(sender, { text: '✍️ اكتب نص الذكر:' });
-                this.sessions.set(sender, { level: 'text_thikr' });
+                await this.sendAthkarTypeMenu(sock, sender);
                 return true;
             } else if (num === 2) {
                 await sock.sendMessage(sender, { text: '✍️ اكتب نص الفتوى:' });
-                this.sessions.set(sender, { level: 'text_fatwa' });
+                this.adminSessions.set(sender, { level: 'admin_text_fatwa' });
                 return true;
             } else if (num === 3) {
                 await this.sendFiqhMenu(sock, sender);
                 return true;
+            } else if (num === 4) {
+                await sock.sendMessage(sender, { text: '🚧 الموضوعية قيد التطوير' });
+                return true;
             }
-        } else if (s.level === 'fiqh_menu') {
+        }
+        else if (s.level === 'admin_athkar_type') {
+            if (num === 0) {
+                await this.sendAddMenu(sock, sender);
+                return true;
+            }
+            const types = ['morning', 'evening'];
+            const names = ['صباحي', 'مسائي'];
+            if (num >= 1 && num <= 2) {
+                await sock.sendMessage(sender, { text: `✍️ اكتب نص الذكر ${names[num-1]}:` });
+                this.adminSessions.set(sender, { 
+                    level: 'admin_text_athkar', 
+                    athkarType: types[num-1],
+                    athkarName: names[num-1]
+                });
+                return true;
+            }
+        }
+        else if (s.level === 'admin_fiqh_menu') {
             if (num === 0) {
                 await this.sendAddMenu(sock, sender);
                 return true;
             } else if (num === 1) {
                 await this.sendIbadatMenu(sock, sender);
                 return true;
+            } else {
+                await sock.sendMessage(sender, { text: '🚧 قيد التطوير' });
+                return true;
             }
-        } else if (s.level === 'ibadat_menu') {
+        }
+        else if (s.level === 'admin_ibadat_menu') {
             if (num === 0) {
                 await this.sendFiqhMenu(sock, sender);
                 return true;
             }
-            const topics = ['salah', 'janazah', 'zakah'];
-            const names = ['الصلاة', 'الجنائز', 'الزكاة'];
-            if (num >= 1 && num <= 3) {
-                await sock.sendMessage(sender, { text: `✍️ اكتب نص محاضرة ${names[num-1]}:` });
-                this.sessions.set(sender, {
-                    level: 'text_lecture',
+            const topics = ['salah', 'janazah', 'zakah', 'siyam', 'hajj', 'taharah', 'jihad'];
+            const names = ['الصلاة', 'الجنائز', 'الزكاة', 'الصيام', 'الحج', 'الطهارة', 'الجهاد'];
+            if (num >= 1 && num <= 7) {
+                await sock.sendMessage(sender, { text: `✍️ اكتب نص ${names[num-1]}:` });
+                this.adminSessions.set(sender, {
+                    level: 'admin_text_lecture',
                     path: ['fiqh', 'ibadat', topics[num-1]],
                     title: names[num-1]
                 });
                 return true;
             }
-        } else if (s.level === 'schedule_menu') {
+        }
+        else if (s.level === 'admin_schedule_menu') {
             if (num === 0) {
                 await this.sendMain(sock, sender);
                 return true;
             } else if (num === 1) {
-                await this.sendScheduleSubMenu(sock, sender, 'athkar_morning', 'الأذكار');
+                await this.sendScheduleSubMenu(sock, sender, 'athkar', 'الأذكار');
                 return true;
             } else if (num === 2) {
                 await this.sendScheduleSubMenu(sock, sender, 'fatawa', 'الفتاوى');
@@ -146,15 +187,19 @@ class AdminPanel {
                 await sock.sendMessage(sender, { text: '🚧 قيد التطوير' });
                 return true;
             }
-        } else if (s.level === 'schedule_sub') {
+        }
+        else if (s.level === 'admin_schedule_sub') {
             if (num === 0) {
                 await this.sendScheduleMenu(sock, sender);
                 return true;
             } else if (num === 1) {
                 await sock.sendMessage(sender, { text: `⏰ اكتب الوقت:\nمثال: 6:30` });
-                this.sessions.set(sender, { level: 'set_time', section: s.section, name: s.name });
+                this.adminSessions.set(sender, { level: 'admin_set_time', section: s.section, name: s.name });
                 return true;
             } else if (num === 2) {
+                await this.showTimes(sock, sender, s.section);
+                return true;
+            } else if (num === 3) {
                 const settings = await db.getSettings();
                 const current = settings[s.section]?.enabled || false;
                 await db.updateScheduleStatus(s.section, !current);
@@ -168,40 +213,61 @@ class AdminPanel {
     }
 
     async handleText(sock, sender, text) {
-        const s = this.sessions.get(sender);
+        const s = this.adminSessions.get(sender);
         if (!s) return false;
 
-        if (s.level === 'text_thikr') {
-            await db.addContent(['athkar', 'morning'], {
-                title: 'ذكر',
+        if (s.level === 'admin_text_athkar') {
+            const success = await db.addContent(['athkar', s.athkarType], {
+                title: `ذكر ${s.athkarName}`,
                 text: text,
                 type: 'ذكر'
             });
-            await sock.sendMessage(sender, { text: '✅ تم الحفظ!' });
-            this.sessions.delete(sender);
+            
+            if (success) {
+                await sock.sendMessage(sender, { text: `✅ تم حفظ الذكر ${s.athkarName}!` });
+            } else {
+                await sock.sendMessage(sender, { text: '❌ فشل الحفظ' });
+            }
+            
+            this.adminSessions.delete(sender);
             await this.sendMain(sock, sender);
             return true;
-        } else if (s.level === 'text_fatwa') {
-            await db.addContent(['fatawa'], {
+        } 
+        else if (s.level === 'admin_text_fatwa') {
+            const success = await db.addContent(['fatawa'], {
                 title: 'فتوى',
                 text: text,
                 type: 'فتوى'
             });
-            await sock.sendMessage(sender, { text: '✅ تم الحفظ!' });
-            this.sessions.delete(sender);
+            
+            if (success) {
+                await sock.sendMessage(sender, { text: '✅ تم حفظ الفتوى!' });
+            } else {
+                await sock.sendMessage(sender, { text: '❌ فشل الحفظ' });
+            }
+            
+            this.adminSessions.delete(sender);
             await this.sendMain(sock, sender);
             return true;
-        } else if (s.level === 'text_lecture') {
-            await db.addContent(s.path, {
+        } 
+        else if (s.level === 'admin_text_lecture') {
+            const success = await db.addContent(s.path, {
                 title: s.title,
                 text: text,
                 type: 'محاضرة'
             });
-            await sock.sendMessage(sender, { text: '✅ تم الحفظ!' });
-            this.sessions.delete(sender);
+            
+            if (success) {
+                await sock.sendMessage(sender, { text: `✅ تم حفظ ${s.title}!` });
+            } else {
+                await sock.sendMessage(sender, { text: '❌ فشل الحفظ' });
+            }
+            
+            this.adminSessions.delete(sender);
             await this.sendMain(sock, sender);
             return true;
-        } else if (s.level === 'set_time') {
+        } 
+        else if (s.level === 'admin_set_time') {
             const match = text.match(/^(\d{1,2}):(\d{2})$/);
             if (!match) {
                 await sock.sendMessage(sender, { text: '❌ صيغة خاطئة. مثال: 6:30' });
@@ -217,9 +283,16 @@ class AdminPanel {
             }
             
             const cron = `${m} ${h} * * *`;
-            await db.updateTime(s.section, cron);
-            await sock.sendMessage(sender, { text: `✅ تم تعيين ${text}` });
-            this.sessions.delete(sender);
+            
+            // إضافة وقت جديد بدلاً من استبدال
+            const settings = await db.getSettings();
+            const currentTime = settings[s.section]?.time || '';
+            const newTime = currentTime ? `${currentTime},${cron}` : cron;
+            
+            await db.updateTime(s.section, newTime);
+            await sock.sendMessage(sender, { text: `✅ تم إضافة وقت ${text}` });
+            
+            this.adminSessions.delete(sender);
             await this.sendScheduleMenu(sock, sender);
             return true;
         }
@@ -227,10 +300,30 @@ class AdminPanel {
         return false;
     }
 
+    async showTimes(sock, sender, section) {
+        const settings = await db.getSettings();
+        const times = settings[section]?.time || '';
+        
+        if (!times) {
+            await sock.sendMessage(sender, { text: 'لا توجد أوقات' });
+            return;
+        }
+        
+        const timeList = times.split(',').map((cron, i) => {
+            const parts = cron.trim().split(' ');
+            const h = parts[1];
+            const m = parts[0];
+            return `${i+1}. ${h}:${m.padStart(2, '0')}`;
+        }).join('\n');
+        
+        await sock.sendMessage(sender, { text: `⏰ الأوقات:\n${timeList}` });
+    }
+
     async sendStats(sock, sender) {
         const sections = [
             { path: ['fiqh', 'ibadat', 'salah'], name: 'الصلاة' },
-            { path: ['athkar', 'morning'], name: 'الأذكار' },
+            { path: ['athkar', 'morning'], name: 'أذكار الصباح' },
+            { path: ['athkar', 'evening'], name: 'أذكار المساء' },
             { path: ['fatawa'], name: 'الفتاوى' }
         ];
 
@@ -239,25 +332,34 @@ class AdminPanel {
 
         for (const sec of sections) {
             const content = await db.getContent(sec.path);
-            if (content.length > 0 && content[0].enabled) {
-                stats += `✅ ${sec.name}: ${content[0].lastSentIndex}/${content.length}\n`;
+            if (content.length > 0) {
+                const enabled = content[0].enabled ? '✅' : '❌';
+                stats += `${enabled} ${sec.name}: ${content.length} محتوى\n`;
+                if (content[0].enabled) {
+                    stats += `   📊 ${content[0].lastSentIndex}/${content.length}\n`;
+                }
                 count++;
             }
         }
 
-        if (count === 0) stats += 'لا أقسام مفعلة';
+        if (count === 0) stats += 'لا محتوى';
 
         await sock.sendMessage(sender, { text: stats });
-        this.sessions.set(sender, { level: 'stats' });
+        this.adminSessions.set(sender, { level: 'admin_stats' });
     }
 
     async handleAdminCommand(sock, msg, text, sender) {
         if (!this.isAdmin(sender)) return false;
 
         if (text === '/ادارة' || text === '/admin') {
+            console.log('✅ Admin: Opening panel');
             await this.sendMain(sock, sender);
             return true;
         }
+
+        // فقط معالجة الأرقام والنصوص إذا كانت هناك جلسة admin
+        const session = this.adminSessions.get(sender);
+        if (!session) return false;
 
         if (/^\d{1,2}$/.test(text)) {
             return await this.handleNumber(sock, sender, parseInt(text));
