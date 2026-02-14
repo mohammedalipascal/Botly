@@ -12,7 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const NodeCache = require('node-cache');
 const { getAIResponse } = require('./modules/ai/ai');
-const { handleIslamicCommand, startIslamicSchedule, stopIslamicSchedule, isEnabled: islamicIsEnabled } = require('./modules/islamic/islamicModule');
+const { handleIslamicCommand, initializeIslamicModule, islamicIsEnabled } = require('./modules/islamic/islamicModule');
 const adminPanel = require('./modules/admin/adminPanel');
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -1117,7 +1117,7 @@ async function startBot() {
                 lastBadMacReset = Date.now();
                 
                 if (islamicIsEnabled()) {
-                    startIslamicSchedule(sock);
+                    initializeIslamicModule(sock);
                 }
                 
                 // الرسالة التلقائية محذوفة حسب الطلب
@@ -1139,14 +1139,12 @@ async function startBot() {
 
 process.on('SIGINT', () => {
     console.log('\n👋 إيقاف...\n');
-    stopIslamicSchedule();
     server.close();
     process.exit(0);
 });
 
 process.on('SIGTERM', () => {
     console.log('\n👋 إيقاف...\n');
-    stopIslamicSchedule();
     server.close();
     process.exit(0);
 });
