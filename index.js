@@ -17,6 +17,9 @@ const adminPanel = require('./modules/admin/adminPanel');
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+// Message Deduplication
+const processedMessages = new Set();
+
 const CONFIG = {
     botName: process.env.BOT_NAME || 'Botly',
     botOwner: process.env.BOT_OWNER || 'مقداد',
@@ -804,6 +807,14 @@ async function startBot() {
                 const sender = msg.key.remoteJid;
                 const messageId = msg.key.id;
                 const isGroup = sender.endsWith('@g.us');
+                
+                // Message Deduplication - منع الحلقة اللانهائية
+                const msgKey = `${sender}_${messageId}`;
+                if (processedMessages.has(msgKey)) {
+                    return; // تم معالجة هذه الرسالة مسبقاً
+                }
+                processedMessages.add(msgKey);
+                setTimeout(() => processedMessages.delete(msgKey), 60000); // حذف بعد دقيقة
                 
                 const messageTime = msg.messageTimestamp * 1000;
                 if (messageTime < botStartTime - 60000) {
