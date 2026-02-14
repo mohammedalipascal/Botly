@@ -31,7 +31,11 @@ async function sendContent(sock, path, title) {
         }
         
         const item = content[index];
-        await sock.sendMessage(group, { text: `*${item.title}*\n\n${item.text}` });
+        
+        // إرسال نص بسيط بدون markdown
+        const message = `${item.title}\n\n${item.text}`;
+        
+        await sock.sendMessage(group, { text: message });
         await db.updateIndex(path, item.id, index + 1);
         
         console.log(`✅ تم إرسال: ${item.title}`);
@@ -89,7 +93,7 @@ async function toggleContent(sock, sender, path, title) {
         
         if (newStatus) {
             await sendContent(sock, path, title);
-            startSchedule(sock, path, title);
+            await startSchedule(sock, path, title);
         } else {
             stopSchedule(path);
         }
@@ -102,25 +106,46 @@ async function toggleContent(sock, sender, path, title) {
 }
 
 // Schedules - دعم أوقات متعددة
-function startSchedule(sock, path, title) {
+async function startSchedule(sock, path, title) {
     const key = path.join('_');
+    
+    // إيقاف الجدولة القديمة
     if (jobs[key]) {
-        jobs[key].forEach(j => j.stop());
+        if (Array.isArray(jobs[key])) {
+            jobs[key].forEach(j => j.stop());
+        } else {
+            jobs[key].stop();
+        }
         delete jobs[key];
     }
     
-    // جلب الأوقات من Settings
-    db.getSettings().then(settings => {
-        const section = key.replace('_', '_');
+    try {
+        // جلب الأوقات من Settings
+        const settings = await db.getSettings();
+        
+        // البحث عن القسم الصحيح
+        let section = '';
+        if (path[0] === 'athkar') {
+            section = `athkar_${path[1]}`; // athkar_morning
+        } else if (path[0] === 'fatawa') {
+            section = 'fatawa';
+        } else {
+            section = path.join('_'); // fiqh_ibadat_salah
+        }
+        
         const times = settings[section]?.time || '';
         
-        if (!times) return;
+        if (!times) {
+            console.log(`لا أوقات للقسم: ${section}`);
+            return;
+        }
         
-        const timesList = times.split(',');
+        const timesList = times.split(',').filter(t => t.trim());
         jobs[key] = [];
         
-        timesList.forEach((cron, index) => {
-            const job = require('node-cron').schedule(cron.trim(), () => {
+        timesList.forEach((cronTime, index) => {
+            const job = cron.schedule(cronTime.trim(), () => {
+                console.log(`⏰ وقت الجدولة: ${title}`);
                 sendContent(sock, path, title);
             }, { timezone: "Africa/Cairo" });
             
@@ -128,7 +153,9 @@ function startSchedule(sock, path, title) {
         });
         
         console.log(`⏰ جدولة ${title}: ${timesList.length} وقت`);
-    });
+    } catch (e) {
+        console.error(`خطأ في جدولة ${title}:`, e.message);
+    }
 }
 
 function stopSchedule(path) {
