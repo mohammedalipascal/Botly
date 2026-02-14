@@ -10,7 +10,12 @@ let jobs = {};
 async function sendContent(sock, path, title) {
     try {
         const group = process.env.ISLAMIC_GROUP_ID;
-        if (!group) return;
+        if (!group) {
+            console.error('❌ ISLAMIC_GROUP_ID غير محدد');
+            return;
+        }
+        
+        console.log(`📤 محاولة الإرسال إلى: ${group}`);
         
         const content = await db.getContent(path);
         if (!content || content.length === 0) {
@@ -32,13 +37,31 @@ async function sendContent(sock, path, title) {
         
         const item = content[index];
         
-        // إرسال نص بسيط بدون markdown
-        const message = `${item.title}\n\n${item.text}`;
+        // تنظيف النص من الأحرف الخاصة
+        let text = (item.text || '').replace(/[\u200B-\u200D\uFEFF]/g, ''); // حذف zero-width chars
         
-        await sock.sendMessage(group, { text: message });
-        await db.updateIndex(path, item.id, index + 1);
+        if (text.length > 4000) {
+            text = text.substring(0, 4000);
+        }
         
-        console.log(`✅ تم إرسال: ${item.title}`);
+        const message = `${item.title}\n\n${text}`;
+        
+        try {
+            console.log(`📝 إرسال: ${item.title} (${message.length} حرف)`);
+            await sock.sendMessage(group, { text: message });
+            await db.updateIndex(path, item.id, index + 1);
+            console.log(`✅ تم إرسال: ${item.title}`);
+        } catch (sendError) {
+            console.error(`❌ فشل الإرسال (${sendError.message})`);
+            // محاولة بالعنوان فقط
+            try {
+                await sock.sendMessage(group, { text: item.title });
+                await db.updateIndex(path, item.id, index + 1);
+                console.log(`✅ تم إرسال العنوان فقط`);
+            } catch (e2) {
+                console.error(`❌ فشل حتى العنوان: ${e2.message}`);
+            }
+        }
     } catch (e) {
         console.error(`خطأ في ${title}:`, e.message);
     }
@@ -92,6 +115,17 @@ async function toggleContent(sock, sender, path, title) {
         await sock.sendMessage(sender, { text: msg });
         
         if (newStatus) {
+            // إرسال رسالة اختبار أولاً
+            try {
+                const group = process.env.ISLAMIC_GROUP_ID;
+                console.log(`🧪 اختبار الإرسال إلى: ${group}`);
+                await sock.sendMessage(group, { text: `✅ تم تفعيل: ${title}` });
+                console.log(`✅ اختبار الإرسال نجح`);
+            } catch (testError) {
+                console.error(`❌ فشل اختبار الإرسال: ${testError.message}`);
+                await sock.sendMessage(sender, { text: `⚠️ تحذير: فشل اختبار الإرسال للمجموعة` });
+            }
+            
             await sendContent(sock, path, title);
             await startSchedule(sock, path, title);
         } else {
@@ -144,15 +178,23 @@ async function startSchedule(sock, path, title) {
         jobs[key] = [];
         
         timesList.forEach((cronTime, index) => {
+            const now = new Date();
+            const cairoTime = now.toLocaleString('ar-EG', {timeZone: 'Africa/Cairo', hour: '2-digit', minute: '2-digit'});
+            
             const job = cron.schedule(cronTime.trim(), () => {
-                console.log(`⏰ وقت الجدولة: ${title}`);
+                const execTime = new Date();
+                console.log(`⏰ [${execTime.toLocaleString('ar-EG', {timeZone: 'Africa/Cairo'})}] تشغيل: ${title}`);
                 sendContent(sock, path, title);
-            }, { timezone: "Africa/Cairo" });
+            }, { 
+                timezone: "Africa/Cairo",
+                scheduled: true
+            });
             
             jobs[key].push(job);
+            console.log(`   ⏰ وقت ${index + 1}: ${cronTime.trim()} (الوقت الآن: ${cairoTime})`);
         });
         
-        console.log(`⏰ جدولة ${title}: ${timesList.length} وقت`);
+        console.log(`✅ جدولة ${title}: ${timesList.length} وقت`);
     } catch (e) {
         console.error(`خطأ في جدولة ${title}:`, e.message);
     }
