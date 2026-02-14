@@ -665,7 +665,6 @@ async function generateNewSession(attemptNumber = 1) {
     }
 }
 
-const processedMessages = new Set();
 const MAX_PROCESSED_CACHE = 1000;
 let globalSock = null;
 let botStartTime = Date.now();
