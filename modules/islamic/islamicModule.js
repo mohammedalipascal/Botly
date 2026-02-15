@@ -3,6 +3,7 @@ const db = require('../../database/googleSheets');
 
 const sessions = new Map();
 let jobs = {};
+let isInitialized = false;
 
 // إرسال محتوى
 async function sendContent(sock, path, title) {
@@ -48,8 +49,24 @@ async function sendContent(sock, path, title) {
         const message = `${item.title}\n\n${text}`;
         console.log(`   📤 محاولة الإرسال إلى ${group}...`);
         
-        await sock.sendMessage(group, { text: message });
-        console.log(`   ✅ تم الإرسال بنجاح!`);
+        try {
+            // إرسال مباشر بدون metadata
+            await sock.sendMessage(group, { 
+                text: message 
+            }, {
+                ephemeralExpiration: undefined
+            });
+            console.log(`   ✅ تم الإرسال بنجاح!`);
+        } catch (sendError) {
+            console.error(`   ❌ فشل: ${sendError.message}`);
+            // محاولة بدون timestamp
+            try {
+                await sock.sendMessage(group, { text: item.title });
+                console.log(`   ⚠️ تم إرسال العنوان فقط`);
+            } catch (e2) {
+                console.error(`   ❌ فشل تماماً: ${e2.message}`);
+            }
+        }
         
         await db.updateIndex(path, item.id, index + 1);
         console.log(`   💾 تم تحديث المؤشر إلى ${index + 1}`);
@@ -546,6 +563,11 @@ async function handleCommand(sock, msg, text, sender) {
 
 // Init
 async function initialize(sock) {
+    if (isInitialized) {
+        console.log('⚠️ القسم الإسلامي مُهيأ مسبقاً - تخطي');
+        return;
+    }
+    
     try {
         if (!process.env.ISLAMIC_GROUP_ID || !process.env.GOOGLE_SHEET_ID) {
             console.log('⚠️ القسم الإسلامي معطل');
@@ -580,6 +602,7 @@ async function initialize(sock) {
             }
         }
 
+        isInitialized = true;
         console.log('✅ القسم الإسلامي جاهز');
     } catch (e) {
         console.error('❌ فشل:', e.message);
