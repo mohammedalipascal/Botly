@@ -1,4 +1,18 @@
-require('dotenv').config();
+// Load .env only if not in cloud environment
+// Clever Cloud and most cloud platforms inject ENV vars directly
+const isCloudEnvironment = !!(process.env.CC_DEPLOYMENT_ID || process.env.CLEVER_CLOUD || process.env.PORT);
+
+if (!isCloudEnvironment && !process.env.ISLAMIC_GROUP_ID) {
+    console.log('📂 Loading .env file (local development)');
+    require('dotenv').config();
+} else {
+    console.log('☁️ Using cloud environment variables');
+}
+
+// Log key ENV vars (without exposing full values)
+console.log(`🔑 ISLAMIC_GROUP_ID: ${process.env.ISLAMIC_GROUP_ID ? '✅ موجود' : '❌ غير موجود'}`);
+console.log(`🔑 GOOGLE_SHEET_ID: ${process.env.GOOGLE_SHEET_ID ? '✅ موجود' : '❌ غير موجود'}`);
+
 const makeWASocket = require('@whiskeysockets/baileys').default;
 const { 
     useMultiFileAuthState, 
