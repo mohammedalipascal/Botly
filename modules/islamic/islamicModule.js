@@ -6,28 +6,57 @@ let jobs = {};
 
 // إرسال محتوى
 async function sendContent(sock, path, title) {
+    console.log(`🔔 [${new Date().toLocaleString('ar-EG', {timeZone: 'Africa/Cairo'})}] محاولة إرسال: ${title}`);
+    
     try {
         const group = process.env.ISLAMIC_GROUP_ID;
-        if (!group) return;
+        console.log(`   📍 GROUP_ID: ${group || '❌ غير موجود'}`);
+        
+        if (!group) {
+            console.error('   ❌ ISLAMIC_GROUP_ID غير محدد في ENV!');
+            return;
+        }
         
         const content = await db.getContent(path);
-        if (!content || content.length === 0) return;
+        console.log(`   📦 المحتوى: ${content?.length || 0} عنصر`);
+        
+        if (!content || content.length === 0) {
+            console.log('   ❌ لا محتوى في DB');
+            return;
+        }
         
         const first = content[0];
-        if (!first.enabled) return;
+        console.log(`   🔘 الحالة: ${first.enabled ? 'مفعّل' : 'معطّل'}`);
+        
+        if (!first.enabled) {
+            console.log('   ⏸️ القسم معطّل - لن يُرسل');
+            return;
+        }
         
         const index = first.lastSentIndex || 0;
-        if (index >= content.length) return;
+        console.log(`   📊 المؤشر: ${index}/${content.length}`);
+        
+        if (index >= content.length) {
+            console.log('   ✅ انتهى المحتوى');
+            return;
+        }
         
         const item = content[index];
         let text = (item.text || '').replace(/[*_~`\u200B-\u200D\uFEFF]/g, '').trim();
         if (text.length > 2000) text = text.substring(0, 2000);
         
-        await sock.sendMessage(group, { text: `${item.title}\n\n${text}` });
+        const message = `${item.title}\n\n${text}`;
+        console.log(`   📤 محاولة الإرسال إلى ${group}...`);
+        
+        await sock.sendMessage(group, { text: message });
+        console.log(`   ✅ تم الإرسال بنجاح!`);
+        
         await db.updateIndex(path, item.id, index + 1);
-        console.log(`✅ تم إرسال: ${item.title}`);
+        console.log(`   💾 تم تحديث المؤشر إلى ${index + 1}`);
+        
     } catch (e) {
-        console.error(`خطأ: ${e.message}`);
+        console.error(`   ❌ خطأ في الإرسال: ${e.message}`);
+        console.error(`   📋 Stack: ${e.stack}`);
     }
 }
 
@@ -83,24 +112,48 @@ async function toggle(sock, sender, path, title) {
 // الجدولة
 async function startSchedule(sock, path, title) {
     const key = path.join('_');
+    console.log(`⏰ إعداد جدولة: ${title} (${key})`);
+    
     if (jobs[key]) {
         (Array.isArray(jobs[key]) ? jobs[key] : [jobs[key]]).forEach(j => j.stop());
         delete jobs[key];
+        console.log(`   🔄 إيقاف الجدولة القديمة`);
     }
     
     const settings = await db.getSettings();
     let section = path[0] === 'athkar' ? `athkar_${path[1]}` : 
                   path[0] === 'fatawa' ? 'fatawa' : path.join('_');
     
+    console.log(`   📍 Section: ${section}`);
+    
     const times = settings[section]?.time || '';
-    if (!times) return;
+    console.log(`   ⏱️ الأوقات: ${times || 'لا يوجد'}`);
     
-    jobs[key] = times.split(',').filter(t => t.trim()).map(cronTime => 
-        cron.schedule(cronTime.trim(), () => sendContent(sock, path, title), 
-        { timezone: "Africa/Cairo", scheduled: true })
-    );
+    if (!times) {
+        console.log(`   ❌ لا أوقات محددة للقسم`);
+        return;
+    }
     
-    console.log(`⏰ ${title}: ${jobs[key].length} وقت`);
+    const timesList = times.split(',').filter(t => t.trim());
+    console.log(`   📋 عدد الأوقات: ${timesList.length}`);
+    
+    jobs[key] = timesList.map((cronTime, i) => {
+        const parts = cronTime.trim().split(' ');
+        const scheduleTime = `${parts[1]}:${parts[0].padStart(2, '0')}`;
+        console.log(`   ⏰ [${i+1}] ${scheduleTime} (cron: ${cronTime.trim()})`);
+        
+        return cron.schedule(cronTime.trim(), () => {
+            console.log(`\n🔔 ======== CRON TRIGGERED ========`);
+            console.log(`⏰ الوقت: ${new Date().toLocaleString('ar-EG', {timeZone: 'Africa/Cairo'})}`);
+            console.log(`📌 القسم: ${title}`);
+            sendContent(sock, path, title);
+        }, { 
+            timezone: "Africa/Cairo", 
+            scheduled: true 
+        });
+    });
+    
+    console.log(`✅ تم إعداد ${jobs[key].length} جدولة لـ ${title}`);
 }
 
 function stopSchedule(path) {
@@ -258,7 +311,7 @@ async function handleNumber(sock, sender, num) {
         ];
         if (num >= 1 && num <= 3) {
             await sendMenu(sock, sender, sections[num-1].name, [
-                '1️⃣ إضافة وقت', '2️⃣ عرض أوقات', '3️⃣ حذف وقت', '4️⃣ تفعيل'
+                '1️⃣ إضافة وقت', '2️⃣ الأوقات (عرض/حذف)', '3️⃣ تفعيل'
             ], 'schedule_sub');
             sessions.set(sender, { level: 'schedule_sub', section: sections[num-1].key, name: sections[num-1].name });
         } else if (num === 4) {
@@ -300,10 +353,8 @@ async function handleNumber(sock, sender, num) {
             await sock.sendMessage(sender, { text: '⏰ اكتب الوقت (مثال: 6:30):' });
             sessions.set(sender, { level: 'set_time', section: s.section });
         } else if (num === 2) {
-            await showTimes(sock, sender, s.section);
-        } else if (num === 3) {
             await showTimesDelete(sock, sender, s.section);
-        } else if (num === 4) {
+        } else if (num === 3) {
             const settings = await db.getSettings();
             const current = settings[s.section]?.enabled || false;
             await db.updateScheduleStatus(s.section, !current);
@@ -440,6 +491,14 @@ async function handleCommand(sock, msg, text, sender) {
 
     if (text === '/اسلام' || text === '/islam' || text === '/ادارة' || text === '/admin') {
         await sendMainMenu(sock, sender);
+        return true;
+    }
+
+    if (text === '/restart' || text === '/اعادة') {
+        if (!isAdmin) return false;
+        await sock.sendMessage(sender, { text: '🔄 إعادة التشغيل...' });
+        console.log('🔄 إعادة التشغيل بأمر من المستخدم');
+        process.exit(0); // Clever Cloud سيعيد التشغيل تلقائياً
         return true;
     }
 
