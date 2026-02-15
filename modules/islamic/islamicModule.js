@@ -137,6 +137,15 @@ async function startSchedule(sock, path, title) {
     const timesList = times.split(',').filter(t => t.trim());
     console.log(`   📋 عدد الأوقات: ${timesList.length}`);
     
+    const now = new Date();
+    const cairoTime = now.toLocaleString('en-US', {
+        timeZone: 'Africa/Cairo',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+    });
+    console.log(`   🕐 الوقت الآن بالقاهرة: ${cairoTime}`);
+    
     jobs[key] = timesList.map((cronTime, i) => {
         const parts = cronTime.trim().split(' ');
         const scheduleTime = `${parts[1]}:${parts[0].padStart(2, '0')}`;
@@ -499,6 +508,27 @@ async function handleCommand(sock, msg, text, sender) {
         await sock.sendMessage(sender, { text: '🔄 إعادة التشغيل...' });
         console.log('🔄 إعادة التشغيل بأمر من المستخدم');
         process.exit(0); // Clever Cloud سيعيد التشغيل تلقائياً
+        return true;
+    }
+
+    if (text.startsWith('/test ') || text.startsWith('/اختبار ')) {
+        if (!isAdmin) return false;
+        
+        const section = text.split(' ')[1];
+        
+        if (section === 'صباح' || section === 'morning') {
+            await sock.sendMessage(sender, { text: '🧪 اختبار فوري: الأذكار - الصباح' });
+            await sendContent(sock, ['athkar', 'morning'], 'الأذكار - الصباح');
+        } else if (section === 'مساء' || section === 'evening') {
+            await sock.sendMessage(sender, { text: '🧪 اختبار فوري: الأذكار - المساء' });
+            await sendContent(sock, ['athkar', 'evening'], 'الأذكار - المساء');
+        } else if (section === 'فتاوى' || section === 'fatawa') {
+            await sock.sendMessage(sender, { text: '🧪 اختبار فوري: الفتاوى' });
+            await sendContent(sock, ['fatawa'], 'الفتاوى');
+        } else {
+            await sock.sendMessage(sender, { text: '❌ استخدام:\n/test صباح\n/test مساء\n/test فتاوى' });
+        }
+        
         return true;
     }
 
