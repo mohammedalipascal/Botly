@@ -95,7 +95,12 @@ async function toggle(sock, sender, path, title) {
     }
     
     const newStatus = !content[0].enabled;
-    await db.updateStatus(path, content[0].id, newStatus);
+    
+    // تحديث كل العناصر في القسم
+    console.log(`🔄 تحديث حالة ${content.length} عنصر إلى: ${newStatus}`);
+    for (const item of content) {
+        await db.updateStatus(path, item.id, newStatus);
+    }
     
     await sock.sendMessage(sender, { text: newStatus ? `✅ ${title}` : `❌ ${title}` });
     
