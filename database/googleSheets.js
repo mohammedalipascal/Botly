@@ -107,7 +107,13 @@ class GoogleSheetsDB {
         const sheet = this.getSheetName(path);
         const content = await this.getContent(path);
         const row = content.findIndex(c => c.id === id);
-        if (row === -1) return false;
+        
+        console.log(`   🔄 تحديث ${id} في ${sheet} صف ${row + 2}`);
+        
+        if (row === -1) {
+            console.log(`   ❌ لم يتم العثور على ${id}`);
+            return false;
+        }
         
         await this.sheets.spreadsheets.values.update({
             spreadsheetId: this.spreadsheetId,
@@ -116,7 +122,7 @@ class GoogleSheetsDB {
             resource: { values: [[enabled ? 'TRUE' : 'FALSE']] }
         });
         
-        console.log(`✅ ${id}: ${enabled ? 'مفعّل' : 'معطّل'}`);
+        console.log(`   ✅ ${id}: ${enabled ? 'TRUE' : 'FALSE'}`);
         return true;
     }
 
