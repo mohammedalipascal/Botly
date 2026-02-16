@@ -43,14 +43,59 @@ async function sendContent(sock, path, title) {
         }
         
         const item = content[index];
-        let text = (item.text || '').replace(/[*_~`\u200B-\u200D\uFEFF]/g, '').trim();
-        if (text.length > 2000) text = text.substring(0, 2000);
+        
+        console.log(`\n📄 ======== العنصر [${index}/${content.length}] ========`);
+        console.log(`   🆔 ID: ${item.id}`);
+        console.log(`   📌 العنوان: ${item.title || '❌ بدون عنوان'}`);
+        console.log(`   📝 طول النص الأصلي: ${item.text?.length || 0} حرف`);
+        console.log(`   🏷️ النوع: ${item.type || 'غير محدد'}`);
+        
+        // فحص المحتوى
+        if (!item.title || !item.text) {
+            console.log(`   ❌ محتوى فارغ - تخطي وتحديث المؤشر`);
+            await db.updateIndex(path, item.id, index + 1);
+            console.log(`   ⏭️ تم التخطي إلى المؤشر ${index + 1}`);
+            return;
+        }
+        
+        // تنظيف النص
+        let text = item.text
+            .replace(/[*_~`]/g, '')  // markdown
+            .replace(/[\u200B-\u200D\uFEFF]/g, '')  // zero-width
+            .replace(/\r\n/g, '\n')  // normalize newlines
+            .trim();
+        
+        console.log(`   🧹 بعد التنظيف: ${text.length} حرف`);
+        
+        // فحص إذا النص فارغ بعد التنظيف
+        if (text.length === 0) {
+            console.log(`   ❌ النص فارغ بعد التنظيف - تخطي`);
+            await db.updateIndex(path, item.id, index + 1);
+            return;
+        }
+        
+        // تقليم النص الطويل
+        if (text.length > 2000) {
+            text = text.substring(0, 2000);
+            console.log(`   ✂️ تم التقليم إلى: 2000 حرف`);
+        }
+        
+        // فحص الأحرف
+        const hasEmoji = /[\u{1F600}-\u{1F64F}]/u.test(text);
+        const hasArabic = /[\u0600-\u06FF]/.test(text);
+        const hasLinks = /https?:\/\//i.test(text);
+        
+        console.log(`   😀 إيموجي: ${hasEmoji ? 'نعم' : 'لا'}`);
+        console.log(`   🔤 عربي: ${hasArabic ? 'نعم' : 'لا'}`);
+        console.log(`   🔗 روابط: ${hasLinks ? 'نعم' : 'لا'}`);
         
         const message = `${item.title}\n\n${text}`;
+        console.log(`   📏 طول الرسالة النهائية: ${message.length} حرف`);
+        console.log(`========================================\n`);
         console.log(`   📤 محاولة الإرسال إلى ${group}...`);
         
         try {
-            // إرسال مباشر بدون metadata
+            // محاولة 1: إرسال كامل
             await sock.sendMessage(group, { 
                 text: message 
             }, {
@@ -58,13 +103,27 @@ async function sendContent(sock, path, title) {
             });
             console.log(`   ✅ تم الإرسال بنجاح!`);
         } catch (sendError) {
-            console.error(`   ❌ فشل: ${sendError.message}`);
-            // محاولة بدون timestamp
+            console.error(`   ❌ فشل المحاولة 1: ${sendError.message}`);
+            console.error(`   📋 Error code: ${sendError.code || 'N/A'}`);
+            console.error(`   📋 Error data: ${JSON.stringify(sendError.data || {})}`);
+            
+            // محاولة 2: إرسال العنوان فقط
             try {
+                console.log(`   🔄 محاولة 2: إرسال العنوان فقط...`);
                 await sock.sendMessage(group, { text: item.title });
                 console.log(`   ⚠️ تم إرسال العنوان فقط`);
             } catch (e2) {
-                console.error(`   ❌ فشل تماماً: ${e2.message}`);
+                console.error(`   ❌ فشل المحاولة 2: ${e2.message}`);
+                
+                // محاولة 3: إرسال نص بسيط جداً
+                try {
+                    console.log(`   🔄 محاولة 3: اختبار بنص بسيط...`);
+                    await sock.sendMessage(group, { text: 'اختبار' });
+                    console.log(`   ✅ الاختبار نجح - المشكلة في المحتوى!`);
+                } catch (e3) {
+                    console.error(`   ❌ فشل الاختبار: ${e3.message}`);
+                    console.error(`   ⚠️ المشكلة في الاتصال بالمجموعة!`);
+                }
             }
         }
         
@@ -104,30 +163,49 @@ async function sendMenu(sock, sender, title, options, level) {
 
 // Toggle
 async function toggle(sock, sender, path, title) {
+    console.log(`\n🔄 ======== TOGGLE START ========`);
+    console.log(`📌 القسم: ${title}`);
+    console.log(`📂 Path: ${JSON.stringify(path)}`);
+    
     const content = await db.getContent(path);
+    console.log(`📦 عدد العناصر: ${content?.length || 0}`);
+    
     if (!content || content.length === 0) {
+        console.log(`❌ لا محتوى - إلغاء`);
         await sock.sendMessage(sender, { text: '❌ لا محتوى. أضف أولاً' });
         await sendMainMenu(sock, sender);
         return;
     }
     
-    const newStatus = !content[0].enabled;
+    const currentStatus = content[0].enabled;
+    const newStatus = !currentStatus;
+    
+    console.log(`🔘 الحالة الحالية: ${currentStatus}`);
+    console.log(`🔘 الحالة الجديدة: ${newStatus}`);
+    console.log(`📝 سيتم تحديث ${content.length} عنصر`);
     
     // تحديث كل العناصر في القسم
-    console.log(`🔄 تحديث حالة ${content.length} عنصر إلى: ${newStatus}`);
-    for (const item of content) {
-        await db.updateStatus(path, item.id, newStatus);
+    for (let i = 0; i < content.length; i++) {
+        const item = content[i];
+        console.log(`   [${i+1}/${content.length}] تحديث ${item.id}...`);
+        const result = await db.updateStatus(path, item.id, newStatus);
+        console.log(`   [${i+1}/${content.length}] نتيجة: ${result ? '✅ نجح' : '❌ فشل'}`);
     }
     
+    console.log(`💬 إرسال رد للمستخدم...`);
     await sock.sendMessage(sender, { text: newStatus ? `✅ ${title}` : `❌ ${title}` });
     
     if (newStatus) {
+        console.log(`📤 إرسال محتوى فوري...`);
         await sendContent(sock, path, title);
+        console.log(`⏰ بدء الجدولة...`);
         await startSchedule(sock, path, title);
     } else {
+        console.log(`⏸️ إيقاف الجدولة...`);
         stopSchedule(path);
     }
     
+    console.log(`🔄 ======== TOGGLE END ========\n`);
     await sendMainMenu(sock, sender);
 }
 
@@ -563,6 +641,10 @@ async function handleCommand(sock, msg, text, sender) {
 
 // Init
 async function initialize(sock) {
+    console.log('🔍 فحص ENV:');
+    console.log(`   ISLAMIC_GROUP_ID: ${process.env.ISLAMIC_GROUP_ID || '❌ غير موجود'}`);
+    console.log(`   GOOGLE_SHEET_ID: ${process.env.GOOGLE_SHEET_ID || '❌ غير موجود'}`);
+    
     if (isInitialized) {
         console.log('⚠️ القسم الإسلامي مُهيأ مسبقاً - تخطي');
         return;
@@ -570,7 +652,7 @@ async function initialize(sock) {
     
     try {
         if (!process.env.ISLAMIC_GROUP_ID || !process.env.GOOGLE_SHEET_ID) {
-            console.log('⚠️ القسم الإسلامي معطل');
+            console.log('⚠️ القسم الإسلامي معطل - ENV غير مكتمل');
             return;
         }
 
