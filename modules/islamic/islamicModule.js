@@ -4,690 +4,616 @@ const db = require('../../database/googleSheets');
 const sessions = new Map();
 let jobs = {};
 let isInitialized = false;
+let sockRef = null;
 
-// إرسال محتوى
-async function sendContent(sock, path, title) {
-    console.log(`🔔 [${new Date().toLocaleString('ar-EG', {timeZone: 'Africa/Cairo'})}] محاولة إرسال: ${title}`);
-    
-    try {
-        const group = process.env.ISLAMIC_GROUP_ID;
-        console.log(`   📍 GROUP_ID: ${group || '❌ غير موجود'}`);
-        
-        if (!group) {
-            console.error('   ❌ ISLAMIC_GROUP_ID غير محدد في ENV!');
-            return;
-        }
-        
-        const content = await db.getContent(path);
-        console.log(`   📦 المحتوى: ${content?.length || 0} عنصر`);
-        
-        if (!content || content.length === 0) {
-            console.log('   ❌ لا محتوى في DB');
-            return;
-        }
-        
-        const first = content[0];
-        console.log(`   🔘 الحالة: ${first.enabled ? 'مفعّل' : 'معطّل'}`);
-        
-        if (!first.enabled) {
-            console.log('   ⏸️ القسم معطّل - لن يُرسل');
-            return;
-        }
-        
-        const index = first.lastSentIndex || 0;
-        console.log(`   📊 المؤشر: ${index}/${content.length}`);
-        
-        if (index >= content.length) {
-            console.log('   ✅ انتهى المحتوى');
-            return;
-        }
-        
-        const item = content[index];
-        
-        console.log(`\n📄 ======== العنصر [${index}/${content.length}] ========`);
-        console.log(`   🆔 ID: ${item.id}`);
-        console.log(`   📌 العنوان: ${item.title || '❌ بدون عنوان'}`);
-        console.log(`   📝 طول النص الأصلي: ${item.text?.length || 0} حرف`);
-        console.log(`   🏷️ النوع: ${item.type || 'غير محدد'}`);
-        
-        // فحص المحتوى
-        if (!item.title || !item.text) {
-            console.log(`   ❌ محتوى فارغ - تخطي وتحديث المؤشر`);
-            await db.updateIndex(path, item.id, index + 1);
-            console.log(`   ⏭️ تم التخطي إلى المؤشر ${index + 1}`);
-            return;
-        }
-        
-        // تنظيف النص
-        let text = item.text
-            .replace(/[*_~`]/g, '')  // markdown
-            .replace(/[\u200B-\u200D\uFEFF]/g, '')  // zero-width
-            .replace(/\r\n/g, '\n')  // normalize newlines
-            .trim();
-        
-        console.log(`   🧹 بعد التنظيف: ${text.length} حرف`);
-        
-        // فحص إذا النص فارغ بعد التنظيف
-        if (text.length === 0) {
-            console.log(`   ❌ النص فارغ بعد التنظيف - تخطي`);
-            await db.updateIndex(path, item.id, index + 1);
-            return;
-        }
-        
-        // تقليم النص الطويل
-        if (text.length > 2000) {
-            text = text.substring(0, 2000);
-            console.log(`   ✂️ تم التقليم إلى: 2000 حرف`);
-        }
-        
-        // فحص الأحرف
-        const hasEmoji = /[\u{1F600}-\u{1F64F}]/u.test(text);
-        const hasArabic = /[\u0600-\u06FF]/.test(text);
-        const hasLinks = /https?:\/\//i.test(text);
-        
-        console.log(`   😀 إيموجي: ${hasEmoji ? 'نعم' : 'لا'}`);
-        console.log(`   🔤 عربي: ${hasArabic ? 'نعم' : 'لا'}`);
-        console.log(`   🔗 روابط: ${hasLinks ? 'نعم' : 'لا'}`);
-        
-        const message = `${item.title}\n\n${text}`;
-        console.log(`   📏 طول الرسالة النهائية: ${message.length} حرف`);
-        console.log(`========================================\n`);
-        console.log(`   📤 محاولة الإرسال إلى ${group}...`);
-        
-        try {
-            // محاولة 1: إرسال كامل
-            await sock.sendMessage(group, { 
-                text: message 
-            }, {
-                ephemeralExpiration: undefined
-            });
-            console.log(`   ✅ تم الإرسال بنجاح!`);
-        } catch (sendError) {
-            console.error(`   ❌ فشل المحاولة 1: ${sendError.message}`);
-            console.error(`   📋 Error code: ${sendError.code || 'N/A'}`);
-            console.error(`   📋 Error data: ${JSON.stringify(sendError.data || {})}`);
-            
-            // محاولة 2: إرسال العنوان فقط
-            try {
-                console.log(`   🔄 محاولة 2: إرسال العنوان فقط...`);
-                await sock.sendMessage(group, { text: item.title });
-                console.log(`   ⚠️ تم إرسال العنوان فقط`);
-            } catch (e2) {
-                console.error(`   ❌ فشل المحاولة 2: ${e2.message}`);
-                
-                // محاولة 3: إرسال نص بسيط جداً
-                try {
-                    console.log(`   🔄 محاولة 3: اختبار بنص بسيط...`);
-                    await sock.sendMessage(group, { text: 'اختبار' });
-                    console.log(`   ✅ الاختبار نجح - المشكلة في المحتوى!`);
-                } catch (e3) {
-                    console.error(`   ❌ فشل الاختبار: ${e3.message}`);
-                    console.error(`   ⚠️ المشكلة في الاتصال بالمجموعة!`);
-                }
-            }
-        }
-        
-        await db.updateIndex(path, item.id, index + 1);
-        console.log(`   💾 تم تحديث المؤشر إلى ${index + 1}`);
-        
-    } catch (e) {
-        console.error(`   ❌ خطأ في الإرسال: ${e.message}`);
-        console.error(`   📋 Stack: ${e.stack}`);
-    }
+// ===============================
+// HELPERS
+// ===============================
+
+const DEFAULT_SECTIONS = {
+    'Athkar_Morning': 'أذكار الصباح',
+    'Athkar_Evening': 'أذكار المساء',
+    'Fatawa': 'الفتاوى',
+    'Fiqh': 'الفقه',
+    'Aqeeda': 'العقيدة'
+};
+
+async function send(sock, to, text) {
+    await sock.sendMessage(to, { text });
 }
 
-// قائمة رئيسية
+function session(sender, data = null) {
+    if (data === null) return sessions.get(sender) || { level: 'main' };
+    if (data === 'delete') { sessions.delete(sender); return; }
+    sessions.set(sender, data);
+}
+
+// ===============================
+// MENUS
+// ===============================
+
 async function sendMainMenu(sock, sender) {
-    const menu = `📿 *القسم الإسلامي*
+    session(sender, { level: 'main' });
+    const folders = await db.getFolders();
+    let extra = '';
+    folders.forEach((f, i) => { extra += `${i + 10}️⃣ ${f.replace(/_/g, ' ')}\n`; });
+
+    await send(sock, sender,
+`📿 *القسم الإسلامي*
 
 1️⃣ الأذكار
 2️⃣ الفتاوى
 3️⃣ الفقه
-4️⃣ الموضوعية
+4️⃣ العقيدة
+${extra}
 5️⃣ إضافة محتوى
-6️⃣ الجدولة
-7️⃣ إحصائيات
+6️⃣ إضافة مجلد
+7️⃣ حذف مجلد
+8️⃣ الجدولة
+9️⃣ إحصائيات
 
-اختر رقم:`;
-    
-    await sock.sendMessage(sender, { text: menu });
-    sessions.set(sender, { level: 'main' });
+اختر رقم:`);
 }
 
-// قوائم فرعية
-async function sendMenu(sock, sender, title, options, level) {
-    const menu = `*${title}*\n\n` + options.join('\n') + '\n\n0️⃣ رجوع';
-    await sock.sendMessage(sender, { text: menu });
-    sessions.set(sender, { level });
+async function sendAthkarMenu(sock, sender) {
+    session(sender, { level: 'athkar' });
+    await send(sock, sender,
+`*الأذكار*
+
+1️⃣ أذكار الصباح
+2️⃣ أذكار المساء
+3️⃣ إضافة مجلد
+4️⃣ حذف مجلد
+0️⃣ رجوع
+
+اختر:`);
 }
 
-// Toggle
-async function toggle(sock, sender, path, title) {
-    console.log(`\n🔄 ======== TOGGLE START ========`);
-    console.log(`📌 القسم: ${title}`);
-    console.log(`📂 Path: ${JSON.stringify(path)}`);
-    
-    const content = await db.getContent(path);
-    console.log(`📦 عدد العناصر: ${content?.length || 0}`);
-    
-    if (!content || content.length === 0) {
-        console.log(`❌ لا محتوى - إلغاء`);
-        await sock.sendMessage(sender, { text: '❌ لا محتوى. أضف أولاً' });
-        await sendMainMenu(sock, sender);
-        return;
-    }
-    
-    const currentStatus = content[0].enabled;
-    const newStatus = !currentStatus;
-    
-    console.log(`🔘 الحالة الحالية: ${currentStatus}`);
-    console.log(`🔘 الحالة الجديدة: ${newStatus}`);
-    console.log(`📝 سيتم تحديث ${content.length} عنصر`);
-    
-    // تحديث كل العناصر في القسم
-    for (let i = 0; i < content.length; i++) {
-        const item = content[i];
-        console.log(`   [${i+1}/${content.length}] تحديث ${item.id}...`);
-        const result = await db.updateStatus(path, item.id, newStatus);
-        console.log(`   [${i+1}/${content.length}] نتيجة: ${result ? '✅ نجح' : '❌ فشل'}`);
-    }
-    
-    console.log(`💬 إرسال رد للمستخدم...`);
-    await sock.sendMessage(sender, { text: newStatus ? `✅ ${title}` : `❌ ${title}` });
-    
-    if (newStatus) {
-        console.log(`📤 إرسال محتوى فوري...`);
-        await sendContent(sock, path, title);
-        console.log(`⏰ بدء الجدولة...`);
-        await startSchedule(sock, path, title);
-    } else {
-        console.log(`⏸️ إيقاف الجدولة...`);
-        stopSchedule(path);
-    }
-    
-    console.log(`🔄 ======== TOGGLE END ========\n`);
-    await sendMainMenu(sock, sender);
-}
-
-// الجدولة
-async function startSchedule(sock, path, title) {
-    const key = path.join('_');
-    console.log(`⏰ إعداد جدولة: ${title} (${key})`);
-    
-    if (jobs[key]) {
-        (Array.isArray(jobs[key]) ? jobs[key] : [jobs[key]]).forEach(j => j.stop());
-        delete jobs[key];
-        console.log(`   🔄 إيقاف الجدولة القديمة`);
-    }
-    
+async function sendScheduleMenu(sock, sender) {
+    session(sender, { level: 'schedule_main' });
+    const folders = await db.getFolders();
     const settings = await db.getSettings();
-    let section = path[0] === 'athkar' ? `athkar_${path[1]}` : 
-                  path[0] === 'fatawa' ? 'fatawa' : path.join('_');
-    
-    console.log(`   📍 Section: ${section}`);
-    
-    const times = settings[section]?.time || '';
-    console.log(`   ⏱️ الأوقات: ${times || 'لا يوجد'}`);
-    
-    if (!times) {
-        console.log(`   ❌ لا أوقات محددة للقسم`);
-        return;
-    }
-    
-    const timesList = times.split(',').filter(t => t.trim());
-    console.log(`   📋 عدد الأوقات: ${timesList.length}`);
-    
-    const now = new Date();
-    const cairoTime = now.toLocaleString('en-US', {
-        timeZone: 'Africa/Cairo',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false
-    });
-    console.log(`   🕐 الوقت الآن بالقاهرة: ${cairoTime}`);
-    
-    jobs[key] = timesList.map((cronTime, i) => {
-        const parts = cronTime.trim().split(' ');
-        const scheduleTime = `${parts[1]}:${parts[0].padStart(2, '0')}`;
-        console.log(`   ⏰ [${i+1}] ${scheduleTime} (cron: ${cronTime.trim()})`);
-        
-        return cron.schedule(cronTime.trim(), () => {
-            console.log(`\n🔔 ======== CRON TRIGGERED ========`);
-            console.log(`⏰ الوقت: ${new Date().toLocaleString('ar-EG', {timeZone: 'Africa/Cairo'})}`);
-            console.log(`📌 القسم: ${title}`);
-            sendContent(sock, path, title);
-        }, { 
-            timezone: "Africa/Cairo", 
-            scheduled: true 
-        });
-    });
-    
-    console.log(`✅ تم إعداد ${jobs[key].length} جدولة لـ ${title}`);
-}
 
-function stopSchedule(path) {
-    const key = path.join('_');
-    if (jobs[key]) {
-        (Array.isArray(jobs[key]) ? jobs[key] : [jobs[key]]).forEach(j => j.stop());
-        delete jobs[key];
-    }
-}
-
-// معالج الأرقام
-async function handleNumber(sock, sender, num) {
-    const s = sessions.get(sender);
-    if (!s) return false;
-    
-    // القائمة الرئيسية
-    if (s.level === 'main') {
-        if (num === 1) {
-            await sendMenu(sock, sender, 'الأذكار', ['1️⃣ صباحي', '2️⃣ مسائي'], 'athkar');
-        } else if (num === 2) {
-            await toggle(sock, sender, ['fatawa'], 'الفتاوى');
-        } else if (num === 3) {
-            await sendMenu(sock, sender, 'الفقه', [
-                '1️⃣ العبادات', '2️⃣ المعاملات', 
-                '3️⃣ فقه الأسرة', '4️⃣ العادات'
-            ], 'fiqh');
-        } else if (num === 4) {
-            await sock.sendMessage(sender, { text: '🚧 قيد التطوير' });
-            await sendMainMenu(sock, sender);
-        } else if (num === 5) {
-            await sendMenu(sock, sender, 'إضافة محتوى', [
-                '1️⃣ ذكر', '2️⃣ فتوى', '3️⃣ محاضرة'
-            ], 'add');
-        } else if (num === 6) {
-            await sendMenu(sock, sender, 'الجدولة', [
-                '1️⃣ الأذكار - الصباح', '2️⃣ الأذكار - المساء', 
-                '3️⃣ الفتاوى', '4️⃣ الفقه'
-            ], 'schedule');
-        } else if (num === 7) {
-            await sendStats(sock, sender);
-        }
-        return true;
-    }
-    
-    // الأذكار
-    if (s.level === 'athkar') {
-        if (num === 0) return await sendMainMenu(sock, sender);
-        const types = ['morning', 'evening'];
-        const names = ['الصباح', 'المساء'];
-        if (num >= 1 && num <= 2) {
-            await toggle(sock, sender, ['athkar', types[num-1]], `الأذكار - ${names[num-1]}`);
-        }
-        return true;
-    }
-    
-    // الفقه
-    if (s.level === 'fiqh') {
-        if (num === 0) return await sendMainMenu(sock, sender);
-        if (num === 1) {
-            await sendMenu(sock, sender, 'العبادات', [
-                '1️⃣ الصلاة', '2️⃣ الجنائز', '3️⃣ الزكاة', 
-                '4️⃣ الصيام', '5️⃣ الحج', '6️⃣ الطهارة', '7️⃣ الجهاد'
-            ], 'ibadat');
-        } else {
-            await sock.sendMessage(sender, { text: '🚧 قيد التطوير' });
-            await sendMainMenu(sock, sender);
-        }
-        return true;
-    }
-    
-    // العبادات
-    if (s.level === 'ibadat') {
-        if (num === 0) {
-            await sendMenu(sock, sender, 'الفقه', [
-                '1️⃣ العبادات', '2️⃣ المعاملات', 
-                '3️⃣ فقه الأسرة', '4️⃣ العادات'
-            ], 'fiqh');
-            return true;
-        }
-        const topics = ['salah', 'janazah', 'zakah', 'siyam', 'hajj', 'taharah', 'jihad'];
-        const names = ['الصلاة', 'الجنائز', 'الزكاة', 'الصيام', 'الحج', 'الطهارة', 'الجهاد'];
-        if (num >= 1 && num <= 7) {
-            await toggle(sock, sender, ['fiqh', 'ibadat', topics[num-1]], names[num-1]);
-        }
-        return true;
-    }
-    
-    // إضافة
-    if (s.level === 'add') {
-        if (num === 0) return await sendMainMenu(sock, sender);
-        if (num === 1) {
-            await sendMenu(sock, sender, 'نوع الذكر', ['1️⃣ صباحي', '2️⃣ مسائي'], 'add_athkar');
-        } else if (num === 2) {
-            await sock.sendMessage(sender, { text: '✍️ اكتب نص الفتوى:' });
-            sessions.set(sender, { level: 'text_fatwa' });
-        } else if (num === 3) {
-            await sendMenu(sock, sender, 'الفقه', ['1️⃣ العبادات'], 'add_fiqh');
-        }
-        return true;
-    }
-    
-    if (s.level === 'add_athkar') {
-        if (num === 0) {
-            await sendMenu(sock, sender, 'إضافة محتوى', [
-                '1️⃣ ذكر', '2️⃣ فتوى', '3️⃣ محاضرة'
-            ], 'add');
-            return true;
-        }
-        const types = ['morning', 'evening'];
-        const names = ['صباحي', 'مسائي'];
-        if (num >= 1 && num <= 2) {
-            await sock.sendMessage(sender, { text: `✍️ اكتب نص الذكر ${names[num-1]}:` });
-            sessions.set(sender, { level: 'text_athkar', type: types[num-1], name: names[num-1] });
-        }
-        return true;
-    }
-    
-    if (s.level === 'add_fiqh') {
-        if (num === 0) {
-            await sendMenu(sock, sender, 'إضافة محتوى', [
-                '1️⃣ ذكر', '2️⃣ فتوى', '3️⃣ محاضرة'
-            ], 'add');
-            return true;
-        }
-        if (num === 1) {
-            await sendMenu(sock, sender, 'العبادات', [
-                '1️⃣ الصلاة', '2️⃣ الجنائز', '3️⃣ الزكاة', 
-                '4️⃣ الصيام', '5️⃣ الحج', '6️⃣ الطهارة', '7️⃣ الجهاد'
-            ], 'add_ibadat');
-        }
-        return true;
-    }
-    
-    if (s.level === 'add_ibadat') {
-        if (num === 0) {
-            await sendMenu(sock, sender, 'الفقه', ['1️⃣ العبادات'], 'add_fiqh');
-            return true;
-        }
-        const topics = ['salah', 'janazah', 'zakah', 'siyam', 'hajj', 'taharah', 'jihad'];
-        const names = ['الصلاة', 'الجنائز', 'الزكاة', 'الصيام', 'الحج', 'الطهارة', 'الجهاد'];
-        if (num >= 1 && num <= 7) {
-            await sock.sendMessage(sender, { text: `✍️ اكتب نص ${names[num-1]}:` });
-            sessions.set(sender, { level: 'text_lecture', path: ['fiqh', 'ibadat', topics[num-1]], title: names[num-1] });
-        }
-        return true;
-    }
-    
-    // الجدولة
-    if (s.level === 'schedule') {
-        if (num === 0) return await sendMainMenu(sock, sender);
-        const sections = [
-            { key: 'athkar_morning', name: 'الأذكار - الصباح' },
-            { key: 'athkar_evening', name: 'الأذكار - المساء' },
-            { key: 'fatawa', name: 'الفتاوى' }
-        ];
-        if (num >= 1 && num <= 3) {
-            await sendMenu(sock, sender, sections[num-1].name, [
-                '1️⃣ إضافة وقت', '2️⃣ الأوقات (عرض/حذف)', '3️⃣ تفعيل'
-            ], 'schedule_sub');
-            sessions.set(sender, { level: 'schedule_sub', section: sections[num-1].key, name: sections[num-1].name });
-        } else if (num === 4) {
-            await sendMenu(sock, sender, 'الفقه - الجدولة', [
-                '1️⃣ الصلاة', '2️⃣ الجنائز', '3️⃣ الزكاة'
-            ], 'schedule_fiqh');
-        }
-        return true;
-    }
-    
-    if (s.level === 'schedule_fiqh') {
-        if (num === 0) {
-            await sendMenu(sock, sender, 'الجدولة', [
-                '1️⃣ الأذكار - الصباح', '2️⃣ الأذكار - المساء', 
-                '3️⃣ الفتاوى', '4️⃣ الفقه'
-            ], 'schedule');
-            return true;
-        }
-        const topics = ['salah', 'janazah', 'zakah'];
-        const names = ['الصلاة', 'الجنائز', 'الزكاة'];
-        if (num >= 1 && num <= 3) {
-            await sendMenu(sock, sender, names[num-1], [
-                '1️⃣ إضافة وقت', '2️⃣ عرض أوقات', '3️⃣ حذف وقت', '4️⃣ تفعيل'
-            ], 'schedule_sub');
-            sessions.set(sender, { level: 'schedule_sub', section: `fiqh_ibadat_${topics[num-1]}`, name: names[num-1] });
-        }
-        return true;
-    }
-    
-    if (s.level === 'schedule_sub') {
-        if (num === 0) {
-            await sendMenu(sock, sender, 'الجدولة', [
-                '1️⃣ الأذكار - الصباح', '2️⃣ الأذكار - المساء', 
-                '3️⃣ الفتاوى', '4️⃣ الفقه'
-            ], 'schedule');
-            return true;
-        }
-        if (num === 1) {
-            await sock.sendMessage(sender, { text: '⏰ اكتب الوقت (مثال: 6:30):' });
-            sessions.set(sender, { level: 'set_time', section: s.section });
-        } else if (num === 2) {
-            await showTimesDelete(sock, sender, s.section);
-        } else if (num === 3) {
-            const settings = await db.getSettings();
-            const current = settings[s.section]?.enabled || false;
-            await db.updateScheduleStatus(s.section, !current);
-            await sock.sendMessage(sender, { text: current ? '❌ معطّل' : '✅ مفعّل' });
-            await sendMainMenu(sock, sender);
-        }
-        return true;
-    }
-    
-    if (s.level === 'delete_time') {
-        if (num === 0) return await sendMainMenu(sock, sender);
-        const index = num - 1;
-        if (index >= 0 && index < s.times.length) {
-            s.times.splice(index, 1);
-            await db.updateTime(s.section, s.times.join(','));
-            await sock.sendMessage(sender, { text: '✅ تم الحذف' });
-        }
-        await sendMainMenu(sock, sender);
-        return true;
-    }
-    
-    return false;
-}
-
-// معالج النصوص
-async function handleText(sock, sender, text) {
-    const s = sessions.get(sender);
-    if (!s) return false;
-    
-    if (s.level === 'text_athkar') {
-        await db.addContent(['athkar', s.type], { title: `ذكر ${s.name}`, text, type: 'ذكر' });
-        await sock.sendMessage(sender, { text: '✅ تم الحفظ' });
-        sessions.delete(sender);
-        await sendMainMenu(sock, sender);
-        return true;
-    }
-    
-    if (s.level === 'text_fatwa') {
-        await db.addContent(['fatawa'], { title: 'فتوى', text, type: 'فتوى' });
-        await sock.sendMessage(sender, { text: '✅ تم الحفظ' });
-        sessions.delete(sender);
-        await sendMainMenu(sock, sender);
-        return true;
-    }
-    
-    if (s.level === 'text_lecture') {
-        await db.addContent(s.path, { title: s.title, text, type: 'محاضرة' });
-        await sock.sendMessage(sender, { text: '✅ تم الحفظ' });
-        sessions.delete(sender);
-        await sendMainMenu(sock, sender);
-        return true;
-    }
-    
-    if (s.level === 'set_time') {
-        const match = text.match(/^(\d{1,2}):(\d{2})$/);
-        if (!match || parseInt(match[1]) > 23 || parseInt(match[2]) > 59) {
-            await sock.sendMessage(sender, { text: '❌ صيغة خاطئة' });
-            sessions.delete(sender);
-            await sendMainMenu(sock, sender);
-            return true;
-        }
-        
-        const cron = `${match[2]} ${match[1]} * * *`;
-        const settings = await db.getSettings();
-        const currentTime = settings[s.section]?.time || '';
-        const newTime = currentTime ? `${currentTime},${cron}` : cron;
-        
-        await db.updateTime(s.section, newTime);
-        await sock.sendMessage(sender, { text: '✅ تم الإضافة' });
-        sessions.delete(sender);
-        await sendMainMenu(sock, sender);
-        return true;
-    }
-    
-    return false;
-}
-
-async function showTimes(sock, sender, section) {
-    const settings = await db.getSettings();
-    const times = settings[section]?.time || '';
-    if (!times) {
-        await sock.sendMessage(sender, { text: 'لا أوقات' });
-        return;
-    }
-    const list = times.split(',').map((c, i) => {
-        const p = c.trim().split(' ');
-        return `${i+1}. ${p[1]}:${p[0].padStart(2, '0')}`;
-    }).join('\n');
-    await sock.sendMessage(sender, { text: `⏰ الأوقات:\n\n${list}\n\n0️⃣ رجوع` });
-}
-
-async function showTimesDelete(sock, sender, section) {
-    const settings = await db.getSettings();
-    const times = settings[section]?.time || '';
-    if (!times) {
-        await sock.sendMessage(sender, { text: 'لا أوقات' });
-        return;
-    }
-    const timesList = times.split(',');
-    const list = timesList.map((c, i) => {
-        const p = c.trim().split(' ');
-        return `${i+1}. ${p[1]}:${p[0].padStart(2, '0')}`;
-    }).join('\n');
-    await sock.sendMessage(sender, { text: `⏰ الأوقات:\n\n${list}\n\nللحذف اختر رقم:\n0️⃣ رجوع` });
-    sessions.set(sender, { level: 'delete_time', section, times: timesList });
-}
-
-async function sendStats(sock, sender) {
-    const sections = [
-        { path: ['athkar', 'morning'], name: 'الأذكار - الصباح' },
-        { path: ['fatawa'], name: 'الفتاوى' },
-        { path: ['fiqh', 'ibadat', 'salah'], name: 'الصلاة' }
+    let lines = `*الجدولة*\n\n`;
+    const items = [
+        ['Athkar_Morning', 'أذكار الصباح'],
+        ['Athkar_Evening', 'أذكار المساء'],
+        ['Fatawa', 'الفتاوى'],
+        ['Fiqh', 'الفقه'],
+        ['Aqeeda', 'العقيدة'],
+        ...folders.map(f => [f, f.replace(/_/g, ' ')])
     ];
-    
-    let stats = '*الإحصائيات:*\n\n';
-    for (const sec of sections) {
-        const content = await db.getContent(sec.path);
-        if (content.length > 0 && content[0].enabled) {
-            stats += `✅ ${sec.name}: ${content.length} محتوى\n`;
-        }
-    }
-    await sock.sendMessage(sender, { text: stats + '\n0️⃣ رجوع' });
-    sessions.set(sender, { level: 'stats' });
+
+    items.forEach(([key, name], i) => {
+        const s = settings[key];
+        const status = s?.enabled ? '✅' : '⭕';
+        const timesCount = s?.times?.length || 0;
+        lines += `${i + 1}️⃣ ${name} ${status} (${timesCount} وقت)\n`;
+    });
+
+    lines += `0️⃣ رجوع\n\naختر:`;
+    await send(sock, sender, lines);
+    session(sender, { level: 'schedule_main', items });
 }
 
-// Command Handler
+async function sendSectionSchedule(sock, sender, sheetName, displayName) {
+    const settings = await db.getSettings();
+    const s = settings[sheetName] || { times: [], enabled: false };
+    const timesList = s.times.map((t, i) => `${i + 1}. ${cronToDisplay(t)}`).join('\n') || 'لا أوقات';
+
+    session(sender, { level: 'schedule_section', sheetName, displayName });
+    await send(sock, sender,
+`*${displayName}*
+الحالة: ${s.enabled ? '✅ مفعّل' : '⭕ معطّل'}
+
+الأوقات:
+${timesList}
+
+1️⃣ إضافة وقت
+2️⃣ عرض/حذف أوقات
+3️⃣ ${s.enabled ? 'تعطيل' : 'تفعيل'}
+0️⃣ رجوع
+
+اختر:`);
+}
+
+// ===============================
+// TIME HELPERS
+// ===============================
+
+function cronToDisplay(cronStr) {
+    // "30 6 * * *" → "6:30"
+    try {
+        const parts = cronStr.trim().split(' ');
+        const min = parts[0].padStart(2, '0');
+        const hr = parts[1].padStart(2, '0');
+        return `${hr}:${min}`;
+    } catch { return cronStr; }
+}
+
+function parseRelativeTime(input) {
+    // "10" → بعد 10 ساعات
+    // "10:30" → بعد 10 ساعات و30 دقيقة
+    const now = new Date();
+    const cairoOffset = 2; // UTC+2
+    const cairoHour = (now.getUTCHours() + cairoOffset) % 24;
+    const cairoMin = now.getUTCMinutes();
+
+    let addHours = 0, addMins = 0;
+
+    if (/^\d+$/.test(input.trim())) {
+        addHours = parseInt(input.trim());
+    } else if (/^\d+:\d+$/.test(input.trim())) {
+        const [h, m] = input.trim().split(':').map(Number);
+        addHours = h;
+        addMins = m;
+    } else {
+        return null;
+    }
+
+    let targetMin = cairoMin + addMins;
+    let targetHour = cairoHour + addHours + Math.floor(targetMin / 60);
+    targetMin = targetMin % 60;
+    targetHour = targetHour % 24;
+
+    const cron = `${targetMin} ${targetHour} * * *`;
+    const display = `${String(targetHour).padStart(2,'0')}:${String(targetMin).padStart(2,'0')}`;
+    return { cron, display };
+}
+
+// ===============================
+// SEND CONTENT
+// ===============================
+
+async function sendContent(sock, sheetName, displayName) {
+    const group = process.env.ISLAMIC_GROUP_ID;
+    if (!group) { console.error('❌ ISLAMIC_GROUP_ID غير موجود'); return; }
+
+    const content = await db.getContent(sheetName);
+    if (!content || content.length === 0) {
+        console.log(`⚠️ لا محتوى في ${sheetName}`);
+        return;
+    }
+
+    const settings = await db.getSettings();
+    if (!settings[sheetName]?.enabled) {
+        console.log(`⏸️ ${sheetName} معطّل`);
+        return;
+    }
+
+    // إيجاد العنصر التالي
+    const nextItem = content.find(c => c.sentIndex === 0) || content[0];
+    
+    console.log(`📤 إرسال ${displayName}: ${nextItem.text.substring(0, 30)}...`);
+
+    try {
+        await sock.sendMessage(group, { text: nextItem.text });
+        // تحديث SentIndex
+        const allSent = content.every(c => c.id === nextItem.id ? true : c.sentIndex > 0);
+        if (allSent) {
+            // إعادة تعيين الكل
+            for (const item of content) {
+                await db.updateSentIndex(sheetName, item.rowIndex, 0);
+            }
+        } else {
+            await db.updateSentIndex(sheetName, nextItem.rowIndex, 1);
+        }
+        console.log(`✅ تم الإرسال: ${displayName}`);
+    } catch (e) {
+        console.error(`❌ فشل الإرسال: ${e.message}`);
+    }
+}
+
+// ===============================
+// SCHEDULE
+// ===============================
+
+async function startSchedule(sock, sheetName, displayName) {
+    // أوقف القديم
+    if (jobs[sheetName]) {
+        jobs[sheetName].forEach(j => j.stop());
+        delete jobs[sheetName];
+    }
+
+    const settings = await db.getSettings();
+    const times = settings[sheetName]?.times || [];
+
+    if (times.length === 0) {
+        console.log(`⚠️ لا أوقات لـ ${sheetName}`);
+        return;
+    }
+
+    const now = new Date().toLocaleString('en-US', { timeZone: 'Africa/Cairo', hour: '2-digit', minute: '2-digit', hour12: false });
+    console.log(`⏰ جدولة ${displayName} | الآن: ${now}`);
+
+    jobs[sheetName] = times.map(cronTime => {
+        console.log(`   → ${cronToDisplay(cronTime)} (${cronTime})`);
+        return cron.schedule(cronTime, () => {
+            console.log(`\n🔔 CRON: ${displayName}`);
+            sendContent(sock, sheetName, displayName);
+        }, { timezone: 'Africa/Cairo', scheduled: true });
+    });
+}
+
+function stopSchedule(sheetName) {
+    if (jobs[sheetName]) {
+        jobs[sheetName].forEach(j => j.stop());
+        delete jobs[sheetName];
+        console.log(`⏹️ إيقاف جدولة: ${sheetName}`);
+    }
+}
+
+// ===============================
+// COMMAND HANDLER
+// ===============================
+
 async function handleCommand(sock, msg, text, sender) {
-    const isAdmin = sender.includes('249962204268') || 
+    const isAdmin = sender.includes('249962204268') ||
                     sender.includes('231211024814174') ||
                     sender.includes('252355702448348') ||
                     msg.key.fromMe;
 
     if (!isAdmin) return false;
 
+    // أوامر خاصة
     if (text === '/اسلام' || text === '/islam' || text === '/ادارة' || text === '/admin') {
         await sendMainMenu(sock, sender);
         return true;
     }
 
     if (text === '/restart' || text === '/اعادة') {
-        if (!isAdmin) return false;
-        await sock.sendMessage(sender, { text: '🔄 إعادة التشغيل...' });
-        console.log('🔄 إعادة التشغيل بأمر من المستخدم');
-        process.exit(0); // Clever Cloud سيعيد التشغيل تلقائياً
+        await send(sock, sender, '🔄 إعادة التشغيل...');
+        process.exit(0);
         return true;
     }
 
-    if (text.startsWith('/test ') || text.startsWith('/اختبار ')) {
-        if (!isAdmin) return false;
-        
-        const section = text.split(' ')[1];
-        
-        if (section === 'صباح' || section === 'morning') {
-            await sock.sendMessage(sender, { text: '🧪 اختبار فوري: الأذكار - الصباح' });
-            await sendContent(sock, ['athkar', 'morning'], 'الأذكار - الصباح');
-        } else if (section === 'مساء' || section === 'evening') {
-            await sock.sendMessage(sender, { text: '🧪 اختبار فوري: الأذكار - المساء' });
-            await sendContent(sock, ['athkar', 'evening'], 'الأذكار - المساء');
-        } else if (section === 'فتاوى' || section === 'fatawa') {
-            await sock.sendMessage(sender, { text: '🧪 اختبار فوري: الفتاوى' });
-            await sendContent(sock, ['fatawa'], 'الفتاوى');
-        } else {
-            await sock.sendMessage(sender, { text: '❌ استخدام:\n/test صباح\n/test مساء\n/test فتاوى' });
+    if (text === '/groups' || text === '/مجموعات') {
+        try {
+            const groups = await sock.groupFetchAllParticipating();
+            let msg2 = '📋 *المجموعات:*\n\n';
+            for (const [id, g] of Object.entries(groups)) {
+                msg2 += `📌 ${g.subject}\n🆔 ${id}\n👥 ${g.participants?.length || 0} عضو\n\n`;
+            }
+            await send(sock, sender, msg2);
+        } catch (e) {
+            await send(sock, sender, `❌ ${e.message}`);
         }
-        
         return true;
     }
 
-    if (/^\d{1,2}$/.test(text)) {
-        return await handleNumber(sock, sender, parseInt(text));
+    // إذا الرسالة رقم
+    if (/^\d+$/.test(text.trim())) {
+        return await handleNumber(sock, sender, parseInt(text.trim()));
     }
 
+    // نص عادي (إدخال)
     return await handleText(sock, sender, text);
 }
 
-// Init
-async function initialize(sock) {
-    console.log('🔍 فحص ENV:');
-    console.log(`   ISLAMIC_GROUP_ID: ${process.env.ISLAMIC_GROUP_ID || '❌ غير موجود'}`);
-    console.log(`   GOOGLE_SHEET_ID: ${process.env.GOOGLE_SHEET_ID || '❌ غير موجود'}`);
+// ===============================
+// NUMBER HANDLER
+// ===============================
+
+async function handleNumber(sock, sender, num) {
+    const s = session(sender);
+
+    // ======= MAIN MENU =======
+    if (s.level === 'main') {
+        if (num === 1) {
+            await sendAthkarMenu(sock, sender);
+        } else if (num === 2) {
+            await activateSection(sock, sender, 'Fatawa', 'الفتاوى');
+        } else if (num === 3) {
+            await activateSection(sock, sender, 'Fiqh', 'الفقه');
+        } else if (num === 4) {
+            await activateSection(sock, sender, 'Aqeeda', 'العقيدة');
+        } else if (num === 5) {
+            await sendAddContentMenu(sock, sender);
+        } else if (num === 6) {
+            await send(sock, sender, '📁 اكتب اسم المجلد الجديد:');
+            session(sender, { level: 'create_folder' });
+        } else if (num === 7) {
+            await sendDeleteFolderMenu(sock, sender);
+        } else if (num === 8) {
+            await sendScheduleMenu(sock, sender);
+        } else if (num === 9) {
+            await sendStats(sock, sender);
+        } else {
+            // مجلدات مخصصة (10+)
+            const folders = await db.getFolders();
+            const folderIndex = num - 10;
+            if (folderIndex >= 0 && folderIndex < folders.length) {
+                await activateSection(sock, sender, folders[folderIndex], folders[folderIndex].replace(/_/g, ' '));
+            }
+        }
+        return true;
+    }
+
+    // ======= ATHKAR MENU =======
+    if (s.level === 'athkar') {
+        if (num === 0) return await sendMainMenu(sock, sender);
+        if (num === 1) await activateSection(sock, sender, 'Athkar_Morning', 'أذكار الصباح');
+        else if (num === 2) await activateSection(sock, sender, 'Athkar_Evening', 'أذكار المساء');
+        else if (num === 3) {
+            await send(sock, sender, '📁 اكتب اسم المجلد الجديد داخل الأذكار:');
+            session(sender, { level: 'create_folder', parent: 'Athkar' });
+        } else if (num === 4) {
+            await sendDeleteFolderMenu(sock, sender);
+        }
+        return true;
+    }
+
+    // ======= ADD CONTENT MENU =======
+    if (s.level === 'add_content') {
+        if (num === 0) return await sendMainMenu(sock, sender);
+        const items = s.items || [];
+        const picked = items[num - 1];
+        if (picked) {
+            session(sender, { level: 'typing_content', sheetName: picked.key, displayName: picked.name });
+            await send(sock, sender, `✍️ اكتب المحتوى لـ *${picked.name}* وسيُرسل كما هو:`);
+        }
+        return true;
+    }
+
+    // ======= DELETE FOLDER =======
+    if (s.level === 'delete_folder') {
+        if (num === 0) return await sendMainMenu(sock, sender);
+        const folders = s.folders || [];
+        const picked = folders[num - 1];
+        if (picked) {
+            await db.deleteContentSheet(picked);
+            stopSchedule(picked);
+            await send(sock, sender, `✅ تم حذف *${picked.replace(/_/g, ' ')}*`);
+            await sendMainMenu(sock, sender);
+        }
+        return true;
+    }
+
+    // ======= SCHEDULE MAIN =======
+    if (s.level === 'schedule_main') {
+        if (num === 0) return await sendMainMenu(sock, sender);
+        const items = s.items || [];
+        const picked = items[num - 1];
+        if (picked) {
+            await sendSectionSchedule(sock, sender, picked[0], picked[1]);
+        }
+        return true;
+    }
+
+    // ======= SCHEDULE SECTION =======
+    if (s.level === 'schedule_section') {
+        if (num === 0) return await sendScheduleMenu(sock, sender);
+        if (num === 1) {
+            await send(sock, sender,
+`⏰ *إضافة وقت*
+
+اكتب المدة من الآن (بتوقيت القاهرة):
+مثال: \`10\` = بعد 10 ساعات
+مثال: \`10:30\` = بعد 10 ساعات و30 دقيقة`);
+            session(sender, { ...s, level: 'adding_time' });
+        } else if (num === 2) {
+            await sendTimesDisplay(sock, sender, s.sheetName, s.displayName);
+        } else if (num === 3) {
+            const settings = await db.getSettings();
+            const current = settings[s.sheetName]?.enabled || false;
+            await db.setEnabled(s.sheetName, !current);
+            if (!current) {
+                await startSchedule(sockRef, s.sheetName, s.displayName);
+                await send(sock, sender, `✅ تم تفعيل *${s.displayName}*`);
+            } else {
+                stopSchedule(s.sheetName);
+                await send(sock, sender, `⭕ تم تعطيل *${s.displayName}*`);
+            }
+            await sendMainMenu(sock, sender);
+        }
+        return true;
+    }
+
+    // ======= TIMES DISPLAY (delete) =======
+    if (s.level === 'times_display') {
+        if (num === 0) return await sendSectionSchedule(sock, sender, s.sheetName, s.displayName);
+        const index = num - 1;
+        const remaining = await db.deleteTime(s.sheetName, index);
+        if (remaining !== null) {
+            await send(sock, sender, `✅ تم الحذف`);
+            // أعد تشغيل الجدولة
+            if (remaining.length > 0) {
+                await startSchedule(sockRef, s.sheetName, s.displayName);
+            } else {
+                stopSchedule(s.sheetName);
+            }
+        }
+        await sendMainMenu(sock, sender);
+        return true;
+    }
+
+    return false;
+}
+
+// ===============================
+// TEXT HANDLER
+// ===============================
+
+async function handleText(sock, sender, text) {
+    const s = session(sender);
+
+    // ======= TYPING CONTENT =======
+    if (s.level === 'typing_content') {
+        await db.addContent(s.sheetName, text);
+        await send(sock, sender, `✅ تم الحفظ في *${s.displayName}*`);
+        await sendMainMenu(sock, sender);
+        return true;
+    }
+
+    // ======= CREATE FOLDER =======
+    if (s.level === 'create_folder') {
+        const { created, sheetName } = await db.createFolder(text.trim());
+        if (created) {
+            await send(sock, sender, `✅ تم إنشاء مجلد *${text.trim()}*\nيمكنك إضافة محتوى وجدولة له الآن`);
+        } else {
+            await send(sock, sender, `⚠️ المجلد *${text.trim()}* موجود مسبقاً`);
+        }
+        await sendMainMenu(sock, sender);
+        return true;
+    }
+
+    // ======= ADDING TIME =======
+    if (s.level === 'adding_time') {
+        const result = parseRelativeTime(text.trim());
+        if (!result) {
+            await send(sock, sender, '❌ صيغة خاطئة\nمثال: 10 أو 10:30');
+            await sendMainMenu(sock, sender);
+            return true;
+        }
+        const times = await db.addTime(s.sheetName, result.cron);
+        await send(sock, sender,
+`✅ تم إضافة الوقت
+📌 القسم: *${s.displayName}*
+⏰ سيُرسل الساعة: *${result.display}* (القاهرة)
+📋 إجمالي الأوقات: ${times.length}`);
+        // أعد تشغيل الجدولة
+        const settings = await db.getSettings();
+        if (settings[s.sheetName]?.enabled) {
+            await startSchedule(sockRef, s.sheetName, s.displayName);
+        }
+        await sendMainMenu(sock, sender);
+        return true;
+    }
+
+    return false;
+}
+
+// ===============================
+// HELPERS FOR MENUS
+// ===============================
+
+async function activateSection(sock, sender, sheetName, displayName) {
+    await db.createContentSheet(sheetName);
+    await db.upsertSection(sheetName, null, null);
+    const content = await db.getContent(sheetName);
+    const settings = await db.getSettings();
+    const current = settings[sheetName]?.enabled || false;
     
-    if (isInitialized) {
-        console.log('⚠️ القسم الإسلامي مُهيأ مسبقاً - تخطي');
+    await db.setEnabled(sheetName, !current);
+    
+    if (!current) {
+        await send(sock, sender, `✅ تم تفعيل *${displayName}*`);
+        if (content.length > 0) await sendContent(sock, sheetName, displayName);
+        await startSchedule(sock, sheetName, displayName);
+    } else {
+        stopSchedule(sheetName);
+        await send(sock, sender, `⭕ تم تعطيل *${displayName}*`);
+    }
+    await sendMainMenu(sock, sender);
+}
+
+async function sendAddContentMenu(sock, sender) {
+    const folders = await db.getFolders();
+    const items = [
+        { key: 'Athkar_Morning', name: 'أذكار الصباح' },
+        { key: 'Athkar_Evening', name: 'أذكار المساء' },
+        { key: 'Fatawa', name: 'الفتاوى' },
+        { key: 'Fiqh', name: 'الفقه' },
+        { key: 'Aqeeda', name: 'العقيدة' },
+        ...folders.map(f => ({ key: f, name: f.replace(/_/g, ' ') }))
+    ];
+
+    let lines = `*إضافة محتوى*\n\n`;
+    items.forEach((item, i) => { lines += `${i + 1}️⃣ ${item.name}\n`; });
+    lines += `0️⃣ رجوع\n\nاختر القسم:`;
+
+    session(sender, { level: 'add_content', items });
+    await send(sock, sender, lines);
+}
+
+async function sendDeleteFolderMenu(sock, sender) {
+    const folders = await db.getFolders();
+    if (folders.length === 0) {
+        await send(sock, sender, '⚠️ لا مجلدات مخصصة لحذفها');
+        await sendMainMenu(sock, sender);
         return;
     }
-    
-    try {
-        if (!process.env.ISLAMIC_GROUP_ID || !process.env.GOOGLE_SHEET_ID) {
-            console.log('⚠️ القسم الإسلامي معطل - ENV غير مكتمل');
-            return;
-        }
+    let lines = `*حذف مجلد*\n\n`;
+    folders.forEach((f, i) => { lines += `${i + 1}️⃣ ${f.replace(/_/g, ' ')}\n`; });
+    lines += `0️⃣ رجوع\n\nاختر المجلد:`;
+    session(sender, { level: 'delete_folder', folders });
+    await send(sock, sender, lines);
+}
 
+async function sendTimesDisplay(sock, sender, sheetName, displayName) {
+    const settings = await db.getSettings();
+    const times = settings[sheetName]?.times || [];
+    if (times.length === 0) {
+        await send(sock, sender, '⚠️ لا أوقات محددة');
+        await sendMainMenu(sock, sender);
+        return;
+    }
+    let lines = `⏰ *أوقات ${displayName}:*\n\n`;
+    times.forEach((t, i) => { lines += `${i + 1}. ${cronToDisplay(t)}\n`; });
+    lines += `\nاختر رقم للحذف\n0️⃣ رجوع`;
+    session(sender, { level: 'times_display', sheetName, displayName });
+    await send(sock, sender, lines);
+}
+
+async function sendStats(sock, sender) {
+    const stats = await db.getStats();
+    let lines = `📊 *الإحصائيات:*\n\n`;
+    stats.forEach(s => {
+        const status = s.enabled ? '✅' : '⭕';
+        lines += `${status} *${s.name.replace(/_/g, ' ')}*\n`;
+        lines += `   📝 ${s.count} محتوى | ⏰ ${s.times.length} وقت\n\n`;
+    });
+    await send(sock, sender, lines);
+    await sendMainMenu(sock, sender);
+}
+
+// ===============================
+// INITIALIZE
+// ===============================
+
+async function initialize(sock) {
+    sockRef = sock;
+    
+    console.log('🔍 فحص ENV:');
+    console.log(`   ISLAMIC_GROUP_ID: ${process.env.ISLAMIC_GROUP_ID ? '✅' : '❌ غير موجود'}`);
+    console.log(`   GOOGLE_SHEET_ID: ${process.env.GOOGLE_SHEET_ID ? '✅' : '❌ غير موجود'}`);
+
+    if (isInitialized) {
+        console.log('⚠️ مُهيأ مسبقاً');
+        return;
+    }
+
+    if (!process.env.ISLAMIC_GROUP_ID || !process.env.GOOGLE_SHEET_ID) {
+        console.log('⚠️ القسم الإسلامي معطل');
+        return;
+    }
+
+    try {
         await db.initialize();
         await db.setupSettings();
 
+        // تشغيل الجداول المفعّلة
         const settings = await db.getSettings();
-        for (const [section, config] of Object.entries(settings)) {
-            if (config.enabled && config.time) {
-                let path, title;
-                
-                if (section === 'athkar_morning') {
-                    path = ['athkar', 'morning'];
-                    title = 'الأذكار - الصباح';
-                } else if (section === 'athkar_evening') {
-                    path = ['athkar', 'evening'];
-                    title = 'الأذكار - المساء';
-                } else if (section === 'fatawa') {
-                    path = ['fatawa'];
-                    title = 'الفتاوى';
-                } else if (section.startsWith('fiqh_')) {
-                    path = section.split('_');
-                    title = `الفقه - ${path[path.length - 1]}`;
-                } else {
-                    continue;
-                }
-                
-                await startSchedule(sock, path, title);
+        const allSections = {
+            ...DEFAULT_SECTIONS,
+        };
+
+        // أضف المجلدات المخصصة
+        const folders = await db.getFolders();
+        folders.forEach(f => { allSections[f] = f.replace(/_/g, ' '); });
+
+        for (const [sheetName, displayName] of Object.entries(allSections)) {
+            const s = settings[sheetName];
+            if (s?.enabled && s?.times?.length > 0) {
+                console.log(`🔄 تحميل جدولة: ${displayName}`);
+                await startSchedule(sock, sheetName, displayName);
             }
         }
 
         isInitialized = true;
         console.log('✅ القسم الإسلامي جاهز');
     } catch (e) {
-        console.error('❌ فشل:', e.message);
+        console.error('❌ فشل التهيئة:', e.message);
     }
 }
 
