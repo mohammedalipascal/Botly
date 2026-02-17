@@ -35,24 +35,29 @@ function session(sender, data = null) {
 async function sendMainMenu(sock, sender) {
     session(sender, { level: 'main' });
     const folders = await db.getFolders();
-    let extra = '';
-    folders.forEach((f, i) => { extra += `${i + 10}️⃣ ${f.replace(/_/g, ' ')}\n`; });
-
-    await send(sock, sender,
-`📿 *القسم الإسلامي*
-
-1️⃣ الأذكار
-2️⃣ الفتاوى
-3️⃣ الفقه
-4️⃣ العقيدة
-${extra}
-5️⃣ إضافة محتوى
-6️⃣ إضافة مجلد
-7️⃣ حذف مجلد
-8️⃣ الجدولة
-9️⃣ إحصائيات
-
-اختر رقم:`);
+    
+    let menuLines = `📿 *القسم الإسلامي*\n\n1️⃣ الأذكار\n2️⃣ الفتاوى\n3️⃣ الفقه\n4️⃣ العقيدة\n`;
+    
+    // المجلدات المخصصة تكمل الترقيم من 5
+    folders.forEach((f, i) => {
+        menuLines += `${i + 5}️⃣ ${f.replace(/_/g, ' ')}\n`;
+    });
+    
+    const nextNum = 5 + folders.length;
+    menuLines += `\n${nextNum}️⃣ إضافة محتوى\n${nextNum + 1}️⃣ إضافة مجلد\n${nextNum + 2}️⃣ حذف مجلد\n${nextNum + 3}️⃣ الجدولة\n${nextNum + 4}️⃣ إحصائيات\n\nاختر رقم:`;
+    
+    // حفظ الأرقام الديناميكية في الـ session
+    session(sender, { 
+        level: 'main', 
+        folders,
+        addContent: nextNum,
+        addFolder: nextNum + 1,
+        deleteFolder: nextNum + 2,
+        schedule: nextNum + 3,
+        stats: nextNum + 4
+    });
+    
+    await send(sock, sender, menuLines);
 }
 
 async function sendAthkarMenu(sock, sender) {
@@ -87,8 +92,7 @@ async function sendScheduleMenu(sock, sender) {
     items.forEach(([key, name], i) => {
         const s = settings[key];
         const status = s?.enabled ? '✅' : '⭕';
-        const timesCount = s?.times?.length || 0;
-        lines += `${i + 1}️⃣ ${name} ${status} (${timesCount} وقت)\n`;
+        lines += `${i + 1}️⃣ ${name} ${status}\n`;
     });
 
     lines += `0️⃣ رجوع\n\naختر:`;
@@ -122,43 +126,46 @@ ${timesList}
 // ===============================
 
 function cronToDisplay(cronStr) {
-    // "30 6 * * *" → "6:30"
     try {
         const parts = cronStr.trim().split(' ');
-        const min = parts[0].padStart(2, '0');
-        const hr = parts[1].padStart(2, '0');
-        return `${hr}:${min}`;
+        const min = parseInt(parts[0]);
+        const hr = parseInt(parts[1]);
+        const period = hr >= 12 ? 'م' : 'ص';
+        const hr12 = hr === 0 ? 12 : hr > 12 ? hr - 12 : hr;
+        return `${hr12}:${String(min).padStart(2,'0')} ${period}`;
     } catch { return cronStr; }
 }
 
-function parseRelativeTime(input) {
-    // "10" → بعد 10 ساعات
-    // "10:30" → بعد 10 ساعات و30 دقيقة
-    const now = new Date();
-    const cairoOffset = 2; // UTC+2
-    const cairoHour = (now.getUTCHours() + cairoOffset) % 24;
-    const cairoMin = now.getUTCMinutes();
-
-    let addHours = 0, addMins = 0;
-
-    if (/^\d+$/.test(input.trim())) {
-        addHours = parseInt(input.trim());
-    } else if (/^\d+:\d+$/.test(input.trim())) {
-        const [h, m] = input.trim().split(':').map(Number);
-        addHours = h;
-        addMins = m;
-    } else {
-        return null;
-    }
-
-    let targetMin = cairoMin + addMins;
-    let targetHour = cairoHour + addHours + Math.floor(targetMin / 60);
-    targetMin = targetMin % 60;
-    targetHour = targetHour % 24;
-
-    const cron = `${targetMin} ${targetHour} * * *`;
-    const display = `${String(targetHour).padStart(2,'0')}:${String(targetMin).padStart(2,'0')}`;
-    return { cron, display };
+function parseAbsoluteTime(input) {
+    // "7:00ص" → hour=7, min=0
+    // "7:00م" → hour=19, min=0
+    // "7:30م" → hour=19, min=30
+    input = input.trim();
+    
+    const isAM = input.includes('ص');
+    const isPM = input.includes('م');
+    
+    if (!isAM && !isPM) return null;
+    
+    const timeStr = input.replace('ص', '').replace('م', '').trim();
+    const parts = timeStr.split(':');
+    if (parts.length !== 2) return null;
+    
+    let hour = parseInt(parts[0]);
+    const min = parseInt(parts[1]);
+    
+    if (isNaN(hour) || isNaN(min)) return null;
+    if (hour < 1 || hour > 12 || min < 0 || min > 59) return null;
+    
+    // تحويل لـ 24 ساعة
+    if (isPM && hour !== 12) hour += 12;
+    if (isAM && hour === 12) hour = 0;
+    
+    const cron = `${min} ${hour} * * *`;
+    const display = `${String(hour).padStart(2,'0')}:${String(min).padStart(2,'0')}`;
+    const displayAr = `${parts[0]}:${parts[1].padStart(2,'0')} ${isAM ? 'ص' : 'م'}`;
+    
+    return { cron, display, displayAr };
 }
 
 // ===============================
@@ -209,10 +216,14 @@ async function sendContent(sock, sheetName, displayName) {
 // ===============================
 
 async function startSchedule(sock, sheetName, displayName) {
+    // حفظ المرجع دائماً
+    if (sock) sockRef = sock;
+    
     // أوقف القديم
     if (jobs[sheetName]) {
         jobs[sheetName].forEach(j => j.stop());
         delete jobs[sheetName];
+        console.log(`🔄 إيقاف الجدولة القديمة: ${sheetName}`);
     }
 
     const settings = await db.getSettings();
@@ -223,16 +234,49 @@ async function startSchedule(sock, sheetName, displayName) {
         return;
     }
 
-    const now = new Date().toLocaleString('en-US', { timeZone: 'Africa/Cairo', hour: '2-digit', minute: '2-digit', hour12: false });
-    console.log(`⏰ جدولة ${displayName} | الآن: ${now}`);
-
-    jobs[sheetName] = times.map(cronTime => {
-        console.log(`   → ${cronToDisplay(cronTime)} (${cronTime})`);
-        return cron.schedule(cronTime, () => {
-            console.log(`\n🔔 CRON: ${displayName}`);
-            sendContent(sock, sheetName, displayName);
-        }, { timezone: 'Africa/Cairo', scheduled: true });
+    const now = new Date().toLocaleString('en-US', { 
+        timeZone: 'Africa/Cairo', 
+        hour: '2-digit', 
+        minute: '2-digit', 
+        hour12: false 
     });
+    console.log(`\n⏰ ======== جدولة ${displayName} ========`);
+    console.log(`   📅 الآن بالقاهرة: ${now}`);
+    console.log(`   📋 عدد الأوقات: ${times.length}`);
+
+    jobs[sheetName] = times.map((cronTime, i) => {
+        const display = cronToDisplay(cronTime);
+        console.log(`   ⏰ [${i+1}] ${display} → cron: "${cronTime}"`);
+        
+        const job = cron.schedule(cronTime.trim(), async () => {
+            const fireTime = new Date().toLocaleString('en-US', { 
+                timeZone: 'Africa/Cairo', 
+                hour: '2-digit', 
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false 
+            });
+            console.log(`\n🔔 ======== CRON FIRED ========`);
+            console.log(`   ⏰ الوقت: ${fireTime} (القاهرة)`);
+            console.log(`   📌 القسم: ${displayName} (${sheetName})`);
+            
+            const currentSock = sockRef;
+            if (!currentSock) {
+                console.error(`   ❌ sockRef = null! لا يمكن الإرسال`);
+                return;
+            }
+            console.log(`   ✅ sock متوفر، جاري الإرسال...`);
+            await sendContent(currentSock, sheetName, displayName);
+            console.log(`   ==============================\n`);
+        }, { timezone: 'Africa/Cairo', scheduled: true });
+        
+        // تحقق أن الـ job شغّال
+        console.log(`   ✅ Job created, running: ${job ? 'نعم' : 'لا'}`);
+        return job;
+    });
+    
+    console.log(`✅ تم إعداد ${jobs[sheetName].length} جدولة لـ ${displayName}`);
+    console.log(`========================================\n`);
 }
 
 function stopSchedule(sheetName) {
@@ -299,6 +343,13 @@ async function handleNumber(sock, sender, num) {
 
     // ======= MAIN MENU =======
     if (s.level === 'main') {
+        const folders = s.folders || [];
+        const addContent = s.addContent || (5 + folders.length);
+        const addFolder  = s.addFolder  || (6 + folders.length);
+        const delFolder  = s.deleteFolder || (7 + folders.length);
+        const schedule   = s.schedule   || (8 + folders.length);
+        const stats      = s.stats      || (9 + folders.length);
+
         if (num === 1) {
             await sendAthkarMenu(sock, sender);
         } else if (num === 2) {
@@ -307,21 +358,20 @@ async function handleNumber(sock, sender, num) {
             await activateSection(sock, sender, 'Fiqh', 'الفقه');
         } else if (num === 4) {
             await activateSection(sock, sender, 'Aqeeda', 'العقيدة');
-        } else if (num === 5) {
+        } else if (num === addContent) {
             await sendAddContentMenu(sock, sender);
-        } else if (num === 6) {
+        } else if (num === addFolder) {
             await send(sock, sender, '📁 اكتب اسم المجلد الجديد:');
             session(sender, { level: 'create_folder' });
-        } else if (num === 7) {
+        } else if (num === delFolder) {
             await sendDeleteFolderMenu(sock, sender);
-        } else if (num === 8) {
+        } else if (num === schedule) {
             await sendScheduleMenu(sock, sender);
-        } else if (num === 9) {
+        } else if (num === stats) {
             await sendStats(sock, sender);
         } else {
-            // مجلدات مخصصة (10+)
-            const folders = await db.getFolders();
-            const folderIndex = num - 10;
+            // مجلدات مخصصة (5 إلى addContent-1)
+            const folderIndex = num - 5;
             if (folderIndex >= 0 && folderIndex < folders.length) {
                 await activateSection(sock, sender, folders[folderIndex], folders[folderIndex].replace(/_/g, ' '));
             }
@@ -387,20 +437,29 @@ async function handleNumber(sock, sender, num) {
             await send(sock, sender,
 `⏰ *إضافة وقت*
 
-اكتب المدة من الآن (بتوقيت القاهرة):
-مثال: \`10\` = بعد 10 ساعات
-مثال: \`10:30\` = بعد 10 ساعات و30 دقيقة`);
+اكتب الوقت بتوقيت القاهرة:
+مثال: \`7:00ص\` = السابعة صباحاً
+مثال: \`3:30م\` = الثالثة والنصف مساءً`);
             session(sender, { ...s, level: 'adding_time' });
         } else if (num === 2) {
             await sendTimesDisplay(sock, sender, s.sheetName, s.displayName);
         } else if (num === 3) {
             const settings = await db.getSettings();
             const current = settings[s.sheetName]?.enabled || false;
+            const times = settings[s.sheetName]?.times || [];
+            
             await db.setEnabled(s.sheetName, !current);
+            
             if (!current) {
-                await startSchedule(sockRef, s.sheetName, s.displayName);
-                await send(sock, sender, `✅ تم تفعيل *${s.displayName}*`);
+                // تفعيل
+                if (times.length === 0) {
+                    await send(sock, sender, `✅ تم تفعيل *${s.displayName}*\n⚠️ أضف وقتاً أولاً لتبدأ الجدولة`);
+                } else {
+                    await send(sock, sender, `✅ تم تفعيل *${s.displayName}*`);
+                    await startSchedule(sockRef || sock, s.sheetName, s.displayName);
+                }
             } else {
+                // تعطيل
                 stopSchedule(s.sheetName);
                 await send(sock, sender, `⭕ تم تعطيل *${s.displayName}*`);
             }
@@ -459,23 +518,29 @@ async function handleText(sock, sender, text) {
 
     // ======= ADDING TIME =======
     if (s.level === 'adding_time') {
-        const result = parseRelativeTime(text.trim());
+        const result = parseAbsoluteTime(text.trim());
         if (!result) {
-            await send(sock, sender, '❌ صيغة خاطئة\nمثال: 10 أو 10:30');
+            await send(sock, sender, '❌ صيغة خاطئة\nمثال: 7:00ص أو 3:30م');
             await sendMainMenu(sock, sender);
             return true;
         }
+        
         const times = await db.addTime(s.sheetName, result.cron);
+        await db.upsertSection(s.sheetName, null, null);
+        
         await send(sock, sender,
 `✅ تم إضافة الوقت
 📌 القسم: *${s.displayName}*
-⏰ سيُرسل الساعة: *${result.display}* (القاهرة)
-📋 إجمالي الأوقات: ${times.length}`);
-        // أعد تشغيل الجدولة
-        const settings = await db.getSettings();
-        if (settings[s.sheetName]?.enabled) {
-            await startSchedule(sockRef, s.sheetName, s.displayName);
+⏰ سيُرسل الساعة: *${result.displayAr}* (القاهرة)
+📋 إجمالي الأوقات: ${times.length}
+
+⚠️ تأكد من تفعيل القسم لكي يرسل`);
+
+        const updatedSettings = await db.getSettings();
+        if (updatedSettings[s.sheetName]?.enabled) {
+            await startSchedule(sockRef || sock, s.sheetName, s.displayName);
         }
+        
         await sendMainMenu(sock, sender);
         return true;
     }
@@ -490,17 +555,23 @@ async function handleText(sock, sender, text) {
 async function activateSection(sock, sender, sheetName, displayName) {
     await db.createContentSheet(sheetName);
     await db.upsertSection(sheetName, null, null);
-    const content = await db.getContent(sheetName);
+    
     const settings = await db.getSettings();
     const current = settings[sheetName]?.enabled || false;
+    const times = settings[sheetName]?.times || [];
     
     await db.setEnabled(sheetName, !current);
     
     if (!current) {
-        await send(sock, sender, `✅ تم تفعيل *${displayName}*`);
-        if (content.length > 0) await sendContent(sock, sheetName, displayName);
-        await startSchedule(sock, sheetName, displayName);
+        // تفعيل
+        if (times.length === 0) {
+            await send(sock, sender, `✅ تم تفعيل *${displayName}*\n⚠️ لا أوقات محددة - أضف وقتاً من الجدولة`);
+        } else {
+            await send(sock, sender, `✅ تم تفعيل *${displayName}*`);
+            await startSchedule(sock, sheetName, displayName);
+        }
     } else {
+        // تعطيل
         stopSchedule(sheetName);
         await send(sock, sender, `⭕ تم تعطيل *${displayName}*`);
     }
