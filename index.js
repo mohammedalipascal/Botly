@@ -26,7 +26,7 @@ const fs = require('fs');
 const path = require('path');
 const NodeCache = require('node-cache');
 const { getAIResponse } = require('./modules/ai/ai');
-const { handleIslamicCommand, initializeIslamicModule, islamicIsEnabled } = require('./modules/islamic/islamicModule');
+const { handleIslamicCommand, initializeIslamicModule, islamicIsEnabled, resetIslamicModule } = require('./modules/islamic/islamicModule');
 const adminPanel = require('./modules/admin/adminPanel');
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -515,12 +515,7 @@ server.listen(CONFIG.port, () => {
     console.log('╚════════════════════════════════════════════════╝\n');
 });
 
-setInterval(() => {
-    const url = `http://localhost:${CONFIG.port}`;
-    http.get(url, (res) => {
-        console.log(`💓 Keep-alive: ${res.statusCode}`);
-    }).on('error', () => {});
-}, 5 * 60 * 1000);
+// Keep-alive removed - server stays alive natively
 
 async function generateNewSession(attemptNumber = 1) {
     const MAX_SESSION_ATTEMPTS = 3;
@@ -1110,34 +1105,40 @@ async function startBot() {
             
             if (connection === 'close') {
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
+                const reason = lastDisconnect?.error?.output?.payload?.error;
                 
-                console.log(`\n⚠️ الاتصال مغلق - كود: ${statusCode}\n`);
+                console.log(`\n⚠️ الاتصال مغلق`);
+                console.log(`   📋 كود: ${statusCode || 'N/A'}`);
+                console.log(`   📋 السبب: ${reason || 'غير معروف'}`);
+                console.log(`   ⏰ الوقت: ${new Date().toLocaleString('ar-EG', {timeZone: 'Africa/Cairo'})}\n`);
                 
                 if (statusCode === DisconnectReason.loggedOut ||
                     statusCode === 401 || statusCode === 403) {
                     console.error('❌ الجلسة غير صالحة - حذفها...\n');
-                    
                     fs.rmSync(authPath, { recursive: true, force: true });
-                    
-                    console.log('⏳ إعادة المحاولة بعد 10 ثواني...\n');
-                    await delay(10000);
-                    
-                    sock.end();
-                    await startBot();
-                    return;
+                    console.log('⏳ إعادة التشغيل بعد 5 ثواني...\n');
+                    await delay(5000);
+                    process.exit(0);
                 }
                 
-                console.log(`🔄 إعادة الاتصال بعد 5 ثواني...\n`);
-                await delay(5000);
+                console.log(`🔄 إعادة التشغيل بعد 5 ثواني...\n`);
                 
-                sock.end();
-                await startBot();
+                // إعادة تعيين القسم الإسلامي
+                if (islamicIsEnabled()) {
+                    console.log('🔄 إعادة تعيين القسم الإسلامي...');
+                    resetIslamicModule();
+                }
+                
+                await delay(5000);
+                process.exit(0);  // دع المنصة تعيد التشغيل
                 
             } else if (connection === 'open') {
-                console.log('✅ ════════════════════════════════════');
+                const now = new Date().toLocaleString('ar-EG', {timeZone: 'Africa/Cairo'});
+                console.log('\n✅ ════════════════════════════════════');
                 console.log(`   متصل بواتساب بنجاح! 🎉`);
                 console.log(`   البوت: ${CONFIG.botName}`);
                 console.log(`   الرقم: ${sock.user?.id?.split(':')[0] || '---'}`);
+                console.log(`   الوقت: ${now}`);
                 console.log(`   AI: ${AI_ENABLED ? '✅' : '❌'}`);
                 console.log(`   القسم الإسلامي: ${islamicIsEnabled() ? '✅' : '❌'}`);
                 console.log('════════════════════════════════════\n');
@@ -1149,10 +1150,10 @@ async function startBot() {
                 lastBadMacReset = Date.now();
                 
                 if (islamicIsEnabled()) {
-                    initializeIslamicModule(sock);
+                    console.log('🔄 تهيئة القسم الإسلامي...');
+                    await initializeIslamicModule(sock);
+                    console.log('✅ القسم الإسلامي جاهز للعمل\n');
                 }
-                
-                // الرسالة التلقائية محذوفة حسب الطلب
                 
             } else if (connection === 'connecting') {
                 console.log('🔄 جاري الاتصال...');
