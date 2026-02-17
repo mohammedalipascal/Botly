@@ -28,6 +28,7 @@ const NodeCache = require('node-cache');
 const { getAIResponse } = require('./modules/ai/ai');
 const { handleIslamicCommand, initializeIslamicModule, islamicIsEnabled, resetIslamicModule } = require('./modules/islamic/islamicModule');
 const adminPanel = require('./modules/admin/adminPanel');
+const sessionManager = require('./sessionManager');
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -717,6 +718,23 @@ async function startBot() {
         const authPath = path.join(__dirname, 'auth_info');
         const credsPath = path.join(authPath, 'creds.json');
         
+        // محاولة تحميل الجلسة من Google Drive
+        if (!fs.existsSync(authPath) || !fs.existsSync(credsPath)) {
+            console.log('⚠️ لا توجد جلسة محلية');
+            
+            if (process.env.GOOGLE_CREDENTIALS) {
+                console.log('🔍 البحث عن جلسة في Google Drive...\n');
+                try {
+                    const downloaded = await sessionManager.downloadSession();
+                    if (!downloaded) {
+                        console.log('⚠️ لا توجد جلسة محفوظة - سيتم إنشاء جلسة جديدة\n');
+                    }
+                } catch (e) {
+                    console.log('⚠️ فشل التحميل من Drive:', e.message);
+                }
+            }
+        }
+        
         if (!fs.existsSync(authPath) || !fs.existsSync(credsPath)) {
             console.log('⚠️ لا توجد جلسة - سيتم إنشاء جلسة جديدة\n');
             
@@ -1089,6 +1107,17 @@ async function startBot() {
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect, qr } = update;
             
+            console.log(`\n🔍 ===== CONNECTION UPDATE =====`);
+            console.log(`   connection: ${connection || 'N/A'}`);
+            console.log(`   qr: ${qr ? 'موجود' : 'لا'}`);
+            console.log(`   lastDisconnect: ${lastDisconnect ? 'موجود' : 'لا'}`);
+            if (lastDisconnect) {
+                console.log(`   - statusCode: ${lastDisconnect?.error?.output?.statusCode || 'N/A'}`);
+                console.log(`   - error: ${lastDisconnect?.error?.message || 'N/A'}`);
+                console.log(`   - payload: ${JSON.stringify(lastDisconnect?.error?.output?.payload || {})}`);
+            }
+            console.log(`==============================\n`);
+            
             if (qr) {
                 console.error('\n❌ خطأ: تم طلب QR بعد تحميل الجلسة!\n');
                 console.error('⚠️ الجلسة تالفة - حذفها وإعادة المحاولة...\n');
@@ -1153,6 +1182,16 @@ async function startBot() {
                     console.log('🔄 تهيئة القسم الإسلامي...');
                     await initializeIslamicModule(sock);
                     console.log('✅ القسم الإسلامي جاهز للعمل\n');
+                }
+                
+                // رفع الجلسة إلى Google Drive
+                if (process.env.GOOGLE_CREDENTIALS) {
+                    console.log('📤 حفظ الجلسة في Google Drive...');
+                    try {
+                        await sessionManager.uploadSession();
+                    } catch (e) {
+                        console.error('⚠️ فشل حفظ الجلسة:', e.message);
+                    }
                 }
                 
             } else if (connection === 'connecting') {
