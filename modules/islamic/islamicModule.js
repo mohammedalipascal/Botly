@@ -191,7 +191,17 @@ async function sendContent(sock, sheetName, displayName) {
     // إيجاد العنصر التالي
     const nextItem = content.find(c => c.sentIndex === 0) || content[0];
     
-    console.log(`📤 إرسال ${displayName}: ${nextItem.text.substring(0, 30)}...`);
+    console.log(`📤 إرسال ${displayName}:`);
+    console.log(`   🆔 ID: ${nextItem.id}`);
+    console.log(`   📝 طول النص: ${nextItem.text?.length || 0} حرف`);
+    console.log(`   📄 أول 50 حرف: [${nextItem.text?.substring(0, 50)}]`);
+    console.log(`   🔢 sentIndex: ${nextItem.sentIndex}`);
+
+    if (!nextItem.text || nextItem.text.trim().length === 0) {
+        console.error(`   ❌ النص فارغ! تخطي...`);
+        await db.updateSentIndex(sheetName, nextItem.rowIndex, 1);
+        return;
+    }
 
     try {
         await sock.sendMessage(group, { text: nextItem.text });
@@ -692,8 +702,23 @@ function isEnabled() {
     return !!(process.env.ISLAMIC_GROUP_ID && process.env.GOOGLE_SHEET_ID);
 }
 
+function resetModule() {
+    console.log('🔄 إعادة تعيين القسم الإسلامي...');
+    isInitialized = false;
+    // إيقاف كل الجدولات
+    Object.keys(jobs).forEach(key => {
+        if (jobs[key]) {
+            jobs[key].forEach(j => j.stop());
+        }
+    });
+    jobs = {};
+    sessions.clear();
+    console.log('✅ تم إعادة التعيين');
+}
+
 module.exports = {
     handleIslamicCommand: handleCommand,
     initializeIslamicModule: initialize,
-    islamicIsEnabled: isEnabled
+    islamicIsEnabled: isEnabled,
+    resetIslamicModule: resetModule
 };
