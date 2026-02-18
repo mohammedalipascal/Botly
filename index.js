@@ -26,8 +26,24 @@ const fs = require('fs');
 const path = require('path');
 const NodeCache = require('node-cache');
 const { getAIResponse } = require('./modules/ai/ai');
-const { handleIslamicCommand, initializeIslamicModule, islamicIsEnabled, resetIslamicModule } = require('./modules/islamic/islamicModule');
+const { handleIslamicCommand, initializeIslamicModule, islamicIsEnabled } = require('./modules/islamic/islamicModule');
 const adminPanel = require('./modules/admin/adminPanel');
+
+// ========== MONGODB + RECONNECTION IMPORTS ==========
+const { useMongoDBAuthState } = require('./database/mongoAuthState');
+const { ReconnectionManager } = require('./utils/reconnectionManager');
+
+// MongoDB URL from ENV
+const MONGO_URL = process.env.MONGO_URL;
+const USE_MONGODB = !!MONGO_URL;
+
+// Reconnection Manager
+const reconnectionManager = new ReconnectionManager({
+    maxAttempts: Infinity,
+    baseDelay: 1000,
+    maxDelay: 60000
+});
+// ====================================================
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -515,7 +531,12 @@ server.listen(CONFIG.port, () => {
     console.log('╚════════════════════════════════════════════════╝\n');
 });
 
-// Keep-alive removed - server stays alive natively
+setInterval(() => {
+    const url = `http://localhost:${CONFIG.port}`;
+    http.get(url, (res) => {
+        console.log(`💓 Keep-alive: ${res.statusCode}`);
+    }).on('error', () => {});
+}, 5 * 60 * 1000);
 
 async function generateNewSession(attemptNumber = 1) {
     const MAX_SESSION_ATTEMPTS = 3;
@@ -717,32 +738,21 @@ async function startBot() {
         const authPath = path.join(__dirname, 'auth_info');
         const credsPath = path.join(authPath, 'creds.json');
         
-        // حذف الجلسة القديمة إجبارياً (لحل مشكلة 408)
-        if (fs.existsSync(authPath)) {
-            console.log('🗑️ حذف الجلسة القديمة لتجنب تعارضات...');
-            fs.rmSync(authPath, { recursive: true, force: true });
-        }
-        
-        console.log('⚠️ لا توجد جلسة - سيتم إنشاء جلسة جديدة\n');
-        try {
-    await generateNewSession();
-    console.log('⚠️ لا توجد جلسة - سيتم إنشاء جلسة جديدة\n');
-    
-    try {
-        await generateNewSession();
-    } catch (error) {
-        console.error('❌ فشل إنشاء الجلسة:', error.message);
-        console.log('⏳ سيتم المحاولة مرة أخرى بعد 3 ثانية...\n');
-        await delay(3000);
-        return startBot();
-    }
-    
-    console.log('🔄 إعادة التشغيل للاتصال بالجلسة الجديدة...\n');
-    await delay(3000);
-    process.exit(0);
-
-} catch (error) {
-    console.error('❌ خطأ غير متوقع:', error.message);
+        if (!fs.existsSync(authPath) || !fs.existsSync(credsPath)) {
+            console.log('⚠️ لا توجد جلسة - سيتم إنشاء جلسة جديدة\n');
+            
+            try {
+                await generateNewSession();
+            } catch (error) {
+                console.error('❌ فشل إنشاء الجلسة:', error.message);
+                console.log('⏳ سيتم المحاولة مرة أخرى بعد 3 ثانية...\n');
+                await delay(3000);
+                return startBot();
+            }
+            
+            console.log('🔄 إعادة التشغيل للاتصال بالجلسة الجديدة...\n');
+            await delay(3000);
+            process.exit(0);
         }
         
         try {
@@ -774,7 +784,33 @@ async function startBot() {
         const { version, isLatest } = await fetchLatestBaileysVersion();
         console.log(`📦 Baileys v${version.join('.')}, أحدث: ${isLatest ? '✅' : '⚠️'}\n`);
         
-        const { state, saveCreds } = await useMultiFileAuthState('auth_info');
+        // ========== USE MONGODB IF AVAILABLE, FALLBACK TO FILESYSTEM ==========
+        let state, saveCreds;
+        
+        if (USE_MONGODB) {
+            console.log('📊 Using MongoDB for session storage...');
+            try {
+                const mongoAuth = await useMongoDBAuthState(MONGO_URL, {
+                    sessionId: 'main_session',
+                    dbName: 'whatsapp_bot'
+                });
+                state = mongoAuth.state;
+                saveCreds = mongoAuth.saveCreds;
+                console.log('✅ MongoDB session loaded\n');
+            } catch (e) {
+                console.error('❌ MongoDB failed, falling back to filesystem:', e.message);
+                const fsAuth = await useMultiFileAuthState('auth_info');
+                state = fsAuth.state;
+                saveCreds = fsAuth.saveCreds;
+            }
+        } else {
+            console.log('📁 Using filesystem for session storage...');
+            const fsAuth = await useMultiFileAuthState('auth_info');
+            state = fsAuth.state;
+            saveCreds = fsAuth.saveCreds;
+            console.log('✅ Filesystem session loaded\n');
+        }
+        // ======================================================================
         
         const msgRetryCounterCache = new NodeCache();
         
@@ -809,6 +845,19 @@ async function startBot() {
         sock.ev.on('creds.update', saveCreds);
         
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
+            
+            // ============ LOGGING ADDED HERE ============
+            console.log(`\n🔔 ===== MESSAGE RECEIVED =====`);
+            console.log(`   ⏰ ${new Date().toLocaleString('ar-EG', {timeZone: 'Africa/Cairo'})}`);
+            console.log(`   📦 Type: ${type}`);
+            console.log(`   📊 Messages: ${messages.length}`);
+            if (messages[0]) {
+                console.log(`   📱 From: ${messages[0].key.remoteJid}`);
+                console.log(`   🆔 ID: ${messages[0].key.id.substring(0,10)}...`);
+            }
+            console.log(`==============================\n`);
+            // ============ END LOGGING ============
+            
             try {
                 if (msgRetryCounterCache) {
                     try {
@@ -1100,17 +1149,6 @@ async function startBot() {
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect, qr } = update;
             
-            console.log(`\n🔍 ===== CONNECTION UPDATE =====`);
-            console.log(`   connection: ${connection || 'N/A'}`);
-            console.log(`   qr: ${qr ? 'موجود' : 'لا'}`);
-            console.log(`   lastDisconnect: ${lastDisconnect ? 'موجود' : 'لا'}`);
-            if (lastDisconnect) {
-                console.log(`   - statusCode: ${lastDisconnect?.error?.output?.statusCode || 'N/A'}`);
-                console.log(`   - error: ${lastDisconnect?.error?.message || 'N/A'}`);
-                console.log(`   - payload: ${JSON.stringify(lastDisconnect?.error?.output?.payload || {})}`);
-            }
-            console.log(`==============================\n`);
-            
             if (qr) {
                 console.error('\n❌ خطأ: تم طلب QR بعد تحميل الجلسة!\n');
                 console.error('⚠️ الجلسة تالفة - حذفها وإعادة المحاولة...\n');
@@ -1127,27 +1165,77 @@ async function startBot() {
             
             if (connection === 'close') {
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
-                const reason = lastDisconnect?.error?.output?.payload?.error;
+                const error = lastDisconnect?.error;
                 
-                console.log(`\n⚠️ الاتصال مغلق`);
-                console.log(`   📋 كود: ${statusCode || 'N/A'}`);
-                console.log(`   📋 السبب: ${reason || 'غير معروف'}`);
-                console.log(`   ⏰ الوقت: ${new Date().toLocaleString('ar-EG', {timeZone: 'Africa/Cairo'})}\n`);
+                console.log('\n⚠️ ════════════════════════════════');
+                console.log(`   Connection Closed`);
+                console.log(`   Status: ${statusCode || 'N/A'}`);
+                console.log(`   Error: ${error?.message || 'Unknown'}`);
+                console.log(`   Time: ${new Date().toLocaleString('ar-EG', {timeZone: 'Africa/Cairo'})}`);
+                console.log('════════════════════════════════\n');
                 
-                if (statusCode === DisconnectReason.loggedOut ||
-                    statusCode === 401 || statusCode === 403) {
-                    console.error('❌ الجلسة غير صالحة - حذفها...\n');
-                    fs.rmSync(authPath, { recursive: true, force: true });
-                    console.log('⏳ إعادة التشغيل بعد 5 ثواني...\n');
-                    await delay(5000);
-                    process.exit(0);
+                // Cleanup socket
+                try {
+                    sock.end();
+                } catch (e) {
+                    console.log('Socket already closed');
                 }
                 
-                console.log(`🔄 إعادة التشغيل بعد 5 ثواني...\n`);
-                await delay(5000);
-                process.exit(0);  // دع المنصة تعيد التشغيل
+                // Check if session invalid (don't reconnect)
+                if (statusCode === DisconnectReason.loggedOut ||
+                    statusCode === 401 || statusCode === 403 || statusCode === 428) {
+                    console.error('❌ Session invalid - cannot reconnect\n');
+                    
+                    // Clear MongoDB session if using it
+                    if (USE_MONGODB) {
+                        try {
+                            const { MongoDBAuthState } = require('./database/mongoAuthState');
+                            const mongoAuth = new MongoDBAuthState(MONGO_URL, {
+                                sessionId: 'main_session',
+                                dbName: 'whatsapp_bot'
+                            });
+                            await mongoAuth.connect();
+                            await mongoAuth.clearSession();
+                            await mongoAuth.close();
+                            console.log('🗑️ MongoDB session cleared');
+                        } catch (e) {
+                            console.error('Error clearing MongoDB:', e.message);
+                        }
+                    }
+                    
+                    // Clear filesystem session
+                    if (fs.existsSync(authPath)) {
+                        fs.rmSync(authPath, { recursive: true, force: true });
+                        console.log('🗑️ Filesystem session cleared');
+                    }
+                    
+                    console.log('⏹️ Bot stopped - need new pairing\n');
+                    process.exit(1);
+                    return;
+                }
+                
+                // ========== SMART RECONNECTION ==========
+                if (!reconnectionManager.shouldReconnect(statusCode)) {
+                    console.error('❌ Cannot reconnect');
+                    process.exit(1);
+                    return;
+                }
+                
+                // Reconnect with exponential backoff
+                try {
+                    await reconnectionManager.reconnect(async () => {
+                        console.log('🔄 Executing reconnection...\n');
+                        await startBot();
+                    });
+                } catch (e) {
+                    console.error('Reconnection attempt failed:', e.message);
+                    // Will auto-retry due to reconnectionManager logic
+                }
+                // =======================================
                 
             } else if (connection === 'open') {
+                
+                // ============ LOGGING ADDED HERE ============
                 const now = new Date().toLocaleString('ar-EG', {timeZone: 'Africa/Cairo'});
                 console.log('\n✅ ════════════════════════════════════');
                 console.log(`   متصل بواتساب بنجاح! 🎉`);
@@ -1158,17 +1246,54 @@ async function startBot() {
                 console.log(`   القسم الإسلامي: ${islamicIsEnabled() ? '✅' : '❌'}`);
                 console.log('════════════════════════════════════\n');
                 
-                processedMessages.clear();
-                botStartTime = Date.now();
+                console.log('🔍 ===== POST-CONNECTION DIAGNOSTICS =====');
+                console.log(`   📊 processedMessages: ${processedMessages.size}`);
+                console.log(`   🕐 botStartTime: ${new Date(botStartTime).toLocaleString('ar-EG')}`);
+                console.log(`   📡 globalSock: ${globalSock ? 'SET' : 'NULL'}`);
                 
+                console.log('\n   🧹 Step 1/5: Clearing processedMessages...');
+                processedMessages.clear();
+                console.log(`   ✅ Cleared → ${processedMessages.size}`);
+                
+                console.log('\n   🕐 Step 2/5: Updating botStartTime...');
+                botStartTime = Date.now();
+                console.log(`   ✅ Updated → ${new Date(botStartTime).toLocaleString('ar-EG')}`);
+                
+                console.log('\n   🔄 Step 3/5: Resetting Bad MAC...');
                 badMacErrorCount = 0;
                 lastBadMacReset = Date.now();
+                console.log(`   ✅ Reset → ${badMacErrorCount}`);
                 
-                if (islamicIsEnabled()) {
-                    console.log('🔄 تهيئة القسم الإسلامي...');
-                    await initializeIslamicModule(sock);
-                    console.log('✅ القسم الإسلامي جاهز للعمل\n');
+                // Reset reconnection counter on success
+                reconnectionManager.reset();
+                console.log('   ✅ Reconnection counter reset');
+                
+                console.log('\n   🎧 Step 4/5: Event listeners...');
+                const msgListeners = sock.ev.listenerCount('messages.upsert');
+                const connListeners = sock.ev.listenerCount('connection.update');
+                console.log(`   📨 messages.upsert: ${msgListeners}`);
+                console.log(`   🔌 connection.update: ${connListeners}`);
+                
+                if (msgListeners === 0) {
+                    console.error('\n   ❌❌❌ CRITICAL: NO MESSAGE LISTENERS! ❌❌❌');
+                    console.error('   Bot will NOT respond to messages!\n');
                 }
+                
+                console.log('\n   📿 Step 5/5: Islamic Module...');
+                if (islamicIsEnabled()) {
+                    try {
+                        await initializeIslamicModule(sock);
+                        console.log('   ✅ Islamic Module initialized');
+                    } catch (e) {
+                        console.error(`   ❌ Init failed: ${e.message}`);
+                    }
+                } else {
+                    console.log('   ⏭️ Disabled');
+                }
+                
+                console.log('\n===== DIAGNOSTICS COMPLETE =====');
+                console.log('⚡ Bot ready - send a test message\n');
+                // ============ END LOGGING ============
                 
             } else if (connection === 'connecting') {
                 console.log('🔄 جاري الاتصال...');
@@ -1185,14 +1310,46 @@ async function startBot() {
     }
 }
 
-process.on('SIGINT', () => {
-    console.log('\n👋 إيقاف...\n');
+process.on('SIGINT', async () => {
+    console.log('\n👋 إيقاف البوت...\n');
+    
+    // Close MongoDB connection if using it
+    if (USE_MONGODB) {
+        try {
+            const { MongoDBAuthState } = require('./database/mongoAuthState');
+            const mongoAuth = new MongoDBAuthState(MONGO_URL, {
+                sessionId: 'main_session',
+                dbName: 'whatsapp_bot'
+            });
+            await mongoAuth.close();
+            console.log('✅ MongoDB connection closed');
+        } catch (e) {
+            console.log('MongoDB already closed');
+        }
+    }
+    
     server.close();
     process.exit(0);
 });
 
-process.on('SIGTERM', () => {
-    console.log('\n👋 إيقاف...\n');
+process.on('SIGTERM', async () => {
+    console.log('\n👋 إيقاف البوت...\n');
+    
+    // Close MongoDB connection if using it
+    if (USE_MONGODB) {
+        try {
+            const { MongoDBAuthState } = require('./database/mongoAuthState');
+            const mongoAuth = new MongoDBAuthState(MONGO_URL, {
+                sessionId: 'main_session',
+                dbName: 'whatsapp_bot'
+            });
+            await mongoAuth.close();
+            console.log('✅ MongoDB connection closed');
+        } catch (e) {
+            console.log('MongoDB already closed');
+        }
+    }
+    
     server.close();
     process.exit(0);
 });
