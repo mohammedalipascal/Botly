@@ -859,6 +859,8 @@ async function startBot() {
             // ============ END LOGGING ============
             
             try {
+                console.log(`🔍 Handler started...`);
+                
                 if (msgRetryCounterCache) {
                     try {
                         msgRetryCounterCache.flushAll();
@@ -867,10 +869,18 @@ async function startBot() {
                     }
                 }
                 
-                if (type !== 'notify') return;
+                if (type !== 'notify') {
+                    console.log(`⏭️ Skipped: type=${type}\n`);
+                    return;
+                }
                 
                 const msg = messages[0];
-                if (!msg || !msg.message) return;
+                if (!msg || !msg.message) {
+                    console.log(`⏭️ Skipped: no message\n`);
+                    return;
+                }
+                
+                console.log(`✅ Message valid, processing...`);
                 
                 const sender = msg.key.remoteJid;
                 const messageId = msg.key.id;
