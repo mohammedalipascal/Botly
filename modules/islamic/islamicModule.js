@@ -3,7 +3,6 @@ const db = require('../../database/googleSheets');
 
 const sessions = new Map();
 let jobs = {};
-let isInitialized = false;
 let sockRef = null;
 
 // ===============================
@@ -659,17 +658,22 @@ async function initialize(sock) {
     console.log(`   ISLAMIC_GROUP_ID: ${process.env.ISLAMIC_GROUP_ID ? '✅' : '❌ غير موجود'}`);
     console.log(`   GOOGLE_SHEET_ID: ${process.env.GOOGLE_SHEET_ID ? '✅' : '❌ غير موجود'}`);
 
-    if (isInitialized) {
-        console.log('⚠️ مُهيأ مسبقاً');
-        return;
-    }
-
     if (!process.env.ISLAMIC_GROUP_ID || !process.env.GOOGLE_SHEET_ID) {
         console.log('⚠️ القسم الإسلامي معطل');
         return;
     }
 
     try {
+        console.log('🔄 تهيئة القسم الإسلامي...');
+        
+        // إيقاف أي جدولات قديمة
+        Object.keys(jobs).forEach(key => {
+            if (jobs[key]) {
+                jobs[key].forEach(j => j.stop());
+            }
+        });
+        jobs = {};
+        
         await db.initialize();
         await db.setupSettings();
 
@@ -691,7 +695,6 @@ async function initialize(sock) {
             }
         }
 
-        isInitialized = true;
         console.log('✅ القسم الإسلامي جاهز');
     } catch (e) {
         console.error('❌ فشل التهيئة:', e.message);
@@ -704,7 +707,6 @@ function isEnabled() {
 
 function resetModule() {
     console.log('🔄 إعادة تعيين القسم الإسلامي...');
-    isInitialized = false;
     // إيقاف كل الجدولات
     Object.keys(jobs).forEach(key => {
         if (jobs[key]) {
@@ -713,6 +715,7 @@ function resetModule() {
     });
     jobs = {};
     sessions.clear();
+    sockRef = null;
     console.log('✅ تم إعادة التعيين');
 }
 
