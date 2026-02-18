@@ -796,6 +796,13 @@ async function startBot() {
                 });
                 state = mongoAuth.state;
                 saveCreds = mongoAuth.saveCreds;
+                
+                // ⚠️ Check if creds are complete (not just initialized)
+                if (!state.creds.me || !state.creds.me.id) {
+                    console.log('⚠️ MongoDB session incomplete - using filesystem instead');
+                    throw new Error('Incomplete session');
+                }
+                
                 console.log('✅ MongoDB session loaded\n');
             } catch (e) {
                 console.error('❌ MongoDB failed, falling back to filesystem:', e.message);
@@ -1163,7 +1170,26 @@ async function startBot() {
                 console.error('\n❌ خطأ: تم طلب QR بعد تحميل الجلسة!\n');
                 console.error('⚠️ الجلسة تالفة - حذفها وإعادة المحاولة...\n');
                 
+                // Clear MongoDB session
+                if (USE_MONGODB) {
+                    try {
+                        const { MongoDBAuthState } = require('./database/mongoAuthState');
+                        const mongoAuth = new MongoDBAuthState(MONGO_URL, {
+                            sessionId: 'main_session',
+                            dbName: 'whatsapp_bot'
+                        });
+                        await mongoAuth.connect();
+                        await mongoAuth.clearSession();
+                        await mongoAuth.close();
+                        console.log('🗑️ MongoDB session cleared');
+                    } catch (e) {
+                        console.error('Error clearing MongoDB:', e.message);
+                    }
+                }
+                
+                // Clear filesystem
                 fs.rmSync(authPath, { recursive: true, force: true });
+                console.log('🗑️ Filesystem session cleared');
                 
                 console.log('⏳ إعادة المحاولة بعد 10 ثواني...\n');
                 await delay(10000);
