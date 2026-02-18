@@ -1269,15 +1269,22 @@ async function startBot() {
                 console.log('   ✅ Reconnection counter reset');
                 
                 console.log('\n   🎧 Step 4/5: Event listeners...');
-                const msgListeners = sock.ev.listenerCount('messages.upsert');
-                const connListeners = sock.ev.listenerCount('connection.update');
+                let msgListeners = 'N/A';
+                let connListeners = 'N/A';
+                try {
+                    if (sock.ev.listenerCount) {
+                        msgListeners = sock.ev.listenerCount('messages.upsert');
+                        connListeners = sock.ev.listenerCount('connection.update');
+                    } else {
+                        // Fallback for older Baileys versions
+                        msgListeners = sock.ev.listeners('messages.upsert').length;
+                        connListeners = sock.ev.listeners('connection.update').length;
+                    }
+                } catch (e) {
+                    console.log('   ⚠️ Cannot count listeners (old Baileys)');
+                }
                 console.log(`   📨 messages.upsert: ${msgListeners}`);
                 console.log(`   🔌 connection.update: ${connListeners}`);
-                
-                if (msgListeners === 0) {
-                    console.error('\n   ❌❌❌ CRITICAL: NO MESSAGE LISTENERS! ❌❌❌');
-                    console.error('   Bot will NOT respond to messages!\n');
-                }
                 
                 console.log('\n   📿 Step 5/5: Islamic Module...');
                 if (islamicIsEnabled()) {
