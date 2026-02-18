@@ -725,9 +725,7 @@ async function startBot() {
         
         console.log('⚠️ لا توجد جلسة - سيتم إنشاء جلسة جديدة\n');
         
-        try {
-            await generateNewSession();
-            console.log('⚠️ لا توجد جلسة - سيتم إنشاء جلسة جديدة\n');
+        
             
             try {
                 await generateNewSession();
