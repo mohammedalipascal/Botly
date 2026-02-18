@@ -724,21 +724,25 @@ async function startBot() {
         }
         
         console.log('⚠️ لا توجد جلسة - سيتم إنشاء جلسة جديدة\n');
-        
-        
-            
-            try {
-                await generateNewSession();
-            } catch (error) {
-                console.error('❌ فشل إنشاء الجلسة:', error.message);
-                console.log('⏳ سيتم المحاولة مرة أخرى بعد 3 ثانية...\n');
-                await delay(3000);
-                return startBot();
-            }
-            
-            console.log('🔄 إعادة التشغيل للاتصال بالجلسة الجديدة...\n');
-            await delay(3000);
-            process.exit(0);
+        try {
+    await generateNewSession();
+    console.log('⚠️ لا توجد جلسة - سيتم إنشاء جلسة جديدة\n');
+    
+    try {
+        await generateNewSession();
+    } catch (error) {
+        console.error('❌ فشل إنشاء الجلسة:', error.message);
+        console.log('⏳ سيتم المحاولة مرة أخرى بعد 3 ثانية...\n');
+        await delay(3000);
+        return startBot();
+    }
+    
+    console.log('🔄 إعادة التشغيل للاتصال بالجلسة الجديدة...\n');
+    await delay(3000);
+    process.exit(0);
+
+} catch (error) {
+    console.error('❌ خطأ غير متوقع:', error.message);
         }
         
         try {
