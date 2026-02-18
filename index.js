@@ -26,9 +26,8 @@ const fs = require('fs');
 const path = require('path');
 const NodeCache = require('node-cache');
 const { getAIResponse } = require('./modules/ai/ai');
-const { handleIslamicCommand, initializeIslamicModule, islamicIsEnabled, resetIslamicModule } = require('./modules/islamic/islamicModule');
+const { handleIslamicCommand, initializeIslamicModule, islamicIsEnabled } = require('./modules/islamic/islamicModule');
 const adminPanel = require('./modules/admin/adminPanel');
-const sessionManager = require('./sessionManager');
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -516,7 +515,12 @@ server.listen(CONFIG.port, () => {
     console.log('╚════════════════════════════════════════════════╝\n');
 });
 
-// Keep-alive removed - server stays alive natively
+setInterval(() => {
+    const url = `http://localhost:${CONFIG.port}`;
+    http.get(url, (res) => {
+        console.log(`💓 Keep-alive: ${res.statusCode}`);
+    }).on('error', () => {});
+}, 5 * 60 * 1000);
 
 async function generateNewSession(attemptNumber = 1) {
     const MAX_SESSION_ATTEMPTS = 3;
@@ -718,23 +722,6 @@ async function startBot() {
         const authPath = path.join(__dirname, 'auth_info');
         const credsPath = path.join(authPath, 'creds.json');
         
-        // محاولة تحميل الجلسة من Google Drive
-        if (!fs.existsSync(authPath) || !fs.existsSync(credsPath)) {
-            console.log('⚠️ لا توجد جلسة محلية');
-            
-            if (process.env.GOOGLE_CREDENTIALS) {
-                console.log('🔍 البحث عن جلسة في Google Drive...\n');
-                try {
-                    const downloaded = await sessionManager.downloadSession();
-                    if (!downloaded) {
-                        console.log('⚠️ لا توجد جلسة محفوظة - سيتم إنشاء جلسة جديدة\n');
-                    }
-                } catch (e) {
-                    console.log('⚠️ فشل التحميل من Drive:', e.message);
-                }
-            }
-        }
-        
         if (!fs.existsSync(authPath) || !fs.existsSync(credsPath)) {
             console.log('⚠️ لا توجد جلسة - سيتم إنشاء جلسة جديدة\n');
             
@@ -816,6 +803,17 @@ async function startBot() {
         sock.ev.on('creds.update', saveCreds);
         
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
+        console.log(`\n🔔 ===== MESSAGE RECEIVED =====`);
+            console.log(`   ⏰ ${new Date().toLocaleString('ar-EG', {timeZone: 'Africa/Cairo'})}`);
+            console.log(`   📦 Type: ${type}`);
+            console.log(`   📊 Count: ${messages.length}`);
+            if (messages[0]) {
+                console.log(`   📱 From: ${messages[0].key.remoteJid}`);
+                console.log(`   🆔 ID: ${messages[0].key.id.substring(0,10)}...`);
+            }
+            console.log(`==============================\n`);
+            // ============ END PATCH 1 ============
+        
             try {
                 if (msgRetryCounterCache) {
                     try {
@@ -1107,17 +1105,6 @@ async function startBot() {
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect, qr } = update;
             
-            console.log(`\n🔍 ===== CONNECTION UPDATE =====`);
-            console.log(`   connection: ${connection || 'N/A'}`);
-            console.log(`   qr: ${qr ? 'موجود' : 'لا'}`);
-            console.log(`   lastDisconnect: ${lastDisconnect ? 'موجود' : 'لا'}`);
-            if (lastDisconnect) {
-                console.log(`   - statusCode: ${lastDisconnect?.error?.output?.statusCode || 'N/A'}`);
-                console.log(`   - error: ${lastDisconnect?.error?.message || 'N/A'}`);
-                console.log(`   - payload: ${JSON.stringify(lastDisconnect?.error?.output?.payload || {})}`);
-            }
-            console.log(`==============================\n`);
-            
             if (qr) {
                 console.error('\n❌ خطأ: تم طلب QR بعد تحميل الجلسة!\n');
                 console.error('⚠️ الجلسة تالفة - حذفها وإعادة المحاولة...\n');
@@ -1134,34 +1121,29 @@ async function startBot() {
             
             if (connection === 'close') {
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
-                const reason = lastDisconnect?.error?.output?.payload?.error;
                 
-                console.log(`\n⚠️ الاتصال مغلق`);
-                console.log(`   📋 كود: ${statusCode || 'N/A'}`);
-                console.log(`   📋 السبب: ${reason || 'غير معروف'}`);
-                console.log(`   ⏰ الوقت: ${new Date().toLocaleString('ar-EG', {timeZone: 'Africa/Cairo'})}\n`);
+                console.log(`\n⚠️ الاتصال مغلق - كود: ${statusCode}\n`);
                 
                 if (statusCode === DisconnectReason.loggedOut ||
                     statusCode === 401 || statusCode === 403) {
                     console.error('❌ الجلسة غير صالحة - حذفها...\n');
+                    
                     fs.rmSync(authPath, { recursive: true, force: true });
-                    console.log('⏳ إعادة التشغيل بعد 5 ثواني...\n');
-                    await delay(5000);
-                    process.exit(0);
+                    
+                    console.log('⏳ إعادة المحاولة بعد 10 ثواني...\n');
+                    await delay(10000);
+                    
+                    sock.end();
+                    await startBot();
+                    return;
                 }
                 
-                console.log(`🔄 إعادة التشغيل بعد 5 ثواني...\n`);
-                
-                // إعادة تعيين القسم الإسلامي
-                if (islamicIsEnabled()) {
-                    console.log('🔄 إعادة تعيين القسم الإسلامي...');
-                    resetIslamicModule();
-                }
-                
+                console.log(`🔄 إعادة الاتصال بعد 5 ثواني...\n`);
                 await delay(5000);
-                process.exit(0);  // دع المنصة تعيد التشغيل
                 
-            } else if (connection === 'open') {
+                sock.end();
+                await startBot();
+                } else if (connection === 'open') {
                 const now = new Date().toLocaleString('ar-EG', {timeZone: 'Africa/Cairo'});
                 console.log('\n✅ ════════════════════════════════════');
                 console.log(`   متصل بواتساب بنجاح! 🎉`);
@@ -1172,27 +1154,48 @@ async function startBot() {
                 console.log(`   القسم الإسلامي: ${islamicIsEnabled() ? '✅' : '❌'}`);
                 console.log('════════════════════════════════════\n');
                 
-                processedMessages.clear();
-                botStartTime = Date.now();
+                console.log('🔍 ===== POST-CONNECTION DIAGNOSTICS =====');
+                console.log(`   📊 processedMessages: ${processedMessages.size}`);
+                console.log(`   🕐 botStartTime: ${new Date(botStartTime).toLocaleString('ar-EG')}`);
+                console.log(`   📡 globalSock: ${globalSock ? 'SET' : 'NULL'}`);
                 
+                console.log('\n   🧹 Step 1: Clearing processedMessages...');
+                processedMessages.clear();
+                console.log(`   ✅ Cleared → ${processedMessages.size}`);
+                
+                console.log('\n   🕐 Step 2: Updating botStartTime...');
+                botStartTime = Date.now();
+                console.log(`   ✅ Updated → ${new Date(botStartTime).toLocaleString('ar-EG')}`);
+                
+                console.log('\n   🔄 Step 3: Resetting Bad MAC...');
                 badMacErrorCount = 0;
                 lastBadMacReset = Date.now();
+                console.log(`   ✅ Reset → ${badMacErrorCount}`);
                 
-                if (islamicIsEnabled()) {
-                    console.log('🔄 تهيئة القسم الإسلامي...');
-                    await initializeIslamicModule(sock);
-                    console.log('✅ القسم الإسلامي جاهز للعمل\n');
+                console.log('\n   🎧 Step 4: Event listeners...');
+                const msgListeners = sock.ev.listenerCount('messages.upsert');
+                const connListeners = sock.ev.listenerCount('connection.update');
+                console.log(`   📨 messages.upsert: ${msgListeners}`);
+                console.log(`   🔌 connection.update: ${connListeners}`);
+                
+                if (msgListeners === 0) {
+                    console.error('\n   ❌❌❌ CRITICAL: NO MESSAGE LISTENERS! ❌❌❌');
                 }
                 
-                // رفع الجلسة إلى Google Drive
-                if (process.env.GOOGLE_CREDENTIALS) {
-                    console.log('📤 حفظ الجلسة في Google Drive...');
+                console.log('\n   📿 Step 5: Islamic Module...');
+                if (islamicIsEnabled()) {
                     try {
-                        await sessionManager.uploadSession();
+                        await initializeIslamicModule(sock);
+                        console.log('   ✅ Initialized');
                     } catch (e) {
-                        console.error('⚠️ فشل حفظ الجلسة:', e.message);
+                        console.error(`   ❌ Failed: ${e.message}`);
                     }
                 }
+                
+                console.log('\n===== DIAGNOSTICS COMPLETE =====');
+                console.log('⚡ Ready - send a test message\n');
+   
+                // الرسالة التلقائية محذوفة حسب الطلب
                 
             } else if (connection === 'connecting') {
                 console.log('🔄 جاري الاتصال...');
