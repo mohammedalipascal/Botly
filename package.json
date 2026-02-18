@@ -16,7 +16,7 @@
     "groq-sdk": "^0.8.0",
     "node-cache": "^5.1.2",
     "node-cron": "^3.0.3",
-    "pino": "^9.5.0"
+    "pino": "^9.5.0",
     "mongodb": "^6.0.0"
   },
   "devDependencies": {
