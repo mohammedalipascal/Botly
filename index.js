@@ -347,10 +347,11 @@ async function generateNewSession(attemptNumber = 1) {
                     
                     clearInterval(checkPhoneInterval);
                     const statusCode = lastDisconnect?.error?.output?.statusCode;
-                    console.log(`\n⚠️ الاتصال مغلق - كود: ${statusCode}`);
+                    console.log(`\n⚠️ Pairing connection closed - code: ${statusCode}`);
                     
+                    // These are normal pairing errors - retry
                     if (statusCode === 515 || statusCode === 503 || statusCode === 408 || !statusCode) {
-                        console.log('🔄 سيتم إعادة المحاولة...\n');
+                        console.log('🔄 Pairing failed - will retry...\n');
                         connectionResolved = true;
                         clearTimeout(timeoutId);
                         sock.end();
@@ -358,7 +359,8 @@ async function generateNewSession(attemptNumber = 1) {
                         return;
                     }
                     
-                    console.log(`❌ خطأ غير قابل للإصلاح: ${statusCode}\n`);
+                    // Fatal errors
+                    console.log(`❌ Fatal pairing error: ${statusCode}\n`);
                     connectionResolved = true;
                     clearTimeout(timeoutId);
                     sock.end();
@@ -372,16 +374,16 @@ async function generateNewSession(attemptNumber = 1) {
                     pairingStatus = 'connected';
                     
                     console.log('\n✅ ════════════════════════════════════');
-                    console.log('   🎉 تم الاتصال بنجاح!');
+                    console.log('   🎉 Pairing successful!');
                     console.log(`   📱 ${sock.user.id.split(':')[0]}`);
                     console.log('════════════════════════════════════\n');
                     
-                    console.log('⏳ انتظار 45 ثانية للمزامنة الكاملة...');
-                    console.log('💡 نصيحة: أرسل رسالة في أي مجموعة الآن!\n');
+                    console.log('⏳ Waiting 45s for full sync...');
+                    console.log('💡 Tip: Send a message in any group now!\n');
                     await delay(45000);
                     
-                    console.log('✅ تم حفظ الجلسة محلياً في auth_info/');
-                    console.log('💡 الجلسة ستبقى على السيرفر\n');
+                    console.log('✅ Session saved locally in auth_info/');
+                    console.log('💡 Session will persist on server\n');
                     
                     sock.end();
                     resolve();
@@ -406,6 +408,10 @@ async function generateNewSession(attemptNumber = 1) {
 const MAX_PROCESSED_CACHE = 1000;
 let globalSock = null;
 let botStartTime = Date.now();
+
+// Session management
+let isSessionActive = false;
+let currentSessionId = null;
 
 let badMacErrorCount = 0;
 const MAX_BAD_MAC_ERRORS = 10;
@@ -441,7 +447,50 @@ function cleanProcessedMessages() {
     }
 }
 
+// Cleanup old session before starting new one
+async function cleanupOldSession() {
+    if (globalSock) {
+        console.log('🧹 Cleaning up old socket...');
+        try {
+            globalSock.end();
+            globalSock = null;
+        } catch (e) {
+            console.log('Socket already closed');
+        }
+    }
+    
+    // Reset session state
+    isSessionActive = false;
+    processedMessages.clear();
+    badMacErrorCount = 0;
+    
+    // Give it a moment
+    await delay(1000);
+}
+
 async function startBot() {
+    // Prevent multiple sessions running simultaneously
+    const sessionId = Date.now();
+    
+    if (isSessionActive) {
+        console.log('⚠️ Session already active - waiting for cleanup...');
+        await delay(5000);
+        
+        // Check again after delay
+        if (isSessionActive && currentSessionId !== sessionId) {
+            console.log('⚠️ Another session still active - aborting this attempt');
+            return;
+        }
+    }
+    
+    // Cleanup any old session
+    await cleanupOldSession();
+    
+    // Mark this session as active
+    isSessionActive = true;
+    currentSessionId = sessionId;
+    console.log(`🆔 Session ID: ${sessionId}`);
+    
     try {
         const authPath = path.join(__dirname, 'auth_info');
         const credsPath = path.join(authPath, 'creds.json');
@@ -955,6 +1004,9 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                 // ========== TEMPORARY ERROR (500, 408, etc) - RECONNECT ==========
                 console.log('🔄 Temporary error - reconnecting in same process...');
                 
+                // Mark current session as inactive before reconnecting
+                isSessionActive = false;
+                
                 // Use smart reconnection
                 try {
                     await reconnectionManager.reconnect(async () => {
@@ -964,6 +1016,7 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                 } catch (e) {
                     console.error('Reconnection failed:', e.message);
                     console.log('⏳ Retrying in 10s...');
+                    isSessionActive = false; // Ensure flag is reset
                     await delay(10000);
                     await startBot();
                 }
@@ -1016,8 +1069,12 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
         console.log('✅ البوت جاهز ✨\n');
         
     } catch (error) {
-        console.error('❌ خطأ في بدء البوت:', error);
-        console.log('⏳ إعادة المحاولة بعد 30 ثانية...\n');
+        console.error('❌ Error in startBot:', error.message);
+        
+        // Reset session flag on error
+        isSessionActive = false;
+        
+        console.log('⏳ Retrying in 30 seconds...\n');
         await delay(30000);
         return startBot();
     }
