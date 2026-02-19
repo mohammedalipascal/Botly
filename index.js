@@ -446,92 +446,111 @@ async function startBot() {
         const authPath = path.join(__dirname, 'auth_info');
         const credsPath = path.join(authPath, 'creds.json');
         
-        // Check if session exists
-        if (!fs.existsSync(authPath) || !fs.existsSync(credsPath)) {
-            console.log('⚠️ لا توجد جلسة - سيتم إنشاء جلسة جديدة\n');
-            
-            try {
-                await generateNewSession();
-            } catch (error) {
-                console.error('❌ فشل إنشاء الجلسة:', error.message);
-                console.log('⏳ سيتم المحاولة مرة أخرى بعد 3 ثانية...\n');
-                await delay(3000);
-                return startBot();
-            }
-            
-            console.log('🔄 إعادة التشغيل للاتصال بالجلسة الجديدة...\n');
-            await delay(3000);
-            process.exit(0);
-        }
-        
-        // Validate session
-        try {
-            const creds = JSON.parse(fs.readFileSync(credsPath, 'utf-8'));
-            if (!creds.noiseKey) {
-                throw new Error('creds.json غير مكتمل');
-            }
-            console.log('✅ تم العثور على جلسة صالحة\n');
-        } catch (e) {
-            console.error('❌ الجلسة تالفة:', e.message);
-            console.log('🗑️ حذف الجلسة التالفة وإنشاء جديدة...\n');
-            fs.rmSync(authPath, { recursive: true, force: true });
-            
-            try {
-                await generateNewSession();
-            } catch (error) {
-                console.error('❌ فشل إنشاء الجلسة:', error.message);
-                console.log('⏳ سيتم المحاولة مرة أخرى بعد 3 ثواني...\n');
-                await delay(3000);
-                return startBot();
-            }
-            
-            await delay(3000);
-            process.exit(0);
-        }
-        
-        
-        console.log('🚀 بدء البوت...\n');
-        
-        const { version, isLatest } = await fetchLatestBaileysVersion();
-        console.log(`📦 Baileys v${version.join('.')}, أحدث: ${isLatest ? '✅' : '⚠️'}\n`);
-        
-        // ========== MONGODB SESSION LOADING ==========
-        let state, saveCreds;
-        
+        // ========== STEP 1: Try MongoDB First ==========
         if (USE_MONGODB) {
-            console.log('📊 Using MongoDB for session storage...');
+            console.log('🔍 Checking MongoDB for session...');
             try {
                 const mongoAuth = await useMongoDBAuthState(MONGO_URL, {
                     sessionId: 'main_session',
                     dbName: 'whatsapp_bot'
                 });
-                state = mongoAuth.state;
-                saveCreds = mongoAuth.saveCreds;
                 
-                // Check if session is complete
-                if (!state.creds.me || !state.creds.me.id) {
-                    console.log('⚠️ MongoDB session incomplete - using filesystem');
-                    throw new Error('Incomplete session');
+                // Check if MongoDB has complete session
+                if (mongoAuth.state.creds.me && mongoAuth.state.creds.me.id) {
+                    console.log('✅ Session found in MongoDB!\n');
+                    // Skip filesystem check - use MongoDB directly
+                    return await startBotWithSession(mongoAuth.state, mongoAuth.saveCreds);
                 }
                 
-                console.log('✅ MongoDB session loaded\n');
+                console.log('⚠️ MongoDB session incomplete or not found');
             } catch (e) {
-                console.error(`❌ MongoDB failed: ${e.message}`);
-                console.log('📁 Falling back to filesystem...\n');
-                const fsAuth = await useMultiFileAuthState('auth_info');
-                state = fsAuth.state;
-                saveCreds = fsAuth.saveCreds;
+                console.log(`⚠️ MongoDB check failed: ${e.message}`);
             }
+        }
+        
+        // ========== STEP 2: Check Filesystem ==========
+        console.log('🔍 Checking filesystem for session...');
+        
+        if (!fs.existsSync(authPath) || !fs.existsSync(credsPath)) {
+            console.log('⚠️ No filesystem session found\n');
+            
+            // ========== STEP 3: Generate New Session ==========
+            console.log('🔐 Generating new session...\n');
+            try {
+                await generateNewSession();
+            } catch (error) {
+                console.error('❌ Session generation failed:', error.message);
+                console.log('⏳ Retrying in 3 seconds...\n');
+                await delay(3000);
+                return startBot();
+            }
+            
+            console.log('🔄 Restarting to connect with new session...\n');
+            await delay(3000);
+            process.exit(0);
+        }
+        
+        // ========== STEP 4: Validate Filesystem Session ==========
+        try {
+            const creds = JSON.parse(fs.readFileSync(credsPath, 'utf-8'));
+            if (!creds.noiseKey) {
+                throw new Error('Incomplete creds.json');
+            }
+            console.log('✅ Valid session found in filesystem\n');
+        } catch (e) {
+            console.error('❌ Corrupted filesystem session:', e.message);
+            console.log('🗑️ Deleting corrupted session...\n');
+            fs.rmSync(authPath, { recursive: true, force: true });
+            
+            try {
+                await generateNewSession();
+            } catch (error) {
+                console.error('❌ Session generation failed:', error.message);
+                console.log('⏳ Retrying in 3 seconds...\n');
+                await delay(3000);
+                return startBot();
+            }
+            
+            await delay(3000);
+            process.exit(0);
+        }
+        
+        // ========== STEP 5: Start with Filesystem Session ==========
+        return await startBotWithSession(null, null);
+        
+    } catch (error) {
+        console.error('❌ Fatal error in startBot:', error);
+        console.log('⏳ Retrying in 30 seconds...\n');
+        await delay(30000);
+        return startBot();
+    }
+}
+
+// ========== Extracted Bot Initialization ==========
+async function startBotWithSession(stateOverride = null, saveCredsOverride = null) {
+    try {
+        console.log('🚀 Starting bot with session...\n');
+        
+        const { version, isLatest } = await fetchLatestBaileysVersion();
+        console.log(`📦 Baileys v${version.join('.')}, Latest: ${isLatest ? '✅' : '⚠️'}\n`);
+        
+        // Load session (MongoDB or filesystem)
+        let state, saveCreds;
+        
+        if (stateOverride && saveCredsOverride) {
+            // Using MongoDB session
+            console.log('📊 Using provided MongoDB session\n');
+            state = stateOverride;
+            saveCreds = saveCredsOverride;
         } else {
-            console.log('📁 Using filesystem for session storage...');
+            // Using filesystem session
+            console.log('📁 Loading from filesystem...\n');
             const fsAuth = await useMultiFileAuthState('auth_info');
             state = fsAuth.state;
             saveCreds = fsAuth.saveCreds;
         }
-        // ============================================
         
         const msgRetryCounterCache = new NodeCache();
-        
         const sock = makeWASocket({
             version,
             logger: P({ level: 'fatal' }),
@@ -882,24 +901,73 @@ async function startBot() {
             if (connection === 'close') {
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
                 const reason = lastDisconnect?.error?.output?.payload?.error;
+                const error = lastDisconnect?.error;
                 
-                console.log(`\n⚠️ الاتصال مغلق`);
-                console.log(`   📋 كود: ${statusCode || 'N/A'}`);
-                console.log(`   📋 السبب: ${reason || 'غير معروف'}`);
-                console.log(`   ⏰ الوقت: ${new Date().toLocaleString('ar-EG', {timeZone: 'Africa/Cairo'})}\n`);
+                console.log(`\n⚠️ ════════════════════════════════`);
+                console.log(`   Connection Closed`);
+                console.log(`   Status: ${statusCode || 'N/A'}`);
+                console.log(`   Reason: ${reason || 'Unknown'}`);
+                console.log(`   Error: ${error?.message || 'Unknown'}`);
+                console.log(`   Time: ${new Date().toLocaleString('ar-EG', {timeZone: 'Africa/Cairo'})}`);
+                console.log(`════════════════════════════════\n`);
                 
-                if (statusCode === DisconnectReason.loggedOut ||
-                    statusCode === 401 || statusCode === 403) {
-                    console.error('❌ الجلسة غير صالحة - حذفها...\n');
-                    fs.rmSync(authPath, { recursive: true, force: true });
-                    console.log('⏳ إعادة التشغيل بعد 5 ثواني...\n');
-                    await delay(5000);
-                    process.exit(0);
+                // Cleanup socket
+                try {
+                    sock.end();
+                } catch (e) {
+                    console.log('Socket already closed');
                 }
                 
-                console.log(`🔄 إعادة التشغيل بعد 5 ثواني...\n`);
-                await delay(5000);
-                process.exit(0);  // دع المنصة تعيد التشغيل
+                // ========== SESSION INVALID - MUST EXIT ==========
+                if (statusCode === DisconnectReason.loggedOut ||
+                    statusCode === 401 || statusCode === 403 || statusCode === 428) {
+                    console.error('❌ Session invalid - cleaning up...\n');
+                    
+                    // Clear MongoDB session
+                    if (USE_MONGODB) {
+                        try {
+                            const { MongoDBAuthState } = require('./database/mongoAuthState');
+                            const mongoAuth = new MongoDBAuthState(MONGO_URL, {
+                                sessionId: 'main_session',
+                                dbName: 'whatsapp_bot'
+                            });
+                            await mongoAuth.connect();
+                            await mongoAuth.clearSession();
+                            await mongoAuth.close();
+                            console.log('🗑️ MongoDB session cleared');
+                        } catch (e) {
+                            console.error('Error clearing MongoDB:', e.message);
+                        }
+                    }
+                    
+                    // Clear filesystem
+                    const authPath = path.join(__dirname, 'auth_info');
+                    if (fs.existsSync(authPath)) {
+                        fs.rmSync(authPath, { recursive: true, force: true });
+                        console.log('🗑️ Filesystem session cleared');
+                    }
+                    
+                    console.log('⏹️ Bot stopped - need new pairing\n');
+                    process.exit(1);
+                    return;
+                }
+                
+                // ========== TEMPORARY ERROR (500, 408, etc) - RECONNECT ==========
+                console.log('🔄 Temporary error - reconnecting in same process...');
+                
+                // Use smart reconnection
+                try {
+                    await reconnectionManager.reconnect(async () => {
+                        console.log('🚀 Executing reconnection...\n');
+                        await startBot();
+                    });
+                } catch (e) {
+                    console.error('Reconnection failed:', e.message);
+                    console.log('⏳ Retrying in 10s...');
+                    await delay(10000);
+                    await startBot();
+                }
+                // ================================================
                 
             } else if (connection === 'open') {
                 const now = new Date().toLocaleString('ar-EG', {timeZone: 'Africa/Cairo'});
@@ -917,6 +985,10 @@ async function startBot() {
                 
                 badMacErrorCount = 0;
                 lastBadMacReset = Date.now();
+                
+                // Reset reconnection counter on success
+                reconnectionManager.reset();
+                console.log('✅ Reconnection counter reset');
                 
                 if (islamicIsEnabled()) {
                     console.log('🔄 تهيئة القسم الإسلامي...');
@@ -951,14 +1023,46 @@ async function startBot() {
     }
 }
 
-process.on('SIGINT', () => {
-    console.log('\n👋 إيقاف...\n');
+process.on('SIGINT', async () => {
+    console.log('\n👋 Shutting down gracefully...\n');
+    
+    // Close MongoDB connection
+    if (USE_MONGODB) {
+        try {
+            const { MongoDBAuthState } = require('./database/mongoAuthState');
+            const mongoAuth = new MongoDBAuthState(MONGO_URL, {
+                sessionId: 'main_session',
+                dbName: 'whatsapp_bot'
+            });
+            await mongoAuth.close();
+            console.log('✅ MongoDB connection closed');
+        } catch (e) {
+            console.log('MongoDB already closed');
+        }
+    }
+    
     server.close();
     process.exit(0);
 });
 
-process.on('SIGTERM', () => {
-    console.log('\n👋 إيقاف...\n');
+process.on('SIGTERM', async () => {
+    console.log('\n👋 Shutting down gracefully...\n');
+    
+    // Close MongoDB connection
+    if (USE_MONGODB) {
+        try {
+            const { MongoDBAuthState } = require('./database/mongoAuthState');
+            const mongoAuth = new MongoDBAuthState(MONGO_URL, {
+                sessionId: 'main_session',
+                dbName: 'whatsapp_bot'
+            });
+            await mongoAuth.close();
+            console.log('✅ MongoDB connection closed');
+        } catch (e) {
+            console.log('MongoDB already closed');
+        }
+    }
+    
     server.close();
     process.exit(0);
 });
