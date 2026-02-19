@@ -892,24 +892,28 @@ async function startBot() {
                 const sender = msg.key.remoteJid;
                 const messageId = msg.key.id;
                 const isGroup = sender.endsWith('@g.us');
+                const isLid = sender.endsWith('@lid');
                 
-                // Message Deduplication (including @lid duplicates)
-                const msgKey = `${messageId}`;  // Use only ID for deduplication
-                if (processedMessages.has(msgKey)) {
-                    console.log(`⏭️ Skipped: duplicate message (${sender.endsWith('@lid') ? 'from @lid' : 'already processed'})\n`);
-                    return;
-                }
-                processedMessages.add(msgKey);
-                setTimeout(() => processedMessages.delete(msgKey), 60000);
-                
-                // تجاهل poll updates/creation تماماً
+                // Ignore polls
                 if (msg.message?.pollUpdateMessage || 
                     msg.message?.pollCreationMessage ||
                     msg.message?.pollCreationMessageV2 ||
                     msg.message?.pollCreationMessageV3) {
-                    console.log(`⏭️ Skipped: poll message\n`);
                     return;
                 }
+                
+                // Ignore @lid messages that are just echoes (fromMe = true)
+                if (isLid && msg.key.fromMe) {
+                    return;
+                }
+                
+                // Standard deduplication
+                const msgKey = `${sender}_${messageId}`;
+                if (processedMessages.has(msgKey)) {
+                    return;
+                }
+                processedMessages.add(msgKey);
+                setTimeout(() => processedMessages.delete(msgKey), 60000);
                 
                 const messageTime = msg.messageTimestamp * 1000;
                 if (messageTime < botStartTime - 60000) {
@@ -1339,6 +1343,19 @@ async function startBot() {
                 console.log('\n===== DIAGNOSTICS COMPLETE =====');
                 console.log('⚡ Bot ready - send a test message\n');
                 // ============ END LOGGING ============
+                
+                // ========== SYNC SESSION TO MONGODB ==========
+                if (USE_MONGODB && sock.user?.id) {
+                    console.log('💾 Syncing session to MongoDB...');
+                    try {
+                        // Force save current state to MongoDB
+                        await saveCreds();
+                        console.log('✅ Session synced to MongoDB\n');
+                    } catch (e) {
+                        console.error('⚠️ MongoDB sync failed:', e.message, '\n');
+                    }
+                }
+                // ============================================
                 
             } else if (connection === 'connecting') {
                 console.log('🔄 جاري الاتصال...');
