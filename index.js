@@ -163,299 +163,14 @@ const server = http.createServer((req, res) => {
     
     if (req.url === '/' || req.url === '/index.html') {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(`
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🤖 ربط البوت - ${CONFIG.botName}</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+        try {
+            let html = fs.readFileSync(path.join(__dirname, 'pairing.html'), 'utf-8');
+            html = html.replace(/{{BOT_NAME}}/g, CONFIG.botName);
+            html = html.replace(/{{BOT_OWNER}}/g, CONFIG.botOwner);
+            res.end(html);
+        } catch (e) {
+            res.end('<h1>Pairing page not found</h1>');
         }
-        
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 20px;
-        }
-        
-        .container {
-            background: white;
-            border-radius: 20px;
-            padding: 40px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            max-width: 500px;
-            width: 100%;
-            text-align: center;
-        }
-        
-        .logo {
-            font-size: 64px;
-            margin-bottom: 20px;
-        }
-        
-        h1 {
-            color: #333;
-            margin-bottom: 10px;
-            font-size: 28px;
-        }
-        
-        .subtitle {
-            color: #666;
-            margin-bottom: 30px;
-            font-size: 16px;
-        }
-        
-        .status {
-            padding: 15px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-            font-weight: bold;
-        }
-        
-        .status.waiting {
-            background: #fff3cd;
-            color: #856404;
-        }
-        
-        .status.generating {
-            background: #d1ecf1;
-            color: #0c5460;
-        }
-        
-        .status.ready {
-            background: #d4edda;
-            color: #155724;
-        }
-        
-        .status.connected {
-            background: #d4edda;
-            color: #155724;
-        }
-        
-        .status.error {
-            background: #f8d7da;
-            color: #721c24;
-        }
-        
-        .input-group {
-            margin-bottom: 20px;
-        }
-        
-        input {
-            width: 100%;
-            padding: 15px;
-            border: 2px solid #ddd;
-            border-radius: 10px;
-            font-size: 18px;
-            text-align: center;
-            direction: ltr;
-        }
-        
-        input:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-        
-        button {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            padding: 15px 40px;
-            border-radius: 10px;
-            font-size: 18px;
-            font-weight: bold;
-            cursor: pointer;
-            width: 100%;
-            transition: transform 0.2s;
-        }
-        
-        button:hover {
-            transform: scale(1.05);
-        }
-        
-        button:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
-        
-        .code-display {
-            background: #f8f9fa;
-            border: 3px dashed #667eea;
-            border-radius: 15px;
-            padding: 30px;
-            margin: 20px 0;
-        }
-        
-        .code {
-            font-size: 48px;
-            font-weight: bold;
-            color: #667eea;
-            letter-spacing: 8px;
-            font-family: 'Courier New', monospace;
-        }
-        
-        .instructions {
-            background: #f8f9fa;
-            padding: 20px;
-            border-radius: 10px;
-            margin-top: 20px;
-            text-align: right;
-        }
-        
-        .instructions ol {
-            margin: 10px 0;
-            padding-right: 20px;
-        }
-        
-        .instructions li {
-            margin: 10px 0;
-            line-height: 1.6;
-        }
-        
-        .footer {
-            margin-top: 30px;
-            color: #999;
-            font-size: 14px;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="logo">🤖</div>
-        <h1>${CONFIG.botName}</h1>
-        <p class="subtitle">ربط WhatsApp Bot</p>
-        
-        <div id="statusBox" class="status waiting">
-            ⏳ في انتظار رقم الهاتف
-        </div>
-        
-        <div id="inputSection">
-            <div class="input-group">
-                <input 
-                    type="tel" 
-                    id="phoneInput" 
-                    placeholder="249962204268"
-                    maxlength="15"
-                    autocomplete="off"
-                >
-                <small style="color: #666; display: block; margin-top: 5px;">
-                    أدخل رقم الهاتف بدون + أو 00
-                </small>
-            </div>
-            <button onclick="getPairingCode()" id="submitBtn">
-                🔗 الحصول على كود الربط
-            </button>
-        </div>
-        
-        <div id="codeSection" style="display: none;">
-            <div class="code-display">
-                <div class="code" id="pairingCode">---</div>
-            </div>
-            
-            <div class="instructions">
-                <strong>📱 خطوات الربط:</strong>
-                <ol>
-                    <li>افتح WhatsApp على هاتفك</li>
-                    <li>اذهب إلى الإعدادات > الأجهزة المرتبطة</li>
-                    <li>اضغط "ربط جهاز"</li>
-                    <li>اضغط "ربط برقم الهاتف بدلاً من ذلك"</li>
-                    <li>أدخل الكود الظاهر أعلاه</li>
-                </ol>
-            </div>
-            
-            <button onclick="location.reload()" style="margin-top: 20px; background: #6c757d;">
-                🔄 رقم آخر
-            </button>
-        </div>
-        
-        <div class="footer">
-            Made with ❤️ by ${CONFIG.botOwner}
-        </div>
-    </div>
-    
-    <script>
-        async function getPairingCode() {
-            const phone = document.getElementById('phoneInput').value.trim();
-            const submitBtn = document.getElementById('submitBtn');
-            const statusBox = document.getElementById('statusBox');
-            
-            if (!phone) {
-                alert('⚠️ الرجاء إدخال رقم الهاتف');
-                return;
-            }
-            
-            if (!/^[0-9]{10,15}$/.test(phone)) {
-                alert('⚠️ رقم الهاتف غير صحيح\\nيجب أن يكون من 10-15 رقم بدون + أو مسافات');
-                return;
-            }
-            
-            submitBtn.disabled = true;
-            submitBtn.innerHTML = '⏳ جاري التحميل...';
-            statusBox.className = 'status generating';
-            statusBox.innerHTML = '🔄 جاري توليد كود الربط...';
-            
-            try {
-                const response = await fetch('/get-code?phone=' + phone);
-                const data = await response.json();
-                
-                if (data.success) {
-                    document.getElementById('inputSection').style.display = 'none';
-                    document.getElementById('codeSection').style.display = 'block';
-                    document.getElementById('pairingCode').textContent = data.code;
-                    statusBox.className = 'status ready';
-                    statusBox.innerHTML = '✅ كود الربط جاهز!';
-                    
-                    checkStatus();
-                } else {
-                    throw new Error(data.error || 'فشل الحصول على الكود');
-                }
-            } catch (error) {
-                statusBox.className = 'status error';
-                statusBox.innerHTML = '❌ ' + error.message;
-                submitBtn.disabled = false;
-                submitBtn.innerHTML = '🔗 الحصول على كود الربط';
-            }
-        }
-        
-        async function checkStatus() {
-            const interval = setInterval(async () => {
-                try {
-                    const response = await fetch('/status');
-                    const data = await response.json();
-                    
-                    if (data.status === 'connected') {
-                        document.getElementById('statusBox').className = 'status connected';
-                        document.getElementById('statusBox').innerHTML = '🎉 تم الربط بنجاح!';
-                        clearInterval(interval);
-                        
-                        setTimeout(() => {
-                            location.reload();
-                        }, 3000);
-                    }
-                } catch (error) {
-                    console.error('Error checking status:', error);
-                }
-            }, 2000);
-        }
-        
-        document.getElementById('phoneInput').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                getPairingCode();
-            }
-        });
-    </script>
-</body>
-</html>
-        `);
         return;
     }
     
@@ -853,57 +568,46 @@ async function startBot() {
         
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
             
-            // ============ LOGGING ADDED HERE ============
-            console.log(`\n🔔 ===== MESSAGE RECEIVED =====`);
-            console.log(`   ⏰ ${new Date().toLocaleString('ar-EG', {timeZone: 'Africa/Cairo'})}`);
-            console.log(`   📦 Type: ${type}`);
-            console.log(`   📊 Messages: ${messages.length}`);
-            if (messages[0]) {
-                console.log(`   📱 From: ${messages[0].key.remoteJid}`);
-                console.log(`   🆔 ID: ${messages[0].key.id.substring(0,10)}...`);
-            }
-            console.log(`==============================\n`);
-            // ============ END LOGGING ============
-            
             try {
-                console.log(`🔍 Handler started...`);
-                
                 if (msgRetryCounterCache) {
                     try {
                         msgRetryCounterCache.flushAll();
                     } catch (e) {
-                        // تجاهل
+                        // Silent
                     }
                 }
                 
-                if (type !== 'notify') {
-                    console.log(`⏭️ Skipped: type=${type}\n`);
-                    return;
-                }
+                if (type !== 'notify') return;
                 
                 const msg = messages[0];
-                if (!msg || !msg.message) {
-                    console.log(`⏭️ Skipped: no message\n`);
-                    return;
-                }
-                
-                console.log(`✅ Message valid, processing...`);
+                if (!msg || !msg.message) return;
                 
                 const sender = msg.key.remoteJid;
                 const messageId = msg.key.id;
                 const isGroup = sender.endsWith('@g.us');
                 const isLid = sender.endsWith('@lid');
                 
+                // Ignore @lid protocol/status messages (cause loop)
+                if (isLid) {
+                    // Empty messages or status updates
+                    if (!msg.message || Object.keys(msg.message).length === 0) {
+                        return;
+                    }
+                    // Protocol messages (reactions, read receipts, etc)
+                    if (msg.message.protocolMessage || msg.message.reactionMessage) {
+                        return;
+                    }
+                    // Bot's own echoes
+                    if (msg.key.fromMe) {
+                        return;
+                    }
+                }
+                
                 // Ignore polls
                 if (msg.message?.pollUpdateMessage || 
                     msg.message?.pollCreationMessage ||
                     msg.message?.pollCreationMessageV2 ||
                     msg.message?.pollCreationMessageV3) {
-                    return;
-                }
-                
-                // Ignore @lid messages that are just echoes (fromMe = true)
-                if (isLid && msg.key.fromMe) {
                     return;
                 }
                 
