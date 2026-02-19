@@ -893,27 +893,23 @@ async function startBot() {
                 const messageId = msg.key.id;
                 const isGroup = sender.endsWith('@g.us');
                 
-                // Ignore linked device messages (@lid) to prevent infinite loops
-                if (sender.endsWith('@lid')) {
-                    console.log(`⏭️ Skipped: linked device message (@lid)\n`);
+                // Message Deduplication (including @lid duplicates)
+                const msgKey = `${messageId}`;  // Use only ID for deduplication
+                if (processedMessages.has(msgKey)) {
+                    console.log(`⏭️ Skipped: duplicate message (${sender.endsWith('@lid') ? 'from @lid' : 'already processed'})\n`);
                     return;
                 }
+                processedMessages.add(msgKey);
+                setTimeout(() => processedMessages.delete(msgKey), 60000);
                 
                 // تجاهل poll updates/creation تماماً
                 if (msg.message?.pollUpdateMessage || 
                     msg.message?.pollCreationMessage ||
                     msg.message?.pollCreationMessageV2 ||
                     msg.message?.pollCreationMessageV3) {
+                    console.log(`⏭️ Skipped: poll message\n`);
                     return;
                 }
-                
-                // Message Deduplication
-                const msgKey = `${sender}_${messageId}`;
-                if (processedMessages.has(msgKey)) {
-                    return;
-                }
-                processedMessages.add(msgKey);
-                setTimeout(() => processedMessages.delete(msgKey), 60000);
                 
                 const messageTime = msg.messageTimestamp * 1000;
                 if (messageTime < botStartTime - 60000) {
