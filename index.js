@@ -495,77 +495,52 @@ async function startBot() {
         const authPath = path.join(__dirname, 'auth_info');
         const credsPath = path.join(authPath, 'creds.json');
         
-        // ========== STEP 1: Try MongoDB First ==========
+        // ========== CLEAN START: Clear Everything ==========
+        console.log('🧹 Clearing all existing sessions...');
+        
+        // 1. Clear MongoDB
         if (USE_MONGODB) {
-            console.log('🔍 Checking MongoDB for session...');
             try {
-                const mongoAuth = await useMongoDBAuthState(MONGO_URL, {
+                const { MongoDBAuthState } = require('./database/mongoAuthState');
+                const mongoAuth = new MongoDBAuthState(MONGO_URL, {
                     sessionId: 'main_session',
                     dbName: 'whatsapp_bot'
                 });
-                
-                // Check if MongoDB has complete session
-                if (mongoAuth.state.creds.me && mongoAuth.state.creds.me.id) {
-                    console.log('✅ Session found in MongoDB!\n');
-                    // Skip filesystem check - use MongoDB directly
-                    return await startBotWithSession(mongoAuth.state, mongoAuth.saveCreds);
-                }
-                
-                console.log('⚠️ MongoDB session incomplete or not found');
+                await mongoAuth.connect();
+                await mongoAuth.clearSession();
+                await mongoAuth.close();
+                console.log('✅ MongoDB cleared');
             } catch (e) {
-                console.log(`⚠️ MongoDB check failed: ${e.message}`);
+                console.log('⚠️ MongoDB clear skipped:', e.message);
             }
         }
         
-        // ========== STEP 2: Check Filesystem ==========
-        console.log('🔍 Checking filesystem for session...');
-        
-        if (!fs.existsSync(authPath) || !fs.existsSync(credsPath)) {
-            console.log('⚠️ No filesystem session found\n');
-            
-            // ========== STEP 3: Generate New Session ==========
-            console.log('🔐 Generating new session...\n');
-            try {
-                await generateNewSession();
-            } catch (error) {
-                console.error('❌ Session generation failed:', error.message);
-                console.log('⏳ Retrying in 3 seconds...\n');
-                await delay(3000);
-                return startBot();
-            }
-            
-            console.log('🔄 Restarting to connect with new session...\n');
-            await delay(3000);
-            process.exit(0);
-        }
-        
-        // ========== STEP 4: Validate Filesystem Session ==========
-        try {
-            const creds = JSON.parse(fs.readFileSync(credsPath, 'utf-8'));
-            if (!creds.noiseKey) {
-                throw new Error('Incomplete creds.json');
-            }
-            console.log('✅ Valid session found in filesystem\n');
-        } catch (e) {
-            console.error('❌ Corrupted filesystem session:', e.message);
-            console.log('🗑️ Deleting corrupted session...\n');
+        // 2. Clear filesystem
+        if (fs.existsSync(authPath)) {
             fs.rmSync(authPath, { recursive: true, force: true });
-            
-            try {
-                await generateNewSession();
-            } catch (error) {
-                console.error('❌ Session generation failed:', error.message);
-                console.log('⏳ Retrying in 3 seconds...\n');
-                await delay(3000);
-                return startBot();
-            }
-            
-            await delay(3000);
-            process.exit(0);
+            console.log('✅ Filesystem cleared');
         }
         
-        // ========== STEP 5: Start with Filesystem Session ==========
-        return await startBotWithSession(null, null);
+        console.log('✅ Clean slate - ready for new session\n');
+        // ===================================================
+        
+        // ========== GENERATE NEW SESSION ==========
+        console.log('🔐 Generating new session...\n');
+        
+        try {
+            await generateNewSession();
+        } catch (error) {
+            console.error('❌ Session generation failed:', error.message);
+            console.log('⏳ Retrying in 3 seconds...\n');
+            isSessionActive = false;
+            await delay(3000);
+            return startBot();
+        }
+        
+        console.log('🔄 Restarting to connect with new session...\n');
+        await delay(3000);
+        process.exit(0);
+        // =========================================
         
     } catch (error) {
         console.error('❌ Fatal error in startBot:', error);
