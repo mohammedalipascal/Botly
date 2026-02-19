@@ -893,6 +893,12 @@ async function startBot() {
                 const messageId = msg.key.id;
                 const isGroup = sender.endsWith('@g.us');
                 
+                // Ignore linked device messages (@lid) to prevent infinite loops
+                if (sender.endsWith('@lid')) {
+                    console.log(`⏭️ Skipped: linked device message (@lid)\n`);
+                    return;
+                }
+                
                 // تجاهل poll updates/creation تماماً
                 if (msg.message?.pollUpdateMessage || 
                     msg.message?.pollCreationMessage ||
