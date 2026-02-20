@@ -450,6 +450,9 @@ let botStartTime = Date.now();
 let isSessionActive = false;
 let currentSessionId = null;
 
+// Backup interval management
+let backupInterval = null;
+
 let badMacErrorCount = 0;
 const MAX_BAD_MAC_ERRORS = 10;
 let lastBadMacReset = Date.now();
@@ -494,6 +497,13 @@ async function cleanupOldSession() {
         } catch (e) {
             console.log('Socket already closed');
         }
+    }
+    
+    // Clear backup interval
+    if (backupInterval) {
+        clearInterval(backupInterval);
+        backupInterval = null;
+        console.log('🧹 Backup interval cleared');
     }
     
     // Reset session state
@@ -676,10 +686,14 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
         });
 
         globalSock = sock;
-
+        
+        console.log('📡 Attaching event listeners...');
+        
         sock.ev.on('creds.update', saveCreds);
         
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
+            console.log(`📨 Message event received: type=${type}, count=${messages.length}`);
+            
             try {
                 if (msgRetryCounterCache) {
                     try {
@@ -1121,11 +1135,18 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                     }
                     
                     // ========== AUTO BACKUP EVERY 5 MINUTES ==========
+                    // Clear any existing backup interval first!
+                    if (backupInterval) {
+                        clearInterval(backupInterval);
+                        console.log('🧹 Cleared old backup interval');
+                    }
+                    
                     console.log('🔄 Starting automatic session backup (every 5 minutes)...');
-                    const backupInterval = setInterval(async () => {
+                    backupInterval = setInterval(async () => {
                         if (!sock?.user?.id) {
                             console.log('⚠️ No active session - stopping backup');
                             clearInterval(backupInterval);
+                            backupInterval = null;
                             return;
                         }
                         
