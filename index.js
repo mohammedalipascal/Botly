@@ -383,7 +383,44 @@ async function generateNewSession(attemptNumber = 1) {
                     await delay(45000);
                     
                     console.log('✅ Session saved locally in auth_info/');
-                    console.log('💡 Session will persist on server\n');
+                    
+                    // ========== COPY TO MONGODB NOW ==========
+                    if (USE_MONGODB) {
+                        console.log('💾 Copying session to MongoDB...');
+                        try {
+                            const authPath = path.join(__dirname, 'auth_info');
+                            const { useMongoDBAuthState } = require('./database/mongoAuthState');
+                            
+                            // Initialize MongoDB auth
+                            const mongoAuth = await useMongoDBAuthState(MONGO_URL, {
+                                sessionId: 'main_session',
+                                dbName: 'whatsapp_bot'
+                            });
+                            
+                            // Read all files from auth_info
+                            const files = fs.readdirSync(authPath);
+                            
+                            for (const file of files) {
+                                const filePath = path.join(authPath, file);
+                                if (fs.statSync(filePath).isFile()) {
+                                    const content = fs.readFileSync(filePath, 'utf-8');
+                                    const key = file.replace('.json', '');
+                                    const data = JSON.parse(content);
+                                    
+                                    // Write to MongoDB
+                                    await mongoAuth.writeData(key, data);
+                                }
+                            }
+                            
+                            console.log(`✅ Copied ${files.length} files to MongoDB!`);
+                        } catch (e) {
+                            console.error('⚠️ MongoDB copy failed:', e.message);
+                            console.log('⚠️ Session only in filesystem - may need pairing after restart');
+                        }
+                    }
+                    // =========================================
+                    
+                    console.log('💡 Ready to use!\n');
                     
                     sock.end();
                     resolve();
