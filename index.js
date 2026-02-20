@@ -513,31 +513,73 @@ async function startBot() {
         console.log('⚠️ Session already active - waiting for cleanup...');
         await delay(5000);
         
-        // Check again after delay
         if (isSessionActive && currentSessionId !== sessionId) {
             console.log('⚠️ Another session still active - aborting this attempt');
             return;
         }
     }
     
-    // Cleanup any old session
+    // Cleanup any old socket
     await cleanupOldSession();
     
     // Mark this session as active
     isSessionActive = true;
     currentSessionId = sessionId;
-    console.log(`🆔 Session ID: ${sessionId}`);
+    console.log(`🆔 Session ID: ${sessionId}\n`);
     
     try {
         const authPath = path.join(__dirname, 'auth_info');
         const credsPath = path.join(authPath, 'creds.json');
         
-        // ========== CLEAN START: Clear Everything ==========
-        console.log('🧹 Clearing all existing sessions...');
+        // ========== STEP 1: Try MongoDB First ==========
+        if (USE_MONGODB) {
+            console.log('🔍 Checking MongoDB for existing session...');
+            try {
+                const mongoAuth = await useMongoDBAuthState(MONGO_URL, {
+                    sessionId: 'main_session',
+                    dbName: 'whatsapp_bot'
+                });
+                
+                // Check if MongoDB has complete session
+                if (mongoAuth.state.creds.me && mongoAuth.state.creds.me.id) {
+                    console.log('✅ Found valid session in MongoDB!');
+                    console.log(`📱 Phone: ${mongoAuth.state.creds.me.id.split(':')[0]}\n`);
+                    // Use MongoDB session directly
+                    return await startBotWithSession(mongoAuth.state, mongoAuth.saveCreds);
+                }
+                
+                console.log('⚠️ MongoDB session incomplete or missing\n');
+            } catch (e) {
+                console.log(`⚠️ MongoDB check failed: ${e.message}\n`);
+            }
+        }
         
-        // 1. Clear MongoDB
+        // ========== STEP 2: Check Filesystem ==========
+        console.log('🔍 Checking filesystem for session...');
+        
+        if (fs.existsSync(authPath) && fs.existsSync(credsPath)) {
+            try {
+                const creds = JSON.parse(fs.readFileSync(credsPath, 'utf-8'));
+                if (creds.noiseKey && creds.me && creds.me.id) {
+                    console.log('✅ Found valid session in filesystem!');
+                    console.log(`📱 Phone: ${creds.me.id.split(':')[0]}\n`);
+                    // Use filesystem session
+                    return await startBotWithSession(null, null);
+                }
+            } catch (e) {
+                console.log('⚠️ Filesystem session invalid\n');
+            }
+        } else {
+            console.log('⚠️ No filesystem session found\n');
+        }
+        
+        // ========== STEP 3: Generate New Session ==========
+        console.log('🔐 No valid session found - generating new...\n');
+        
+        // Clear any incomplete sessions first
         if (USE_MONGODB) {
             try {
+                console.log('🧹 Clearing incomplete MongoDB session...');
                 const { MongoDBAuthState } = require('./database/mongoAuthState');
                 const mongoAuth = new MongoDBAuthState(MONGO_URL, {
                     sessionId: 'main_session',
@@ -552,18 +594,14 @@ async function startBot() {
             }
         }
         
-        // 2. Clear filesystem
         if (fs.existsSync(authPath)) {
             fs.rmSync(authPath, { recursive: true, force: true });
             console.log('✅ Filesystem cleared');
         }
         
-        console.log('✅ Clean slate - ready for new session\n');
-        // ===================================================
+        console.log('✅ Clean slate - ready for pairing\n');
         
-        // ========== GENERATE NEW SESSION ==========
-        console.log('🔐 Generating new session...\n');
-        
+        // Generate new session
         try {
             await generateNewSession();
         } catch (error) {
@@ -574,10 +612,9 @@ async function startBot() {
             return startBot();
         }
         
-        console.log('🔄 Restarting to connect with new session...\n');
+        console.log('🔄 Restarting to load new session...\n');
         await delay(3000);
         process.exit(0);
-        // =========================================
         
     } catch (error) {
         console.error('❌ Fatal error in startBot:', error);
