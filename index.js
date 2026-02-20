@@ -1045,9 +1045,21 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                         console.log('🗑️ Filesystem session cleared');
                     }
                     
-                    console.log('⏹️ Bot stopped - need new pairing\n');
-                    process.exit(1);
-                    return;
+                    console.log('\n╔════════════════════════════════════════════════╗');
+                    console.log('║  ⚠️  SESSION INVALID - RETURNING TO PAIRING   ║');
+                    console.log('║                                                ║');
+                    console.log('║  📱 Go to: http://localhost:8080              ║');
+                    console.log('║  🔐 Enter your phone to get new pairing code  ║');
+                    console.log('╚════════════════════════════════════════════════╝\n');
+                    
+                    // Mark session as inactive
+                    isSessionActive = false;
+                    
+                    // Restart bot process to go back to pairing mode
+                    // This will check MongoDB → not found → generate new session
+                    console.log('🔄 Restarting to pairing mode in 5 seconds...\n');
+                    await delay(5000);
+                    return startBot();
                 }
                 
                 // ========== TEMPORARY ERROR (500, 408, etc) - RECONNECT ==========
@@ -1107,6 +1119,31 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                     } catch (e) {
                         console.error('⚠️ MongoDB sync failed:', e.message, '\n');
                     }
+                    
+                    // ========== AUTO BACKUP EVERY 5 MINUTES ==========
+                    console.log('🔄 Starting automatic session backup (every 5 minutes)...');
+                    const backupInterval = setInterval(async () => {
+                        if (!sock?.user?.id) {
+                            console.log('⚠️ No active session - stopping backup');
+                            clearInterval(backupInterval);
+                            return;
+                        }
+                        
+                        try {
+                            await saveCreds();
+                            const timestamp = new Date().toLocaleTimeString('ar-EG', {
+                                timeZone: 'Africa/Cairo',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                            });
+                            console.log(`💾 [${timestamp}] Session backup completed`);
+                        } catch (e) {
+                            console.error(`❌ [${new Date().toLocaleTimeString()}] Backup failed:`, e.message);
+                        }
+                    }, 5 * 60 * 1000); // 5 minutes
+                    
+                    console.log('✅ Auto-backup enabled\n');
+                    // ================================================
                 }
                 // ============================================
                 
