@@ -971,10 +971,48 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                     
                     // إعادة تشغيل عند تجاوز الحد
                     if (badMacErrorCount >= MAX_BAD_MAC_ERRORS) {
-                        console.log('\n🔄 تجاوز حد أخطاء Bad MAC - إعادة تشغيل...\n');
+                        console.log('\n⚠️ ════════════════════════════════');
+                        console.log('   TOO MANY BAD MAC ERRORS!');
+                        console.log('   Session keys are corrupted/outdated');
+                        console.log('   Clearing session and restarting...');
+                        console.log('════════════════════════════════\n');
+                        
+                        // Clear MongoDB session
+                        if (USE_MONGODB) {
+                            try {
+                                console.log('🗑️ Clearing MongoDB session...');
+                                const { MongoDBAuthState } = require('./database/mongoAuthState');
+                                const mongoAuth = new MongoDBAuthState(MONGO_URL, {
+                                    sessionId: 'main_session',
+                                    dbName: 'whatsapp_bot'
+                                });
+                                await mongoAuth.connect();
+                                await mongoAuth.clearSession();
+                                await mongoAuth.close();
+                                console.log('✅ MongoDB cleared');
+                            } catch (e) {
+                                console.error('Error clearing MongoDB:', e.message);
+                            }
+                        }
+                        
+                        // Clear filesystem
+                        const authPath = path.join(__dirname, 'auth_info');
+                        if (fs.existsSync(authPath)) {
+                            fs.rmSync(authPath, { recursive: true, force: true });
+                            console.log('✅ Filesystem cleared');
+                        }
+                        
+                        console.log('\n╔════════════════════════════════════════════════╗');
+                        console.log('║  ⚠️  SESSION CLEARED DUE TO BAD MAC           ║');
+                        console.log('║                                                ║');
+                        console.log('║  📱 Go to: http://localhost:8080              ║');
+                        console.log('║  🔐 Enter your phone to get new pairing code  ║');
+                        console.log('╚════════════════════════════════════════════════╝\n');
+                        
                         sock.end();
-                        await delay(3000);
-                        process.exit(0);
+                        isSessionActive = false;
+                        await delay(5000);
+                        return startBot(); // Will go to pairing mode
                     }
                 } else if (error.message && !error.message.includes('Bad MAC')) {
                     console.error('❌ خطأ في معالجة الرسالة:', error.message);
@@ -1077,22 +1115,40 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                 }
                 
                 // ========== TEMPORARY ERROR (500, 408, etc) - RECONNECT ==========
-                console.log('🔄 Temporary error - reconnecting in same process...');
+                console.log('🔄 Temporary error - reconnecting with current session...');
+                console.log('💡 Keys stay in memory - no reload from MongoDB');
                 
-                // Mark current session as inactive before reconnecting
+                // Close current socket
+                try {
+                    sock.end();
+                } catch (e) {
+                    console.log('Socket already closed');
+                }
+                
+                // Mark as inactive temporarily
                 isSessionActive = false;
                 
-                // Use smart reconnection
+                // Reconnect with SAME state (keys in memory)
                 try {
                     await reconnectionManager.reconnect(async () => {
-                        console.log('🚀 Executing reconnection...\n');
-                        await startBot();
+                        console.log('🚀 Reconnecting with existing session...\n');
+                        
+                        // CRITICAL: Use SAME state and saveCreds!
+                        // Don't call startBot() - that would reload from MongoDB
+                        // Instead, create new socket with SAME session
+                        
+                        isSessionActive = false; // Allow new session
+                        await cleanupOldSession(); // Clean old socket
+                        
+                        // Reconnect with CURRENT session data
+                        return await startBotWithSession(state, saveCreds);
                     });
                 } catch (e) {
                     console.error('Reconnection failed:', e.message);
-                    console.log('⏳ Retrying in 10s...');
-                    isSessionActive = false; // Ensure flag is reset
+                    console.log('⏳ Will try full restart in 10s...');
+                    isSessionActive = false;
                     await delay(10000);
+                    // Only now, as last resort, do full restart
                     await startBot();
                 }
                 // ================================================
