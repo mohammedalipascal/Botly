@@ -674,9 +674,11 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
             generateHighQualityLinkPreview: true,
             syncFullHistory: false,
             
-            defaultQueryTimeoutMs: 60000,
-            connectTimeoutMs: 60000,
-            keepAliveIntervalMs: 10000,
+            // Optimized timeouts to prevent 500 errors
+            defaultQueryTimeoutMs: 90000, // 90s
+            connectTimeoutMs: 90000,
+            keepAliveIntervalMs: 25000, // More aggressive keep-alive
+            retryRequestDelayMs: 500,
             
             msgRetryCounterCache,
             
@@ -747,12 +749,56 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                     msg.message.imageMessage?.caption ||
                     msg.message.videoMessage?.caption || '';
                 
-                const adminCommands = ['/تشغيل', '/توقف', '/ban', '/unban', '/id'];
+                const adminCommands = ['/تشغيل', '/توقف', '/ban', '/unban', '/id', '.restart'];
                 if (msg.key.fromMe && adminCommands.includes(messageText.trim())) {
                     console.log('\n' + '='.repeat(50));
                     console.log(`📩 👤 أدمن: ${sender}`);
                     console.log(`📝 ${messageText}`);
                     console.log('='.repeat(50));
+                    
+                    // ========== SOLUTION 3: .restart COMMAND ==========
+                    if (messageText.trim() === '.restart') {
+                        await sock.sendMessage(sender, {
+                            text: '🔄 Restarting bot and syncing from MongoDB...\n\n⏰ Please wait 10 seconds...'
+                        }, { quoted: msg });
+                        
+                        console.log('📱 Manual restart requested by owner');
+                        console.log('💾 Saving current state to MongoDB...');
+                        
+                        // Save current state
+                        if (USE_MONGODB) {
+                            try {
+                                await saveCreds();
+                                console.log('✅ State saved to MongoDB');
+                            } catch (e) {
+                                console.error('Failed to save:', e.message);
+                            }
+                        }
+                        
+                        // Close socket
+                        console.log('🔌 Closing connection...');
+                        try {
+                            sock.end();
+                        } catch (e) {}
+                        
+                        // Reset flags
+                        isSessionActive = false;
+                        if (backupInterval) {
+                            clearInterval(backupInterval);
+                            backupInterval = null;
+                        }
+                        
+                        // Restart with MongoDB sync
+                        setTimeout(async () => {
+                            console.log('\n🔄 ════════════════════════════════');
+                            console.log('   MANUAL RESTART - SYNC FROM MONGODB');
+                            console.log('════════════════════════════════\n');
+                            await startBot(); // Will load fresh from MongoDB
+                        }, 10000);
+                        
+                        return;
+                    }
+                    // ================================================
                     
                     if (messageText.trim() === '/id') {
                         await sock.sendMessage(sender, {
@@ -1115,8 +1161,19 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                 }
                 
                 // ========== TEMPORARY ERROR (500, 408, etc) - RECONNECT ==========
-                console.log('🔄 Temporary error - reconnecting with current session...');
-                console.log('💡 Keys stay in memory - no reload from MongoDB');
+                console.log('🔄 Temporary error - smart reconnection...');
+                
+                // SOLUTION 2: Smart Reconnection with Full Sync
+                // Save current state to MongoDB first
+                if (USE_MONGODB && state && saveCreds) {
+                    console.log('💾 Saving current state to MongoDB before reconnect...');
+                    try {
+                        await saveCreds();
+                        console.log('✅ State saved');
+                    } catch (e) {
+                        console.error('Save failed:', e.message);
+                    }
+                }
                 
                 // Close current socket
                 try {
@@ -1128,28 +1185,45 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                 // Mark as inactive temporarily
                 isSessionActive = false;
                 
-                // Reconnect with SAME state (keys in memory)
+                // Delay for WhatsApp to register disconnect
+                await delay(5000);
+                
+                // Smart reconnection with fresh MongoDB sync
                 try {
                     await reconnectionManager.reconnect(async () => {
-                        console.log('🚀 Reconnecting with existing session...\n');
+                        console.log('🚀 Smart reconnection - loading fresh from MongoDB...\n');
                         
-                        // CRITICAL: Use SAME state and saveCreds!
-                        // Don't call startBot() - that would reload from MongoDB
-                        // Instead, create new socket with SAME session
+                        if (USE_MONGODB) {
+                            // Load FRESH session from MongoDB
+                            try {
+                                const mongoAuth = await useMongoDBAuthState(MONGO_URL, {
+                                    sessionId: 'main_session',
+                                    dbName: 'whatsapp_bot'
+                                });
+                                
+                                if (mongoAuth.state.creds.me?.id) {
+                                    console.log('✅ Fresh session loaded from MongoDB');
+                                    isSessionActive = false;
+                                    await cleanupOldSession();
+                                    return await startBotWithSession(mongoAuth.state, mongoAuth.saveCreds);
+                                }
+                            } catch (e) {
+                                console.error('MongoDB load failed:', e.message);
+                            }
+                        }
                         
-                        isSessionActive = false; // Allow new session
-                        await cleanupOldSession(); // Clean old socket
-                        
-                        // Reconnect with CURRENT session data
+                        // Fallback: use memory state
+                        console.log('💡 Using memory state as fallback');
+                        isSessionActive = false;
+                        await cleanupOldSession();
                         return await startBotWithSession(state, saveCreds);
                     });
                 } catch (e) {
-                    console.error('Reconnection failed:', e.message);
-                    console.log('⏳ Will try full restart in 10s...');
+                    console.error('Smart reconnection failed:', e.message);
+                    console.log('⏳ Full restart in 10s...');
                     isSessionActive = false;
                     await delay(10000);
-                    // Only now, as last resort, do full restart
-                    await startBot();
+                    await startBot(); // Full restart as last resort
                 }
                 // ================================================
                 
@@ -1221,6 +1295,30 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                     
                     console.log('✅ Auto-backup enabled\n');
                     // ================================================
+                    
+                    // ========== SOLUTION 1: PRESENCE UPDATES (KEEP-ALIVE) ==========
+                    console.log('👋 Starting presence updates (every 30 minutes)...');
+                    const presenceInterval = setInterval(async () => {
+                        if (!sock?.user?.id) {
+                            clearInterval(presenceInterval);
+                            return;
+                        }
+                        
+                        try {
+                            await sock.sendPresenceUpdate('available');
+                            const timestamp = new Date().toLocaleTimeString('ar-EG', {
+                                timeZone: 'Africa/Cairo',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                            });
+                            console.log(`👋 [${timestamp}] Presence update sent (keep-alive)`);
+                        } catch (e) {
+                            console.error('Failed to send presence:', e.message);
+                        }
+                    }, 30 * 60 * 1000); // Every 30 minutes
+                    
+                    console.log('✅ Presence updates enabled\n');
+                    // ===============================================================
                 }
                 // ============================================
                 
