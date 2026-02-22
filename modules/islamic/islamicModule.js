@@ -35,7 +35,20 @@ async function sendMainMenu(sock, sender) {
     session(sender, { level: 'main' });
     const folders = await db.getFolders();
     
-    let menuLines = `📿 *القسم الإسلامي*\n\n1️⃣ الأذكار\n2️⃣ الفتاوى\n3️⃣ الفقه\n4️⃣ العقيدة\n`;
+    // حساب أقرب وقت تالي من كل الأقسام
+    const nextSchedule = await getNextGlobalSchedule();
+    
+    let menuLines = `📿 *القسم الإسلامي*\n`;
+    
+    // عرض الوقت التالي
+    if (nextSchedule) {
+        menuLines += `⏰ *الإرسال التالي:* ${nextSchedule.display}\n`;
+        menuLines += `   📌 ${nextSchedule.section}\n\n`;
+    } else {
+        menuLines += `⏰ *الإرسال التالي:* لا أوقات مجدولة\n\n`;
+    }
+    
+    menuLines += `1️⃣ الأذكار\n2️⃣ الفتاوى\n3️⃣ الفقه\n4️⃣ العقيدة\n`;
     
     // المجلدات المخصصة تكمل الترقيم من 5
     folders.forEach((f, i) => {
@@ -57,6 +70,82 @@ async function sendMainMenu(sock, sender) {
     });
     
     await send(sock, sender, menuLines);
+}
+
+// دالة حساب أقرب وقت تالي من كل الأقسام
+async function getNextGlobalSchedule() {
+    try {
+        const settings = await db.getSettings();
+        const allSections = {
+            'Athkar_Morning': 'أذكار الصباح',
+            'Athkar_Evening': 'أذكار المساء',
+            'Fatawa': 'الفتاوى',
+            'Fiqh': 'الفقه',
+            'Aqeeda': 'العقيدة'
+        };
+        
+        // أضف المجلدات المخصصة
+        const folders = await db.getFolders();
+        folders.forEach(f => { allSections[f] = f.replace(/_/g, ' '); });
+        
+        const now = new Date();
+        const cairoNow = new Date(now.toLocaleString('en-US', { timeZone: 'Africa/Cairo' }));
+        const currentHour = cairoNow.getHours();
+        const currentMin = cairoNow.getMinutes();
+        const currentTimeInMin = currentHour * 60 + currentMin;
+        
+        let nearestSchedule = null;
+        let minDiff = Infinity;
+        
+        // فحص كل قسم
+        for (const [sheetName, displayName] of Object.entries(allSections)) {
+            const s = settings[sheetName];
+            if (!s?.enabled || !s?.times || s.times.length === 0) continue;
+            
+            // فحص كل وقت في القسم
+            for (const cronTime of s.times) {
+                try {
+                    const parts = cronTime.trim().split(' ');
+                    const min = parseInt(parts[0]);
+                    const hr = parseInt(parts[1]);
+                    const timeInMin = hr * 60 + min;
+                    
+                    let diff;
+                    if (timeInMin > currentTimeInMin) {
+                        // نفس اليوم
+                        diff = timeInMin - currentTimeInMin;
+                    } else {
+                        // اليوم التالي
+                        diff = (24 * 60 - currentTimeInMin) + timeInMin;
+                    }
+                    
+                    if (diff < minDiff) {
+                        minDiff = diff;
+                        const hours = Math.floor(diff / 60);
+                        const mins = diff % 60;
+                        const timeDisplay = cronToDisplay(cronTime);
+                        const isToday = timeInMin > currentTimeInMin;
+                        
+                        nearestSchedule = {
+                            section: displayName,
+                            time: timeDisplay,
+                            diff: diff,
+                            display: isToday 
+                                ? `${timeDisplay} (بعد ${hours > 0 ? hours + 'س ' : ''}${mins}د)`
+                                : `${timeDisplay} (غداً بعد ${hours}س)`
+                        };
+                    }
+                } catch (e) {
+                    // تجاهل الأخطاء في parsing
+                }
+            }
+        }
+        
+        return nearestSchedule;
+    } catch (e) {
+        console.error('خطأ في حساب الوقت التالي:', e.message);
+        return null;
+    }
 }
 
 async function sendAthkarMenu(sock, sender) {
@@ -103,11 +192,15 @@ async function sendSectionSchedule(sock, sender, sheetName, displayName) {
     const settings = await db.getSettings();
     const s = settings[sheetName] || { times: [], enabled: false };
     const timesList = s.times.map((t, i) => `${i + 1}. ${cronToDisplay(t)}`).join('\n') || 'لا أوقات';
+    
+    // حساب الوقت التالي
+    const nextTime = getNextScheduledTime(s.times);
 
     session(sender, { level: 'schedule_section', sheetName, displayName });
     await send(sock, sender,
 `*${displayName}*
 الحالة: ${s.enabled ? '✅ مفعّل' : '⭕ معطّل'}
+⏰ الوقت التالي: ${nextTime}
 
 الأوقات:
 ${timesList}
@@ -115,9 +208,53 @@ ${timesList}
 1️⃣ إضافة وقت
 2️⃣ عرض/حذف أوقات
 3️⃣ ${s.enabled ? 'تعطيل' : 'تفعيل'}
+4️⃣ عرض المحتويات
 0️⃣ رجوع
 
 اختر:`);
+}
+
+// دالة حساب الوقت التالي
+function getNextScheduledTime(times) {
+    if (!times || times.length === 0) return 'لا أوقات';
+    
+    const now = new Date();
+    const cairoNow = new Date(now.toLocaleString('en-US', { timeZone: 'Africa/Cairo' }));
+    const currentHour = cairoNow.getHours();
+    const currentMin = cairoNow.getMinutes();
+    const currentTimeInMin = currentHour * 60 + currentMin;
+    
+    // تحويل كل الأوقات لدقائق
+    const scheduledTimes = times.map(cronTime => {
+        try {
+            const parts = cronTime.trim().split(' ');
+            const min = parseInt(parts[0]);
+            const hr = parseInt(parts[1]);
+            return { time: hr * 60 + min, display: cronToDisplay(cronTime) };
+        } catch {
+            return null;
+        }
+    }).filter(t => t !== null);
+    
+    if (scheduledTimes.length === 0) return 'لا أوقات صالحة';
+    
+    // إيجاد أقرب وقت بعد الآن
+    const futureTime = scheduledTimes
+        .filter(t => t.time > currentTimeInMin)
+        .sort((a, b) => a.time - b.time)[0];
+    
+    if (futureTime) {
+        const diff = futureTime.time - currentTimeInMin;
+        const hours = Math.floor(diff / 60);
+        const mins = diff % 60;
+        return `${futureTime.display} (بعد ${hours > 0 ? hours + 'س ' : ''}${mins}د)`;
+    }
+    
+    // إذا كل الأوقات مرت، خذ أول وقت غداً
+    const tomorrow = scheduledTimes.sort((a, b) => a.time - b.time)[0];
+    const diff = (24 * 60 - currentTimeInMin) + tomorrow.time;
+    const hours = Math.floor(diff / 60);
+    return `${tomorrow.display} (غداً بعد ${hours}س)`;
 }
 
 // ===============================
@@ -473,6 +610,9 @@ async function handleNumber(sock, sender, num) {
                 await send(sock, sender, `⭕ تم تعطيل *${s.displayName}*`);
             }
             await sendMainMenu(sock, sender);
+        } else if (num === 4) {
+            // عرض المحتويات
+            await sendContentPreview(sock, sender, s.sheetName, s.displayName);
         }
         return true;
     }
@@ -645,6 +785,37 @@ async function sendStats(sock, sender) {
     });
     await send(sock, sender, lines);
     await sendMainMenu(sock, sender);
+}
+
+// عرض محتويات القسم (عناوين فقط)
+async function sendContentPreview(sock, sender, sheetName, displayName) {
+    try {
+        const content = await db.getContent(sheetName);
+        
+        if (!content || content.length === 0) {
+            await send(sock, sender, `📝 *${displayName}*\n\n⚠️ لا محتوى في هذا القسم`);
+            await sendSectionSchedule(sock, sender, sheetName, displayName);
+            return;
+        }
+        
+        let lines = `📝 *محتويات ${displayName}*\n`;
+        lines += `📊 العدد الإجمالي: ${content.length}\n\n`;
+        
+        content.forEach((item, i) => {
+            // أخذ أول 50 حرف كعنوان
+            const preview = item.text.substring(0, 50).trim();
+            const status = item.sentIndex > 0 ? '✅' : '⏳';
+            lines += `${i + 1}. ${status} ${preview}...\n`;
+        });
+        
+        lines += `\n✅ = تم إرساله | ⏳ = لم يُرسل بعد`;
+        
+        await send(sock, sender, lines);
+        await sendSectionSchedule(sock, sender, sheetName, displayName);
+    } catch (e) {
+        await send(sock, sender, `❌ خطأ: ${e.message}`);
+        await sendMainMenu(sock, sender);
+    }
 }
 
 // ===============================
