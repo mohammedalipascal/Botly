@@ -1316,31 +1316,20 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                         }
                         
                         try {
-                            // Send presence
+                            // Send simple presence update only
                             await sock.sendPresenceUpdate('available');
-                            
-                            // SOLUTION FOR IDLE: Simulate activity
-                            // Read receipts to keep connection active
-                            try {
-                                await sock.readMessages([{
-                                    remoteJid: sock.user.id.replace(':0', '@s.whatsapp.net'),
-                                    id: 'keep-alive-' + Date.now(),
-                                    participant: undefined
-                                }]);
-                            } catch (e) {
-                                // Silent - just activity simulation
-                            }
                             
                             const timestamp = new Date().toLocaleTimeString('ar-EG', {
                                 timeZone: 'Africa/Cairo',
                                 hour: '2-digit',
                                 minute: '2-digit'
                             });
-                            console.log(`👋 [${timestamp}] Keep-alive: presence + activity`);
+                            console.log(`👋 [${timestamp}] Keep-alive sent`);
                         } catch (e) {
-                            console.error('Keep-alive failed:', e.message);
+                            console.error(`⚠️ Keep-alive failed: ${e.message}`);
+                            // Don't clear interval - will retry next time
                         }
-                    }, 60 * 60 * 1000); // Every 60 minutes (for idle periods)
+                    }, 30 * 60 * 1000); // Every 30 minutes
                     
                     console.log('✅ Keep-alive enabled (prevents idle disconnects)\n');
                     // ===============================================================
