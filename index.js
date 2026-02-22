@@ -449,6 +449,7 @@ let botStartTime = Date.now();
 // Session management
 let isSessionActive = false;
 let currentSessionId = null;
+let isManualRestart = false; // Flag for manual restart
 
 // Backup interval management
 let backupInterval = null;
@@ -765,6 +766,9 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                         console.log('📱 Manual restart requested by owner');
                         console.log('💾 Saving current state to MongoDB...');
                         
+                        // Set manual restart flag
+                        isManualRestart = true;
+                        
                         // Save current state
                         if (USE_MONGODB) {
                             try {
@@ -793,6 +797,7 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                             console.log('\n🔄 ════════════════════════════════');
                             console.log('   MANUAL RESTART - SYNC FROM MONGODB');
                             console.log('════════════════════════════════\n');
+                            isManualRestart = false; // Reset flag
                             await startBot(); // Will load fresh from MongoDB
                         }, 10000);
                         
@@ -1160,6 +1165,12 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                     return startBot();
                 }
                 
+                // ========== MANUAL RESTART - SKIP RECONNECTION ==========
+                if (isManualRestart) {
+                    console.log('⏸️ Manual restart in progress - skipping reconnection');
+                    return; // Don't trigger reconnection manager
+                }
+                
                 // ========== TEMPORARY ERROR (500, 408, etc) - RECONNECT ==========
                 console.log('🔄 Temporary error - smart reconnection...');
                 
@@ -1297,7 +1308,7 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                     // ================================================
                     
                     // ========== SOLUTION 1: PRESENCE UPDATES (KEEP-ALIVE) ==========
-                    console.log('👋 Starting presence updates (every 30 minutes)...');
+                    console.log('👋 Starting presence updates (every 60 minutes)...');
                     const presenceInterval = setInterval(async () => {
                         if (!sock?.user?.id) {
                             clearInterval(presenceInterval);
@@ -1305,19 +1316,33 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                         }
                         
                         try {
+                            // Send presence
                             await sock.sendPresenceUpdate('available');
+                            
+                            // SOLUTION FOR IDLE: Simulate activity
+                            // Read receipts to keep connection active
+                            try {
+                                await sock.readMessages([{
+                                    remoteJid: sock.user.id.replace(':0', '@s.whatsapp.net'),
+                                    id: 'keep-alive-' + Date.now(),
+                                    participant: undefined
+                                }]);
+                            } catch (e) {
+                                // Silent - just activity simulation
+                            }
+                            
                             const timestamp = new Date().toLocaleTimeString('ar-EG', {
                                 timeZone: 'Africa/Cairo',
                                 hour: '2-digit',
                                 minute: '2-digit'
                             });
-                            console.log(`👋 [${timestamp}] Presence update sent (keep-alive)`);
+                            console.log(`👋 [${timestamp}] Keep-alive: presence + activity`);
                         } catch (e) {
-                            console.error('Failed to send presence:', e.message);
+                            console.error('Keep-alive failed:', e.message);
                         }
-                    }, 30 * 60 * 1000); // Every 30 minutes
+                    }, 60 * 60 * 1000); // Every 60 minutes (for idle periods)
                     
-                    console.log('✅ Presence updates enabled\n');
+                    console.log('✅ Keep-alive enabled (prevents idle disconnects)\n');
                     // ===============================================================
                 }
                 // ============================================
