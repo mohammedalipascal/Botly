@@ -453,6 +453,7 @@ let isManualRestart = false; // Flag for manual restart
 
 // Backup interval management
 let backupInterval = null;
+let presenceInterval = null; // Keep-alive interval
 
 let badMacErrorCount = 0;
 const MAX_BAD_MAC_ERRORS = 10;
@@ -505,6 +506,13 @@ async function cleanupOldSession() {
         clearInterval(backupInterval);
         backupInterval = null;
         console.log('🧹 Backup interval cleared');
+    }
+    
+    // Clear presence interval
+    if (presenceInterval) {
+        clearInterval(presenceInterval);
+        presenceInterval = null;
+        console.log('🧹 Presence interval cleared');
     }
     
     // Reset session state
@@ -1308,10 +1316,17 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                     // ================================================
                     
                     // ========== SOLUTION 1: PRESENCE UPDATES (KEEP-ALIVE) ==========
-                    console.log('👋 Starting presence updates (every 60 minutes)...');
-                    const presenceInterval = setInterval(async () => {
+                    // Clear any existing presence interval first!
+                    if (presenceInterval) {
+                        clearInterval(presenceInterval);
+                        console.log('🧹 Cleared old presence interval');
+                    }
+                    
+                    console.log('👋 Starting presence updates (every 45 minutes)...');
+                    presenceInterval = setInterval(async () => {
                         if (!sock?.user?.id) {
                             clearInterval(presenceInterval);
+                            presenceInterval = null;
                             return;
                         }
                         
@@ -1329,7 +1344,7 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                             console.error(`⚠️ Keep-alive failed: ${e.message}`);
                             // Don't clear interval - will retry next time
                         }
-                    }, 30 * 60 * 1000); // Every 30 minutes
+                    }, 45 * 60 * 1000); // Every 45 minutes
                     
                     console.log('✅ Keep-alive enabled (prevents idle disconnects)\n');
                     // ===============================================================
