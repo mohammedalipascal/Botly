@@ -3,15 +3,15 @@
 const isCloudEnvironment = !!(process.env.CC_DEPLOYMENT_ID || process.env.CLEVER_CLOUD || process.env.PORT);
 
 if (!isCloudEnvironment && !process.env.ISLAMIC_GROUP_ID) {
-    console.log('📂 Loading .env file (local development)');
+    console.log('ðŸ“‚ Loading .env file (local development)');
     require('dotenv').config();
 } else {
-    console.log('☁️ Using cloud environment variables');
+    console.log('â˜ï¸ Using cloud environment variables');
 }
 
 // Log key ENV vars (without exposing full values)
-console.log(`🔑 ISLAMIC_GROUP_ID: ${process.env.ISLAMIC_GROUP_ID ? '✅ موجود' : '❌ غير موجود'}`);
-console.log(`🔑 GOOGLE_SHEET_ID: ${process.env.GOOGLE_SHEET_ID ? '✅ موجود' : '❌ غير موجود'}`);
+console.log(`ðŸ”‘ ISLAMIC_GROUP_ID: ${process.env.ISLAMIC_GROUP_ID ? 'âœ… Ù…ÙˆØ¬ÙˆØ¯' : 'âŒ ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯'}`);
+console.log(`ðŸ”‘ GOOGLE_SHEET_ID: ${process.env.GOOGLE_SHEET_ID ? 'âœ… Ù…ÙˆØ¬ÙˆØ¯' : 'âŒ ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯'}`);
 
 const makeWASocket = require('@whiskeysockets/baileys').default;
 const { 
@@ -50,7 +50,7 @@ const processedMessages = new Set();
 
 const CONFIG = {
     botName: process.env.BOT_NAME || 'Botly',
-    botOwner: process.env.BOT_OWNER || 'مقداد',
+    botOwner: process.env.BOT_OWNER || 'Ù…Ù‚Ø¯Ø§Ø¯',
     prefix: process.env.PREFIX || '!',
     port: process.env.PORT || 8080,
     replyInGroups: false,
@@ -74,7 +74,7 @@ function loadAIState() {
             return state.enabled || false;
         }
     } catch (error) {
-        console.log('⚠️ خطأ في قراءة حالة AI');
+        console.log('âš ï¸ Ø®Ø·Ø£ ÙÙŠ Ù‚Ø±Ø§Ø¡Ø© Ø­Ø§Ù„Ø© AI');
     }
     return false;
 }
@@ -83,7 +83,7 @@ function saveAIState(enabled) {
     try {
         fs.writeFileSync(AI_STATE_FILE, JSON.stringify({ enabled }), 'utf-8');
     } catch (error) {
-        console.error('❌ خطأ في حفظ حالة AI:', error.message);
+        console.error('âŒ Ø®Ø·Ø£ ÙÙŠ Ø­ÙØ¸ Ø­Ø§Ù„Ø© AI:', error.message);
     }
 }
 
@@ -94,7 +94,7 @@ function loadBanList() {
             return JSON.parse(data);
         }
     } catch (error) {
-        console.log('⚠️ خطأ في قراءة قائمة الحظر');
+        console.log('âš ï¸ Ø®Ø·Ø£ ÙÙŠ Ù‚Ø±Ø§Ø¡Ø© Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ø­Ø¸Ø±');
     }
     return [];
 }
@@ -103,7 +103,7 @@ function saveBanList(list) {
     try {
         fs.writeFileSync(BAN_LIST_FILE, JSON.stringify(list), 'utf-8');
     } catch (error) {
-        console.error('❌ خطأ في حفظ قائمة الحظر:', error.message);
+        console.error('âŒ Ø®Ø·Ø£ ÙÙŠ Ø­ÙØ¸ Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ø­Ø¸Ø±:', error.message);
     }
 }
 
@@ -114,7 +114,7 @@ function loadAllowedGroupsList() {
             return JSON.parse(data);
         }
     } catch (error) {
-        console.log('⚠️ خطأ في قراءة قائمة المجموعات المسموحة');
+        console.log('âš ï¸ Ø®Ø·Ø£ ÙÙŠ Ù‚Ø±Ø§Ø¡Ø© Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ù…Ø¬Ù…ÙˆØ¹Ø§Øª Ø§Ù„Ù…Ø³Ù…ÙˆØ­Ø©');
     }
     return [];
 }
@@ -123,7 +123,7 @@ function saveAllowedGroupsList(list) {
     try {
         fs.writeFileSync(ALLOWED_GROUPS_FILE, JSON.stringify(list), 'utf-8');
     } catch (error) {
-        console.error('❌ خطأ في حفظ قائمة المجموعات:', error.message);
+        console.error('âŒ Ø®Ø·Ø£ ÙÙŠ Ø­ÙØ¸ Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ù…Ø¬Ù…ÙˆØ¹Ø§Øª:', error.message);
     }
 }
 
@@ -141,14 +141,14 @@ const AI_CONFIG = {
 const authPath = path.join(__dirname, 'auth_info');
 const hasSession = fs.existsSync(authPath) && fs.existsSync(path.join(authPath, 'creds.json'));
 
-console.log('\n⚙️ ═══════ إعدادات البوت ═══════');
-console.log(`📱 اسم البوت: ${CONFIG.botName}`);
-console.log(`👤 المالك: ${CONFIG.botOwner}`);
-console.log(`👥 الرد في المجموعات: ${CONFIG.replyInGroups ? '✅' : '❌'}`);
-console.log(`🤖 AI: ${AI_ENABLED ? '✅ مفعّل' : '❌ معطّل'}`);
-console.log(`📿 القسم الإسلامي: ${islamicIsEnabled() ? '✅ مفعّل' : '❌ معطّل'}`);
-console.log(`💾 الجلسة: ${hasSession ? 'موجودة في الـ repo ✅' : '⚠️ غير موجودة - سيتم إنشاء جلسة جديدة'}`);
-console.log('═══════════════════════════════════\n');
+console.log('\nâš™ï¸ â•â•â•â•â•â•â• Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª Ø§Ù„Ø¨ÙˆØª â•â•â•â•â•â•â•');
+console.log(`ðŸ“± Ø§Ø³Ù… Ø§Ù„Ø¨ÙˆØª: ${CONFIG.botName}`);
+console.log(`ðŸ‘¤ Ø§Ù„Ù…Ø§Ù„Ùƒ: ${CONFIG.botOwner}`);
+console.log(`ðŸ‘¥ Ø§Ù„Ø±Ø¯ ÙÙŠ Ø§Ù„Ù…Ø¬Ù…ÙˆØ¹Ø§Øª: ${CONFIG.replyInGroups ? 'âœ…' : 'âŒ'}`);
+console.log(`ðŸ¤– AI: ${AI_ENABLED ? 'âœ… Ù…ÙØ¹Ù‘Ù„' : 'âŒ Ù…Ø¹Ø·Ù‘Ù„'}`);
+console.log(`ðŸ“¿ Ø§Ù„Ù‚Ø³Ù… Ø§Ù„Ø¥Ø³Ù„Ø§Ù…ÙŠ: ${islamicIsEnabled() ? 'âœ… Ù…ÙØ¹Ù‘Ù„' : 'âŒ Ù…Ø¹Ø·Ù‘Ù„'}`);
+console.log(`ðŸ’¾ Ø§Ù„Ø¬Ù„Ø³Ø©: ${hasSession ? 'Ù…ÙˆØ¬ÙˆØ¯Ø© ÙÙŠ Ø§Ù„Ù€ repo âœ…' : 'âš ï¸ ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯Ø© - Ø³ÙŠØªÙ… Ø¥Ù†Ø´Ø§Ø¡ Ø¬Ù„Ø³Ø© Ø¬Ø¯ÙŠØ¯Ø©'}`);
+console.log('â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•\n');
 
 let requestCount = 0;
 let pairingCode = null;
@@ -178,7 +178,7 @@ const server = http.createServer((req, res) => {
         
         if (!phone) {
             res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ success: false, error: 'رقم الهاتف مطلوب' }));
+            res.end(JSON.stringify({ success: false, error: 'Ø±Ù‚Ù… Ø§Ù„Ù‡Ø§ØªÙ Ù…Ø·Ù„ÙˆØ¨' }));
             return;
         }
         
@@ -200,13 +200,13 @@ const server = http.createServer((req, res) => {
                 clearInterval(checkInterval);
                 res.end(JSON.stringify({ 
                     success: false, 
-                    error: pairingError || 'فشل توليد الكود'
+                    error: pairingError || 'ÙØ´Ù„ ØªÙˆÙ„ÙŠØ¯ Ø§Ù„ÙƒÙˆØ¯'
                 }));
             } else if (Date.now() - startTime > 30000) {
                 clearInterval(checkInterval);
                 res.end(JSON.stringify({ 
                     success: false, 
-                    error: 'انتهى وقت الانتظار'
+                    error: 'Ø§Ù†ØªÙ‡Ù‰ ÙˆÙ‚Øª Ø§Ù„Ø§Ù†ØªØ¸Ø§Ø±'
                 }));
             }
         }, 500);
@@ -238,10 +238,10 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(CONFIG.port, () => {
-    console.log('\n╔════════════════════════════════════════════════╗');
-    console.log(`║  🌐 الواجهة متاحة على:                         ║`);
-    console.log(`║  http://localhost:${CONFIG.port}                     ║`);
-    console.log('╚════════════════════════════════════════════════╝\n');
+    console.log('\nâ•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—');
+    console.log(`â•‘  ðŸŒ Ø§Ù„ÙˆØ§Ø¬Ù‡Ø© Ù…ØªØ§Ø­Ø© Ø¹Ù„Ù‰:                         â•‘`);
+    console.log(`â•‘  http://localhost:${CONFIG.port}                     â•‘`);
+    console.log('â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•\n');
 });
 
 // Keep-alive removed - server stays alive natively
@@ -250,15 +250,15 @@ async function generateNewSession(attemptNumber = 1) {
     const MAX_SESSION_ATTEMPTS = 3;
     
     if (attemptNumber > MAX_SESSION_ATTEMPTS) {
-        console.error('\n❌ فشلت جميع المحاولات لإنشاء الجلسة\n');
-        console.log('⏳ سيتم المحاولة مرة أخرى بعد 30 ثانية...\n');
+        console.error('\nâŒ ÙØ´Ù„Øª Ø¬Ù…ÙŠØ¹ Ø§Ù„Ù…Ø­Ø§ÙˆÙ„Ø§Øª Ù„Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø¬Ù„Ø³Ø©\n');
+        console.log('â³ Ø³ÙŠØªÙ… Ø§Ù„Ù…Ø­Ø§ÙˆÙ„Ø© Ù…Ø±Ø© Ø£Ø®Ø±Ù‰ Ø¨Ø¹Ø¯ 30 Ø«Ø§Ù†ÙŠØ©...\n');
         await delay(30000);
         return generateNewSession(1);
     }
     
-    console.log('\n╔════════════════════════════════════════════════╗');
-    console.log(`║    🔐 إنشاء جلسة جديدة - محاولة ${attemptNumber}/${MAX_SESSION_ATTEMPTS}     ║`);
-    console.log('╚════════════════════════════════════════════════╝\n');
+    console.log('\nâ•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—');
+    console.log(`â•‘    ðŸ” Ø¥Ù†Ø´Ø§Ø¡ Ø¬Ù„Ø³Ø© Ø¬Ø¯ÙŠØ¯Ø© - Ù…Ø­Ø§ÙˆÙ„Ø© ${attemptNumber}/${MAX_SESSION_ATTEMPTS}     â•‘`);
+    console.log('â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•\n');
     
     pairingCode = null;
     pairingStatus = 'waiting';
@@ -273,7 +273,7 @@ async function generateNewSession(attemptNumber = 1) {
         }
         
         const { version } = await fetchLatestBaileysVersion();
-        console.log(`📦 Baileys v${version.join('.')}\n`);
+        console.log(`ðŸ“¦ Baileys v${version.join('.')}\n`);
         
         const { state, saveCreds } = await useMultiFileAuthState('auth_info');
         const msgRetryCounterCache = new NodeCache();
@@ -298,41 +298,41 @@ async function generateNewSession(attemptNumber = 1) {
         return new Promise((resolve, reject) => {
             const timeoutId = setTimeout(() => {
                 if (!connectionResolved) {
-                    console.log('\n⏰ انتهى وقت الانتظار - إعادة المحاولة...\n');
+                    console.log('\nâ° Ø§Ù†ØªÙ‡Ù‰ ÙˆÙ‚Øª Ø§Ù„Ø§Ù†ØªØ¸Ø§Ø± - Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„Ù…Ø­Ø§ÙˆÙ„Ø©...\n');
                     connectionResolved = true;
                     sock.end();
                     reject(new Error('timeout'));
                 }
             }, 10 * 60 * 1000);
             
-            console.log('📱 في انتظار رقم الهاتف من الواجهة...');
-            console.log(`🌐 افتح: http://localhost:${CONFIG.port}\n`);
+            console.log('ðŸ“± ÙÙŠ Ø§Ù†ØªØ¸Ø§Ø± Ø±Ù‚Ù… Ø§Ù„Ù‡Ø§ØªÙ Ù…Ù† Ø§Ù„ÙˆØ§Ø¬Ù‡Ø©...');
+            console.log(`ðŸŒ Ø§ÙØªØ­: http://localhost:${CONFIG.port}\n`);
             
             const checkPhoneInterval = setInterval(async () => {
                 if (phoneNumber && pairingStatus === 'generating') {
                     clearInterval(checkPhoneInterval);
                     
                     try {
-                        console.log(`📞 رقم الهاتف المُدخل: ${phoneNumber}`);
-                        console.log('🔄 جاري توليد كود الربط...\n');
+                        console.log(`ðŸ“ž Ø±Ù‚Ù… Ø§Ù„Ù‡Ø§ØªÙ Ø§Ù„Ù…ÙØ¯Ø®Ù„: ${phoneNumber}`);
+                        console.log('ðŸ”„ Ø¬Ø§Ø±ÙŠ ØªÙˆÙ„ÙŠØ¯ ÙƒÙˆØ¯ Ø§Ù„Ø±Ø¨Ø·...\n');
                         
                         const code = await sock.requestPairingCode(phoneNumber);
                         pairingCode = code;
                         pairingStatus = 'ready';
                         
-                        console.log('\n╔════════════════════════════════════════════════╗');
-                        console.log(`║           🔑 كود الربط: ${code}            ║`);
-                        console.log('╚════════════════════════════════════════════════╝\n');
+                        console.log('\nâ•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—');
+                        console.log(`â•‘           ðŸ”‘ ÙƒÙˆØ¯ Ø§Ù„Ø±Ø¨Ø·: ${code}            â•‘`);
+                        console.log('â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•\n');
                         
-                        console.log('📱 أدخل هذا الكود في WhatsApp:\n');
-                        console.log('   1️⃣ افتح WhatsApp');
-                        console.log('   2️⃣ الإعدادات > الأجهزة المرتبطة');
-                        console.log('   3️⃣ ربط جهاز');
-                        console.log('   4️⃣ ربط برقم الهاتف بدلاً من ذلك');
-                        console.log(`   5️⃣ أدخل الكود: ${code}\n`);
+                        console.log('ðŸ“± Ø£Ø¯Ø®Ù„ Ù‡Ø°Ø§ Ø§Ù„ÙƒÙˆØ¯ ÙÙŠ WhatsApp:\n');
+                        console.log('   1ï¸âƒ£ Ø§ÙØªØ­ WhatsApp');
+                        console.log('   2ï¸âƒ£ Ø§Ù„Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª > Ø§Ù„Ø£Ø¬Ù‡Ø²Ø© Ø§Ù„Ù…Ø±ØªØ¨Ø·Ø©');
+                        console.log('   3ï¸âƒ£ Ø±Ø¨Ø· Ø¬Ù‡Ø§Ø²');
+                        console.log('   4ï¸âƒ£ Ø±Ø¨Ø· Ø¨Ø±Ù‚Ù… Ø§Ù„Ù‡Ø§ØªÙ Ø¨Ø¯Ù„Ø§Ù‹ Ù…Ù† Ø°Ù„Ùƒ');
+                        console.log(`   5ï¸âƒ£ Ø£Ø¯Ø®Ù„ Ø§Ù„ÙƒÙˆØ¯: ${code}\n`);
                         
                     } catch (error) {
-                        console.error('❌ فشل توليد الكود:', error.message);
+                        console.error('âŒ ÙØ´Ù„ ØªÙˆÙ„ÙŠØ¯ Ø§Ù„ÙƒÙˆØ¯:', error.message);
                         pairingStatus = 'error';
                         pairingError = error.message;
                     }
@@ -347,11 +347,11 @@ async function generateNewSession(attemptNumber = 1) {
                     
                     clearInterval(checkPhoneInterval);
                     const statusCode = lastDisconnect?.error?.output?.statusCode;
-                    console.log(`\n⚠️ Pairing connection closed - code: ${statusCode}`);
+                    console.log(`\nâš ï¸ Pairing connection closed - code: ${statusCode}`);
                     
                     // These are normal pairing errors - retry
                     if (statusCode === 515 || statusCode === 503 || statusCode === 408 || !statusCode) {
-                        console.log('🔄 Pairing failed - will retry...\n');
+                        console.log('ðŸ”„ Pairing failed - will retry...\n');
                         connectionResolved = true;
                         clearTimeout(timeoutId);
                         sock.end();
@@ -360,7 +360,7 @@ async function generateNewSession(attemptNumber = 1) {
                     }
                     
                     // Fatal errors
-                    console.log(`❌ Fatal pairing error: ${statusCode}\n`);
+                    console.log(`âŒ Fatal pairing error: ${statusCode}\n`);
                     connectionResolved = true;
                     clearTimeout(timeoutId);
                     sock.end();
@@ -373,20 +373,20 @@ async function generateNewSession(attemptNumber = 1) {
                     clearInterval(checkPhoneInterval);
                     pairingStatus = 'connected';
                     
-                    console.log('\n✅ ════════════════════════════════════');
-                    console.log('   🎉 Pairing successful!');
-                    console.log(`   📱 ${sock.user.id.split(':')[0]}`);
-                    console.log('════════════════════════════════════\n');
+                    console.log('\nâœ… â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•');
+                    console.log('   ðŸŽ‰ Pairing successful!');
+                    console.log(`   ðŸ“± ${sock.user.id.split(':')[0]}`);
+                    console.log('â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•\n');
                     
-                    console.log('⏳ Waiting 45s for full sync...');
-                    console.log('💡 Tip: Send a message in any group now!\n');
+                    console.log('â³ Waiting 45s for full sync...');
+                    console.log('ðŸ’¡ Tip: Send a message in any group now!\n');
                     await delay(45000);
                     
-                    console.log('✅ Session saved locally in auth_info/');
+                    console.log('âœ… Session saved locally in auth_info/');
                     
                     // ========== COPY TO MONGODB NOW ==========
                     if (USE_MONGODB) {
-                        console.log('💾 Copying session to MongoDB...');
+                        console.log('ðŸ’¾ Copying session to MongoDB...');
                         try {
                             const authPath = path.join(__dirname, 'auth_info');
                             const { useMongoDBAuthState } = require('./database/mongoAuthState');
@@ -412,15 +412,15 @@ async function generateNewSession(attemptNumber = 1) {
                                 }
                             }
                             
-                            console.log(`✅ Copied ${files.length} files to MongoDB!`);
+                            console.log(`âœ… Copied ${files.length} files to MongoDB!`);
                         } catch (e) {
-                            console.error('⚠️ MongoDB copy failed:', e.message);
-                            console.log('⚠️ Session only in filesystem - may need pairing after restart');
+                            console.error('âš ï¸ MongoDB copy failed:', e.message);
+                            console.log('âš ï¸ Session only in filesystem - may need pairing after restart');
                         }
                     }
                     // =========================================
                     
-                    console.log('💡 Ready to use!\n');
+                    console.log('ðŸ’¡ Ready to use!\n');
                     
                     sock.end();
                     resolve();
@@ -429,11 +429,11 @@ async function generateNewSession(attemptNumber = 1) {
         });
         
     } catch (error) {
-        console.error('❌ خطأ في إنشاء الجلسة:', error.message);
+        console.error('âŒ Ø®Ø·Ø£ ÙÙŠ Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø¬Ù„Ø³Ø©:', error.message);
         
         if (error.message.startsWith('retry_') || 
             error.message === 'timeout') {
-            console.log(`⏳ انتظار 10 ثواني قبل المحاولة التالية...\n`);
+            console.log(`â³ Ø§Ù†ØªØ¸Ø§Ø± 10 Ø«ÙˆØ§Ù†ÙŠ Ù‚Ø¨Ù„ Ø§Ù„Ù…Ø­Ø§ÙˆÙ„Ø© Ø§Ù„ØªØ§Ù„ÙŠØ©...\n`);
             await delay(10000);
             return generateNewSession(attemptNumber + 1);
         }
@@ -449,11 +449,9 @@ let botStartTime = Date.now();
 // Session management
 let isSessionActive = false;
 let currentSessionId = null;
-let isManualRestart = false; // Flag for manual restart
 
 // Backup interval management
 let backupInterval = null;
-let presenceInterval = null; // Keep-alive interval
 
 let badMacErrorCount = 0;
 const MAX_BAD_MAC_ERRORS = 10;
@@ -492,7 +490,7 @@ function cleanProcessedMessages() {
 // Cleanup old session before starting new one
 async function cleanupOldSession() {
     if (globalSock) {
-        console.log('🧹 Cleaning up old socket...');
+        console.log('ðŸ§¹ Cleaning up old socket...');
         try {
             globalSock.end();
             globalSock = null;
@@ -505,14 +503,7 @@ async function cleanupOldSession() {
     if (backupInterval) {
         clearInterval(backupInterval);
         backupInterval = null;
-        console.log('🧹 Backup interval cleared');
-    }
-    
-    // Clear presence interval
-    if (presenceInterval) {
-        clearInterval(presenceInterval);
-        presenceInterval = null;
-        console.log('🧹 Presence interval cleared');
+        console.log('ðŸ§¹ Backup interval cleared');
     }
     
     // Reset session state
@@ -529,11 +520,11 @@ async function startBot() {
     const sessionId = Date.now();
     
     if (isSessionActive) {
-        console.log('⚠️ Session already active - waiting for cleanup...');
+        console.log('âš ï¸ Session already active - waiting for cleanup...');
         await delay(5000);
         
         if (isSessionActive && currentSessionId !== sessionId) {
-            console.log('⚠️ Another session still active - aborting this attempt');
+            console.log('âš ï¸ Another session still active - aborting this attempt');
             return;
         }
     }
@@ -544,7 +535,7 @@ async function startBot() {
     // Mark this session as active
     isSessionActive = true;
     currentSessionId = sessionId;
-    console.log(`🆔 Session ID: ${sessionId}\n`);
+    console.log(`ðŸ†” Session ID: ${sessionId}\n`);
     
     try {
         const authPath = path.join(__dirname, 'auth_info');
@@ -552,7 +543,7 @@ async function startBot() {
         
         // ========== STEP 1: Try MongoDB First ==========
         if (USE_MONGODB) {
-            console.log('🔍 Checking MongoDB for existing session...');
+            console.log('ðŸ” Checking MongoDB for existing session...');
             try {
                 const mongoAuth = await useMongoDBAuthState(MONGO_URL, {
                     sessionId: 'main_session',
@@ -561,44 +552,44 @@ async function startBot() {
                 
                 // Check if MongoDB has complete session
                 if (mongoAuth.state.creds.me && mongoAuth.state.creds.me.id) {
-                    console.log('✅ Found valid session in MongoDB!');
-                    console.log(`📱 Phone: ${mongoAuth.state.creds.me.id.split(':')[0]}\n`);
+                    console.log('âœ… Found valid session in MongoDB!');
+                    console.log(`ðŸ“± Phone: ${mongoAuth.state.creds.me.id.split(':')[0]}\n`);
                     // Use MongoDB session directly
                     return await startBotWithSession(mongoAuth.state, mongoAuth.saveCreds);
                 }
                 
-                console.log('⚠️ MongoDB session incomplete or missing\n');
+                console.log('âš ï¸ MongoDB session incomplete or missing\n');
             } catch (e) {
-                console.log(`⚠️ MongoDB check failed: ${e.message}\n`);
+                console.log(`âš ï¸ MongoDB check failed: ${e.message}\n`);
             }
         }
         
         // ========== STEP 2: Check Filesystem ==========
-        console.log('🔍 Checking filesystem for session...');
+        console.log('ðŸ” Checking filesystem for session...');
         
         if (fs.existsSync(authPath) && fs.existsSync(credsPath)) {
             try {
                 const creds = JSON.parse(fs.readFileSync(credsPath, 'utf-8'));
                 if (creds.noiseKey && creds.me && creds.me.id) {
-                    console.log('✅ Found valid session in filesystem!');
-                    console.log(`📱 Phone: ${creds.me.id.split(':')[0]}\n`);
+                    console.log('âœ… Found valid session in filesystem!');
+                    console.log(`ðŸ“± Phone: ${creds.me.id.split(':')[0]}\n`);
                     // Use filesystem session
                     return await startBotWithSession(null, null);
                 }
             } catch (e) {
-                console.log('⚠️ Filesystem session invalid\n');
+                console.log('âš ï¸ Filesystem session invalid\n');
             }
         } else {
-            console.log('⚠️ No filesystem session found\n');
+            console.log('âš ï¸ No filesystem session found\n');
         }
         
         // ========== STEP 3: Generate New Session ==========
-        console.log('🔐 No valid session found - generating new...\n');
+        console.log('ðŸ” No valid session found - generating new...\n');
         
         // Clear any incomplete sessions first
         if (USE_MONGODB) {
             try {
-                console.log('🧹 Clearing incomplete MongoDB session...');
+                console.log('ðŸ§¹ Clearing incomplete MongoDB session...');
                 const { MongoDBAuthState } = require('./database/mongoAuthState');
                 const mongoAuth = new MongoDBAuthState(MONGO_URL, {
                     sessionId: 'main_session',
@@ -607,37 +598,37 @@ async function startBot() {
                 await mongoAuth.connect();
                 await mongoAuth.clearSession();
                 await mongoAuth.close();
-                console.log('✅ MongoDB cleared');
+                console.log('âœ… MongoDB cleared');
             } catch (e) {
-                console.log('⚠️ MongoDB clear skipped:', e.message);
+                console.log('âš ï¸ MongoDB clear skipped:', e.message);
             }
         }
         
         if (fs.existsSync(authPath)) {
             fs.rmSync(authPath, { recursive: true, force: true });
-            console.log('✅ Filesystem cleared');
+            console.log('âœ… Filesystem cleared');
         }
         
-        console.log('✅ Clean slate - ready for pairing\n');
+        console.log('âœ… Clean slate - ready for pairing\n');
         
         // Generate new session
         try {
             await generateNewSession();
         } catch (error) {
-            console.error('❌ Session generation failed:', error.message);
-            console.log('⏳ Retrying in 3 seconds...\n');
+            console.error('âŒ Session generation failed:', error.message);
+            console.log('â³ Retrying in 3 seconds...\n');
             isSessionActive = false;
             await delay(3000);
             return startBot();
         }
         
-        console.log('🔄 Restarting to load new session...\n');
+        console.log('ðŸ”„ Restarting to load new session...\n');
         await delay(3000);
         process.exit(0);
         
     } catch (error) {
-        console.error('❌ Fatal error in startBot:', error);
-        console.log('⏳ Retrying in 30 seconds...\n');
+        console.error('âŒ Fatal error in startBot:', error);
+        console.log('â³ Retrying in 30 seconds...\n');
         await delay(30000);
         return startBot();
     }
@@ -646,22 +637,22 @@ async function startBot() {
 // ========== Extracted Bot Initialization ==========
 async function startBotWithSession(stateOverride = null, saveCredsOverride = null) {
     try {
-        console.log('🚀 Starting bot with session...\n');
+        console.log('ðŸš€ Starting bot with session...\n');
         
         const { version, isLatest } = await fetchLatestBaileysVersion();
-        console.log(`📦 Baileys v${version.join('.')}, Latest: ${isLatest ? '✅' : '⚠️'}\n`);
+        console.log(`ðŸ“¦ Baileys v${version.join('.')}, Latest: ${isLatest ? 'âœ…' : 'âš ï¸'}\n`);
         
         // Load session (MongoDB or filesystem)
         let state, saveCreds;
         
         if (stateOverride && saveCredsOverride) {
             // Using MongoDB session
-            console.log('📊 Using provided MongoDB session\n');
+            console.log('ðŸ“Š Using provided MongoDB session\n');
             state = stateOverride;
             saveCreds = saveCredsOverride;
         } else {
             // Using filesystem session
-            console.log('📁 Loading from filesystem...\n');
+            console.log('ðŸ“ Loading from filesystem...\n');
             const fsAuth = await useMultiFileAuthState('auth_info');
             state = fsAuth.state;
             saveCreds = fsAuth.saveCreds;
@@ -683,11 +674,9 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
             generateHighQualityLinkPreview: true,
             syncFullHistory: false,
             
-            // Optimized timeouts to prevent 500 errors
-            defaultQueryTimeoutMs: 90000, // 90s
-            connectTimeoutMs: 90000,
-            keepAliveIntervalMs: 25000, // More aggressive keep-alive
-            retryRequestDelayMs: 500,
+            defaultQueryTimeoutMs: 60000,
+            connectTimeoutMs: 60000,
+            keepAliveIntervalMs: 10000,
             
             msgRetryCounterCache,
             
@@ -698,19 +687,19 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
 
         globalSock = sock;
         
-        console.log('📡 Attaching event listeners...');
+        console.log('ðŸ“¡ Attaching event listeners...');
         
         sock.ev.on('creds.update', saveCreds);
         
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
-            console.log(`📨 Message event received: type=${type}, count=${messages.length}`);
+            console.log(`ðŸ“¨ Message event received: type=${type}, count=${messages.length}`);
             
             try {
                 if (msgRetryCounterCache) {
                     try {
                         msgRetryCounterCache.flushAll();
                     } catch (e) {
-                        // تجاهل
+                        // ØªØ¬Ø§Ù‡Ù„
                     }
                 }
                 
@@ -723,7 +712,7 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                 const messageId = msg.key.id;
                 const isGroup = sender.endsWith('@g.us');
                 
-                // تجاهل poll updates/creation تماماً
+                // ØªØ¬Ø§Ù‡Ù„ poll updates/creation ØªÙ…Ø§Ù…Ø§Ù‹
                 if (msg.message?.pollUpdateMessage || 
                     msg.message?.pollCreationMessage ||
                     msg.message?.pollCreationMessageV2 ||
@@ -747,7 +736,7 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                 if (msg.message?.listResponseMessage || msg.message?.buttonsResponseMessage) {
                     const isHandled = await handleIslamicCommand(sock, msg, '', sender);
                     if (isHandled) {
-                        console.log('✅ List/Button معالج بواسطة القسم الإسلامي');
+                        console.log('âœ… List/Button Ù…Ø¹Ø§Ù„Ø¬ Ø¨ÙˆØ§Ø³Ø·Ø© Ø§Ù„Ù‚Ø³Ù… Ø§Ù„Ø¥Ø³Ù„Ø§Ù…ÙŠ');
                         return;
                     }
                 }
@@ -758,86 +747,38 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                     msg.message.imageMessage?.caption ||
                     msg.message.videoMessage?.caption || '';
                 
-                const adminCommands = ['/تشغيل', '/توقف', '/ban', '/unban', '/id', '.restart'];
+                const adminCommands = ['/ØªØ´ØºÙŠÙ„', '/ØªÙˆÙ‚Ù', '/ban', '/unban', '/id'];
                 if (msg.key.fromMe && adminCommands.includes(messageText.trim())) {
                     console.log('\n' + '='.repeat(50));
-                    console.log(`📩 👤 أدمن: ${sender}`);
-                    console.log(`📝 ${messageText}`);
+                    console.log(`ðŸ“© ðŸ‘¤ Ø£Ø¯Ù…Ù†: ${sender}`);
+                    console.log(`ðŸ“ ${messageText}`);
                     console.log('='.repeat(50));
-                    
-                    // ========== SOLUTION 3: .restart COMMAND ==========
-                    if (messageText.trim() === '.restart') {
-                        await sock.sendMessage(sender, {
-                            text: '🔄 Restarting bot and syncing from MongoDB...\n\n⏰ Please wait 10 seconds...'
-                        }, { quoted: msg });
-                        
-                        console.log('📱 Manual restart requested by owner');
-                        console.log('💾 Saving current state to MongoDB...');
-                        
-                        // Set manual restart flag
-                        isManualRestart = true;
-                        
-                        // Save current state
-                        if (USE_MONGODB) {
-                            try {
-                                await saveCreds();
-                                console.log('✅ State saved to MongoDB');
-                            } catch (e) {
-                                console.error('Failed to save:', e.message);
-                            }
-                        }
-                        
-                        // Close socket
-                        console.log('🔌 Closing connection...');
-                        try {
-                            sock.end();
-                        } catch (e) {}
-                        
-                        // Reset flags
-                        isSessionActive = false;
-                        if (backupInterval) {
-                            clearInterval(backupInterval);
-                            backupInterval = null;
-                        }
-                        
-                        // Restart with MongoDB sync
-                        setTimeout(async () => {
-                            console.log('\n🔄 ════════════════════════════════');
-                            console.log('   MANUAL RESTART - SYNC FROM MONGODB');
-                            console.log('════════════════════════════════\n');
-                            isManualRestart = false; // Reset flag
-                            await startBot(); // Will load fresh from MongoDB
-                        }, 10000);
-                        
-                        return;
-                    }
-                    // ================================================
                     
                     if (messageText.trim() === '/id') {
                         await sock.sendMessage(sender, {
-                            text: `📋 معلومات:\n\nChat ID:\n${sender}\n\n${isGroup ? '👥 هذه مجموعة' : '👤 هذه محادثة خاصة'}`
+                            text: `ðŸ“‹ Ù…Ø¹Ù„ÙˆÙ…Ø§Øª:\n\nChat ID:\n${sender}\n\n${isGroup ? 'ðŸ‘¥ Ù‡Ø°Ù‡ Ù…Ø¬Ù…ÙˆØ¹Ø©' : 'ðŸ‘¤ Ù‡Ø°Ù‡ Ù…Ø­Ø§Ø¯Ø«Ø© Ø®Ø§ØµØ©'}`
                         }, { quoted: msg });
-                        console.log(`📋 تم إرسال ID: ${sender}\n`);
+                        console.log(`ðŸ“‹ ØªÙ… Ø¥Ø±Ø³Ø§Ù„ ID: ${sender}\n`);
                         return;
                     }
                     
-                    if (messageText.trim() === '/تشغيل') {
+                    if (messageText.trim() === '/ØªØ´ØºÙŠÙ„') {
                         AI_ENABLED = true;
                         saveAIState(true);
                         await sock.sendMessage(sender, {
-                            react: { text: '✅', key: msg.key }
+                            react: { text: 'âœ…', key: msg.key }
                         });
-                        console.log('✅ AI تم تشغيله بواسطة الأدمن\n');
+                        console.log('âœ… AI ØªÙ… ØªØ´ØºÙŠÙ„Ù‡ Ø¨ÙˆØ§Ø³Ø·Ø© Ø§Ù„Ø£Ø¯Ù…Ù†\n');
                         return;
                     }
                     
-                    if (messageText.trim() === '/توقف') {
+                    if (messageText.trim() === '/ØªÙˆÙ‚Ù') {
                         AI_ENABLED = false;
                         saveAIState(false);
                         await sock.sendMessage(sender, {
-                            react: { text: '🛑', key: msg.key }
+                            react: { text: 'ðŸ›‘', key: msg.key }
                         });
-                        console.log('⏸️ AI تم إيقافه بواسطة الأدمن\n');
+                        console.log('â¸ï¸ AI ØªÙ… Ø¥ÙŠÙ‚Ø§ÙÙ‡ Ø¨ÙˆØ§Ø³Ø·Ø© Ø§Ù„Ø£Ø¯Ù…Ù†\n');
                         return;
                     }
                     
@@ -847,9 +788,9 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                             saveBanList(BANNED_USERS);
                         }
                         await sock.sendMessage(sender, {
-                            react: { text: '✅', key: msg.key }
+                            react: { text: 'âœ…', key: msg.key }
                         });
-                        console.log(`🚫 تم حظر: ${sender}\n`);
+                        console.log(`ðŸš« ØªÙ… Ø­Ø¸Ø±: ${sender}\n`);
                         return;
                     }
                     
@@ -857,9 +798,9 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                         BANNED_USERS = BANNED_USERS.filter(u => u !== sender);
                         saveBanList(BANNED_USERS);
                         await sock.sendMessage(sender, {
-                            react: { text: '✅', key: msg.key }
+                            react: { text: 'âœ…', key: msg.key }
                         });
-                        console.log(`✅ تم إلغاء الحظر: ${sender}\n`);
+                        console.log(`âœ… ØªÙ… Ø¥Ù„ØºØ§Ø¡ Ø§Ù„Ø­Ø¸Ø±: ${sender}\n`);
                         return;
                     }
                 }
@@ -870,7 +811,7 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                 );
                 const isAdminDirect = msg.key.fromMe;
                 
-                if (isAdminDirect && !isGroup && messageText.trim().startsWith('سماح ')) {
+                if (isAdminDirect && !isGroup && messageText.trim().startsWith('Ø³Ù…Ø§Ø­ ')) {
                     const groupId = messageText.trim().substring(5).trim();
                     if (groupId.endsWith('@g.us')) {
                         if (!ALLOWED_GROUPS_LIST.includes(groupId)) {
@@ -878,65 +819,65 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                             saveAllowedGroupsList(ALLOWED_GROUPS_LIST);
                         }
                         await sock.sendMessage(sender, {
-                            text: `✅ تم السماح للمجموعة:\n${groupId}`
+                            text: `âœ… ØªÙ… Ø§Ù„Ø³Ù…Ø§Ø­ Ù„Ù„Ù…Ø¬Ù…ÙˆØ¹Ø©:\n${groupId}`
                         }, { quoted: msg });
-                        console.log(`✅ تم السماح للمجموعة: ${groupId}\n`);
+                        console.log(`âœ… ØªÙ… Ø§Ù„Ø³Ù…Ø§Ø­ Ù„Ù„Ù…Ø¬Ù…ÙˆØ¹Ø©: ${groupId}\n`);
                         return;
                     }
                 }
                 
-                if (isAdminDirect && !isGroup && messageText.trim().startsWith('منع ')) {
+                if (isAdminDirect && !isGroup && messageText.trim().startsWith('Ù…Ù†Ø¹ ')) {
                     const groupId = messageText.trim().substring(4).trim();
                     if (groupId.endsWith('@g.us')) {
                         ALLOWED_GROUPS_LIST = ALLOWED_GROUPS_LIST.filter(g => g !== groupId);
                         saveAllowedGroupsList(ALLOWED_GROUPS_LIST);
                         await sock.sendMessage(sender, {
-                            text: `🚫 تم منع المجموعة:\n${groupId}`
+                            text: `ðŸš« ØªÙ… Ù…Ù†Ø¹ Ø§Ù„Ù…Ø¬Ù…ÙˆØ¹Ø©:\n${groupId}`
                         }, { quoted: msg });
-                        console.log(`🚫 تم منع المجموعة: ${groupId}\n`);
+                        console.log(`ðŸš« ØªÙ… Ù…Ù†Ø¹ Ø§Ù„Ù…Ø¬Ù…ÙˆØ¹Ø©: ${groupId}\n`);
                         return;
                     }
                 }
                 
-                if ((isAdminInGroup || isAdminDirect) && (messageText.trim() === '/سماح' || messageText.trim() === '/منع')) {
+                if ((isAdminInGroup || isAdminDirect) && (messageText.trim() === '/Ø³Ù…Ø§Ø­' || messageText.trim() === '/Ù…Ù†Ø¹')) {
                     if (!isGroup) {
-                        console.log('⚠️ أمر /سماح أو /منع يجب أن يُرسل داخل المجموعة\n');
+                        console.log('âš ï¸ Ø£Ù…Ø± /Ø³Ù…Ø§Ø­ Ø£Ùˆ /Ù…Ù†Ø¹ ÙŠØ¬Ø¨ Ø£Ù† ÙŠÙØ±Ø³Ù„ Ø¯Ø§Ø®Ù„ Ø§Ù„Ù…Ø¬Ù…ÙˆØ¹Ø©\n');
                         return;
                     }
                     
                     console.log('\n' + '='.repeat(50));
-                    console.log(`📩 👥 أدمن في مجموعة: ${sender}`);
-                    console.log(`📝 ${messageText}`);
+                    console.log(`ðŸ“© ðŸ‘¥ Ø£Ø¯Ù…Ù† ÙÙŠ Ù…Ø¬Ù…ÙˆØ¹Ø©: ${sender}`);
+                    console.log(`ðŸ“ ${messageText}`);
                     console.log('='.repeat(50));
                     
-                    if (messageText.trim() === '/سماح') {
+                    if (messageText.trim() === '/Ø³Ù…Ø§Ø­') {
                         if (!ALLOWED_GROUPS_LIST.includes(sender)) {
                             ALLOWED_GROUPS_LIST.push(sender);
                             saveAllowedGroupsList(ALLOWED_GROUPS_LIST);
                         }
                         await sock.sendMessage(sender, {
-                            text: 'تم السماح للبوت بالتحدث داخل المجموعة'
+                            text: 'ØªÙ… Ø§Ù„Ø³Ù…Ø§Ø­ Ù„Ù„Ø¨ÙˆØª Ø¨Ø§Ù„ØªØ­Ø¯Ø« Ø¯Ø§Ø®Ù„ Ø§Ù„Ù…Ø¬Ù…ÙˆØ¹Ø©'
                         }, { quoted: msg });
-                        console.log(`✅ تم السماح للمجموعة: ${sender}\n`);
+                        console.log(`âœ… ØªÙ… Ø§Ù„Ø³Ù…Ø§Ø­ Ù„Ù„Ù…Ø¬Ù…ÙˆØ¹Ø©: ${sender}\n`);
                         return;
                     }
                     
-                    if (messageText.trim() === '/منع') {
+                    if (messageText.trim() === '/Ù…Ù†Ø¹') {
                         ALLOWED_GROUPS_LIST = ALLOWED_GROUPS_LIST.filter(g => g !== sender);
                         saveAllowedGroupsList(ALLOWED_GROUPS_LIST);
                         await sock.sendMessage(sender, {
-                            text: 'تم منع البوت من التحدث داخل المجموعة'
+                            text: 'ØªÙ… Ù…Ù†Ø¹ Ø§Ù„Ø¨ÙˆØª Ù…Ù† Ø§Ù„ØªØ­Ø¯Ø« Ø¯Ø§Ø®Ù„ Ø§Ù„Ù…Ø¬Ù…ÙˆØ¹Ø©'
                         }, { quoted: msg });
-                        console.log(`🚫 تم منع المجموعة: ${sender}\n`);
+                        console.log(`ðŸš« ØªÙ… Ù…Ù†Ø¹ Ø§Ù„Ù…Ø¬Ù…ÙˆØ¹Ø©: ${sender}\n`);
                         return;
                     }
                 }
                 
-                // لوحة الإدارة (قبل القسم الإسلامي)
+                // Ù„ÙˆØ­Ø© Ø§Ù„Ø¥Ø¯Ø§Ø±Ø© (Ù‚Ø¨Ù„ Ø§Ù„Ù‚Ø³Ù… Ø§Ù„Ø¥Ø³Ù„Ø§Ù…ÙŠ)
                 const isAdminCommand = await adminPanel.handleAdminCommand(sock, msg, messageText, sender);
                 if (isAdminCommand) return;
                 
-                // القسم الإسلامي
+                // Ø§Ù„Ù‚Ø³Ù… Ø§Ù„Ø¥Ø³Ù„Ø§Ù…ÙŠ
                 const isIslamicCommand = await handleIslamicCommand(sock, msg, messageText, sender);
                 if (isIslamicCommand) return;
                                 
@@ -944,14 +885,14 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                 
                 if (sender.endsWith('@newsletter')) {
                     if (CONFIG.showIgnoredMessages) {
-                        console.log('⏭️ رسالة من قناة - متجاهلة');
+                        console.log('â­ï¸ Ø±Ø³Ø§Ù„Ø© Ù…Ù† Ù‚Ù†Ø§Ø© - Ù…ØªØ¬Ø§Ù‡Ù„Ø©');
                     }
                     return;
                 }
                 
                 if (BANNED_USERS.includes(sender)) {
                     if (CONFIG.showIgnoredMessages) {
-                        console.log('⏭️ مستخدم محظور - متجاهل');
+                        console.log('â­ï¸ Ù…Ø³ØªØ®Ø¯Ù… Ù…Ø­Ø¸ÙˆØ± - Ù…ØªØ¬Ø§Ù‡Ù„');
                     }
                     return;
                 }
@@ -960,7 +901,7 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                     const isBlocked = CONFIG.blockedContacts.some(blocked => sender.includes(blocked));
                     if (isBlocked) {
                         if (CONFIG.showIgnoredMessages) {
-                            console.log('⏭️ رقم محظور من ENV - متجاهل');
+                            console.log('â­ï¸ Ø±Ù‚Ù… Ù…Ø­Ø¸ÙˆØ± Ù…Ù† ENV - Ù…ØªØ¬Ø§Ù‡Ù„');
                         }
                         return;
                     }
@@ -973,7 +914,7 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                     
                     if (!isAllowedByCommand && !isAllowedByEnv) {
                         if (CONFIG.showIgnoredMessages) {
-                            console.log('⏭️ مجموعة غير مسموحة - متجاهل');
+                            console.log('â­ï¸ Ù…Ø¬Ù…ÙˆØ¹Ø© ØºÙŠØ± Ù…Ø³Ù…ÙˆØ­Ø© - Ù…ØªØ¬Ø§Ù‡Ù„');
                         }
                         return;
                     }
@@ -989,8 +930,8 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                 if (!messageText.trim()) return;
 
                 console.log('\n' + '='.repeat(50));
-                console.log(`📩 ${isGroup ? '👥' : '👤'}: ${sender}`);
-                console.log(`📝 ${messageText}`);
+                console.log(`ðŸ“© ${isGroup ? 'ðŸ‘¥' : 'ðŸ‘¤'}: ${sender}`);
+                console.log(`ðŸ“ ${messageText}`);
                 console.log('='.repeat(50));
 
                 processedMessages.add(messageId);
@@ -1005,41 +946,41 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                         
                         if (aiResponse) {
                             await sock.sendMessage(sender, { text: aiResponse }, { quoted: msg });
-                            console.log('✅ تم الرد\n');
+                            console.log('âœ… ØªÙ… Ø§Ù„Ø±Ø¯\n');
                         }
                     }
                     
                 } catch (error) {
-                    console.error('❌ خطأ في الرد:', error.message);
+                    console.error('âŒ Ø®Ø·Ø£ ÙÙŠ Ø§Ù„Ø±Ø¯:', error.message);
                 }
                 
             } catch (error) {
                 if (error.message && error.message.includes('Bad MAC')) {
                     badMacErrorCount++;
                     
-                    // إعادة تعيين العداد كل 5 دقائق
+                    // Ø¥Ø¹Ø§Ø¯Ø© ØªØ¹ÙŠÙŠÙ† Ø§Ù„Ø¹Ø¯Ø§Ø¯ ÙƒÙ„ 5 Ø¯Ù‚Ø§Ø¦Ù‚
                     if (Date.now() - lastBadMacReset > 5 * 60 * 1000) {
                         badMacErrorCount = 1;
                         lastBadMacReset = Date.now();
                     }
                     
-                    // log فقط كل 5 أخطاء
+                    // log ÙÙ‚Ø· ÙƒÙ„ 5 Ø£Ø®Ø·Ø§Ø¡
                     if (badMacErrorCount % 5 === 0) {
-                        console.log(`⚠️ Bad MAC Errors: ${badMacErrorCount}/${MAX_BAD_MAC_ERRORS}`);
+                        console.log(`âš ï¸ Bad MAC Errors: ${badMacErrorCount}/${MAX_BAD_MAC_ERRORS}`);
                     }
                     
-                    // إعادة تشغيل عند تجاوز الحد
+                    // Ø¥Ø¹Ø§Ø¯Ø© ØªØ´ØºÙŠÙ„ Ø¹Ù†Ø¯ ØªØ¬Ø§ÙˆØ² Ø§Ù„Ø­Ø¯
                     if (badMacErrorCount >= MAX_BAD_MAC_ERRORS) {
-                        console.log('\n⚠️ ════════════════════════════════');
+                        console.log('\nâš ï¸ â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•');
                         console.log('   TOO MANY BAD MAC ERRORS!');
                         console.log('   Session keys are corrupted/outdated');
                         console.log('   Clearing session and restarting...');
-                        console.log('════════════════════════════════\n');
+                        console.log('â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•\n');
                         
                         // Clear MongoDB session
                         if (USE_MONGODB) {
                             try {
-                                console.log('🗑️ Clearing MongoDB session...');
+                                console.log('ðŸ—‘ï¸ Clearing MongoDB session...');
                                 const { MongoDBAuthState } = require('./database/mongoAuthState');
                                 const mongoAuth = new MongoDBAuthState(MONGO_URL, {
                                     sessionId: 'main_session',
@@ -1048,7 +989,7 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                                 await mongoAuth.connect();
                                 await mongoAuth.clearSession();
                                 await mongoAuth.close();
-                                console.log('✅ MongoDB cleared');
+                                console.log('âœ… MongoDB cleared');
                             } catch (e) {
                                 console.error('Error clearing MongoDB:', e.message);
                             }
@@ -1058,15 +999,15 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                         const authPath = path.join(__dirname, 'auth_info');
                         if (fs.existsSync(authPath)) {
                             fs.rmSync(authPath, { recursive: true, force: true });
-                            console.log('✅ Filesystem cleared');
+                            console.log('âœ… Filesystem cleared');
                         }
                         
-                        console.log('\n╔════════════════════════════════════════════════╗');
-                        console.log('║  ⚠️  SESSION CLEARED DUE TO BAD MAC           ║');
-                        console.log('║                                                ║');
-                        console.log('║  📱 Go to: http://localhost:8080              ║');
-                        console.log('║  🔐 Enter your phone to get new pairing code  ║');
-                        console.log('╚════════════════════════════════════════════════╝\n');
+                        console.log('\nâ•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—');
+                        console.log('â•‘  âš ï¸  SESSION CLEARED DUE TO BAD MAC           â•‘');
+                        console.log('â•‘                                                â•‘');
+                        console.log('â•‘  ðŸ“± Go to: http://localhost:8080              â•‘');
+                        console.log('â•‘  ðŸ” Enter your phone to get new pairing code  â•‘');
+                        console.log('â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•\n');
                         
                         sock.end();
                         isSessionActive = false;
@@ -1074,7 +1015,7 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                         return startBot(); // Will go to pairing mode
                     }
                 } else if (error.message && !error.message.includes('Bad MAC')) {
-                    console.error('❌ خطأ في معالجة الرسالة:', error.message);
+                    console.error('âŒ Ø®Ø·Ø£ ÙÙŠ Ù…Ø¹Ø§Ù„Ø¬Ø© Ø§Ù„Ø±Ø³Ø§Ù„Ø©:', error.message);
                 }
             }
         });
@@ -1082,10 +1023,10 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect, qr } = update;
             
-            console.log(`\n🔍 ===== CONNECTION UPDATE =====`);
+            console.log(`\nðŸ” ===== CONNECTION UPDATE =====`);
             console.log(`   connection: ${connection || 'N/A'}`);
-            console.log(`   qr: ${qr ? 'موجود' : 'لا'}`);
-            console.log(`   lastDisconnect: ${lastDisconnect ? 'موجود' : 'لا'}`);
+            console.log(`   qr: ${qr ? 'Ù…ÙˆØ¬ÙˆØ¯' : 'Ù„Ø§'}`);
+            console.log(`   lastDisconnect: ${lastDisconnect ? 'Ù…ÙˆØ¬ÙˆØ¯' : 'Ù„Ø§'}`);
             if (lastDisconnect) {
                 console.log(`   - statusCode: ${lastDisconnect?.error?.output?.statusCode || 'N/A'}`);
                 console.log(`   - error: ${lastDisconnect?.error?.message || 'N/A'}`);
@@ -1094,12 +1035,12 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
             console.log(`==============================\n`);
             
             if (qr) {
-                console.error('\n❌ خطأ: تم طلب QR بعد تحميل الجلسة!\n');
-                console.error('⚠️ الجلسة تالفة - حذفها وإعادة المحاولة...\n');
+                console.error('\nâŒ Ø®Ø·Ø£: ØªÙ… Ø·Ù„Ø¨ QR Ø¨Ø¹Ø¯ ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ø¬Ù„Ø³Ø©!\n');
+                console.error('âš ï¸ Ø§Ù„Ø¬Ù„Ø³Ø© ØªØ§Ù„ÙØ© - Ø­Ø°ÙÙ‡Ø§ ÙˆØ¥Ø¹Ø§Ø¯Ø© Ø§Ù„Ù…Ø­Ø§ÙˆÙ„Ø©...\n');
                 
                 fs.rmSync(authPath, { recursive: true, force: true });
                 
-                console.log('⏳ إعادة المحاولة بعد 10 ثواني...\n');
+                console.log('â³ Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„Ù…Ø­Ø§ÙˆÙ„Ø© Ø¨Ø¹Ø¯ 10 Ø«ÙˆØ§Ù†ÙŠ...\n');
                 await delay(10000);
                 
                 sock.end();
@@ -1112,13 +1053,13 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                 const reason = lastDisconnect?.error?.output?.payload?.error;
                 const error = lastDisconnect?.error;
                 
-                console.log(`\n⚠️ ════════════════════════════════`);
+                console.log(`\nâš ï¸ â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•`);
                 console.log(`   Connection Closed`);
                 console.log(`   Status: ${statusCode || 'N/A'}`);
                 console.log(`   Reason: ${reason || 'Unknown'}`);
                 console.log(`   Error: ${error?.message || 'Unknown'}`);
                 console.log(`   Time: ${new Date().toLocaleString('ar-EG', {timeZone: 'Africa/Cairo'})}`);
-                console.log(`════════════════════════════════\n`);
+                console.log(`â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•\n`);
                 
                 // Cleanup socket
                 try {
@@ -1130,7 +1071,7 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                 // ========== SESSION INVALID - MUST EXIT ==========
                 if (statusCode === DisconnectReason.loggedOut ||
                     statusCode === 401 || statusCode === 403 || statusCode === 428) {
-                    console.error('❌ Session invalid - cleaning up...\n');
+                    console.error('âŒ Session invalid - cleaning up...\n');
                     
                     // Clear MongoDB session
                     if (USE_MONGODB) {
@@ -1143,7 +1084,7 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                             await mongoAuth.connect();
                             await mongoAuth.clearSession();
                             await mongoAuth.close();
-                            console.log('🗑️ MongoDB session cleared');
+                            console.log('ðŸ—‘ï¸ MongoDB session cleared');
                         } catch (e) {
                             console.error('Error clearing MongoDB:', e.message);
                         }
@@ -1153,46 +1094,29 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                     const authPath = path.join(__dirname, 'auth_info');
                     if (fs.existsSync(authPath)) {
                         fs.rmSync(authPath, { recursive: true, force: true });
-                        console.log('🗑️ Filesystem session cleared');
+                        console.log('ðŸ—‘ï¸ Filesystem session cleared');
                     }
                     
-                    console.log('\n╔════════════════════════════════════════════════╗');
-                    console.log('║  ⚠️  SESSION INVALID - RETURNING TO PAIRING   ║');
-                    console.log('║                                                ║');
-                    console.log('║  📱 Go to: http://localhost:8080              ║');
-                    console.log('║  🔐 Enter your phone to get new pairing code  ║');
-                    console.log('╚════════════════════════════════════════════════╝\n');
+                    console.log('\nâ•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—');
+                    console.log('â•‘  âš ï¸  SESSION INVALID - RETURNING TO PAIRING   â•‘');
+                    console.log('â•‘                                                â•‘');
+                    console.log('â•‘  ðŸ“± Go to: http://localhost:8080              â•‘');
+                    console.log('â•‘  ðŸ” Enter your phone to get new pairing code  â•‘');
+                    console.log('â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•\n');
                     
                     // Mark session as inactive
                     isSessionActive = false;
                     
                     // Restart bot process to go back to pairing mode
-                    // This will check MongoDB → not found → generate new session
-                    console.log('🔄 Restarting to pairing mode in 5 seconds...\n');
+                    // This will check MongoDB â†’ not found â†’ generate new session
+                    console.log('ðŸ”„ Restarting to pairing mode in 5 seconds...\n');
                     await delay(5000);
                     return startBot();
                 }
                 
-                // ========== MANUAL RESTART - SKIP RECONNECTION ==========
-                if (isManualRestart) {
-                    console.log('⏸️ Manual restart in progress - skipping reconnection');
-                    return; // Don't trigger reconnection manager
-                }
-                
                 // ========== TEMPORARY ERROR (500, 408, etc) - RECONNECT ==========
-                console.log('🔄 Temporary error - smart reconnection...');
-                
-                // SOLUTION 2: Smart Reconnection with Full Sync
-                // Save current state to MongoDB first
-                if (USE_MONGODB && state && saveCreds) {
-                    console.log('💾 Saving current state to MongoDB before reconnect...');
-                    try {
-                        await saveCreds();
-                        console.log('✅ State saved');
-                    } catch (e) {
-                        console.error('Save failed:', e.message);
-                    }
-                }
+                console.log('ðŸ”„ Temporary error - reconnecting with current session...');
+                console.log('ðŸ’¡ Keys stay in memory - no reload from MongoDB');
                 
                 // Close current socket
                 try {
@@ -1204,58 +1128,41 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                 // Mark as inactive temporarily
                 isSessionActive = false;
                 
-                // Delay for WhatsApp to register disconnect
-                await delay(5000);
-                
-                // Smart reconnection with fresh MongoDB sync
+                // Reconnect with SAME state (keys in memory)
                 try {
                     await reconnectionManager.reconnect(async () => {
-                        console.log('🚀 Smart reconnection - loading fresh from MongoDB...\n');
+                        console.log('ðŸš€ Reconnecting with existing session...\n');
                         
-                        if (USE_MONGODB) {
-                            // Load FRESH session from MongoDB
-                            try {
-                                const mongoAuth = await useMongoDBAuthState(MONGO_URL, {
-                                    sessionId: 'main_session',
-                                    dbName: 'whatsapp_bot'
-                                });
-                                
-                                if (mongoAuth.state.creds.me?.id) {
-                                    console.log('✅ Fresh session loaded from MongoDB');
-                                    isSessionActive = false;
-                                    await cleanupOldSession();
-                                    return await startBotWithSession(mongoAuth.state, mongoAuth.saveCreds);
-                                }
-                            } catch (e) {
-                                console.error('MongoDB load failed:', e.message);
-                            }
-                        }
+                        // CRITICAL: Use SAME state and saveCreds!
+                        // Don't call startBot() - that would reload from MongoDB
+                        // Instead, create new socket with SAME session
                         
-                        // Fallback: use memory state
-                        console.log('💡 Using memory state as fallback');
-                        isSessionActive = false;
-                        await cleanupOldSession();
+                        isSessionActive = false; // Allow new session
+                        await cleanupOldSession(); // Clean old socket
+                        
+                        // Reconnect with CURRENT session data
                         return await startBotWithSession(state, saveCreds);
                     });
                 } catch (e) {
-                    console.error('Smart reconnection failed:', e.message);
-                    console.log('⏳ Full restart in 10s...');
+                    console.error('Reconnection failed:', e.message);
+                    console.log('â³ Will try full restart in 10s...');
                     isSessionActive = false;
                     await delay(10000);
-                    await startBot(); // Full restart as last resort
+                    // Only now, as last resort, do full restart
+                    await startBot();
                 }
                 // ================================================
                 
             } else if (connection === 'open') {
                 const now = new Date().toLocaleString('ar-EG', {timeZone: 'Africa/Cairo'});
-                console.log('\n✅ ════════════════════════════════════');
-                console.log(`   متصل بواتساب بنجاح! 🎉`);
-                console.log(`   البوت: ${CONFIG.botName}`);
-                console.log(`   الرقم: ${sock.user?.id?.split(':')[0] || '---'}`);
-                console.log(`   الوقت: ${now}`);
-                console.log(`   AI: ${AI_ENABLED ? '✅' : '❌'}`);
-                console.log(`   القسم الإسلامي: ${islamicIsEnabled() ? '✅' : '❌'}`);
-                console.log('════════════════════════════════════\n');
+                console.log('\nâœ… â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•');
+                console.log(`   Ù…ØªØµÙ„ Ø¨ÙˆØ§ØªØ³Ø§Ø¨ Ø¨Ù†Ø¬Ø§Ø­! ðŸŽ‰`);
+                console.log(`   Ø§Ù„Ø¨ÙˆØª: ${CONFIG.botName}`);
+                console.log(`   Ø§Ù„Ø±Ù‚Ù…: ${sock.user?.id?.split(':')[0] || '---'}`);
+                console.log(`   Ø§Ù„ÙˆÙ‚Øª: ${now}`);
+                console.log(`   AI: ${AI_ENABLED ? 'âœ…' : 'âŒ'}`);
+                console.log(`   Ø§Ù„Ù‚Ø³Ù… Ø§Ù„Ø¥Ø³Ù„Ø§Ù…ÙŠ: ${islamicIsEnabled() ? 'âœ…' : 'âŒ'}`);
+                console.log('â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•\n');
                 
                 processedMessages.clear();
                 botStartTime = Date.now();
@@ -1265,35 +1172,35 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                 
                 // Reset reconnection counter on success
                 reconnectionManager.reset();
-                console.log('✅ Reconnection counter reset');
+                console.log('âœ… Reconnection counter reset');
                 
                 if (islamicIsEnabled()) {
-                    console.log('🔄 تهيئة القسم الإسلامي...');
+                    console.log('ðŸ”„ ØªÙ‡ÙŠØ¦Ø© Ø§Ù„Ù‚Ø³Ù… Ø§Ù„Ø¥Ø³Ù„Ø§Ù…ÙŠ...');
                     await initializeIslamicModule(sock);
-                    console.log('✅ القسم الإسلامي جاهز للعمل\n');
+                    console.log('âœ… Ø§Ù„Ù‚Ø³Ù… Ø§Ù„Ø¥Ø³Ù„Ø§Ù…ÙŠ Ø¬Ø§Ù‡Ø² Ù„Ù„Ø¹Ù…Ù„\n');
                 }
                 
                 // ========== SYNC SESSION TO MONGODB ==========
                 if (USE_MONGODB && sock.user?.id) {
-                    console.log('💾 Syncing session to MongoDB...');
+                    console.log('ðŸ’¾ Syncing session to MongoDB...');
                     try {
                         await saveCreds();
-                        console.log('✅ Session synced to MongoDB\n');
+                        console.log('âœ… Session synced to MongoDB\n');
                     } catch (e) {
-                        console.error('⚠️ MongoDB sync failed:', e.message, '\n');
+                        console.error('âš ï¸ MongoDB sync failed:', e.message, '\n');
                     }
                     
                     // ========== AUTO BACKUP EVERY 5 MINUTES ==========
                     // Clear any existing backup interval first!
                     if (backupInterval) {
                         clearInterval(backupInterval);
-                        console.log('🧹 Cleared old backup interval');
+                        console.log('ðŸ§¹ Cleared old backup interval');
                     }
                     
-                    console.log('🔄 Starting automatic session backup (every 5 minutes)...');
+                    console.log('ðŸ”„ Starting automatic session backup (every 5 minutes)...');
                     backupInterval = setInterval(async () => {
                         if (!sock?.user?.id) {
-                            console.log('⚠️ No active session - stopping backup');
+                            console.log('âš ï¸ No active session - stopping backup');
                             clearInterval(backupInterval);
                             backupInterval = null;
                             return;
@@ -1306,95 +1213,38 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                                 hour: '2-digit',
                                 minute: '2-digit'
                             });
-                            console.log(`💾 [${timestamp}] Session backup completed`);
+                            console.log(`ðŸ’¾ [${timestamp}] Session backup completed`);
                         } catch (e) {
-                            console.error(`❌ [${new Date().toLocaleTimeString()}] Backup failed:`, e.message);
+                            console.error(`âŒ [${new Date().toLocaleTimeString()}] Backup failed:`, e.message);
                         }
                     }, 5 * 60 * 1000); // 5 minutes
                     
-                    console.log('✅ Auto-backup enabled\n');
+                    console.log('âœ… Auto-backup enabled\n');
                     // ================================================
-                    
-                    // ========== SOLUTION 1: PRESENCE UPDATES (KEEP-ALIVE) ==========
-                    // Clear any existing presence interval first!
-                    if (presenceInterval) {
-                        clearInterval(presenceInterval);
-                        console.log('🧹 Cleared old presence interval');
-                    }
-                    
-                    console.log('👋 Starting presence updates (every 45 minutes)...');
-                    presenceInterval = setInterval(async () => {
-                        if (!sock?.user?.id) {
-                            clearInterval(presenceInterval);
-                            presenceInterval = null;
-                            return;
-                        }
-                        
-                        try {
-                            // Send simple presence update only
-                            await sock.sendPresenceUpdate('available');
-                            
-                            const timestamp = new Date().toLocaleTimeString('ar-EG', {
-                                timeZone: 'Africa/Cairo',
-                                hour: '2-digit',
-                                minute: '2-digit'
-                            });
-                            console.log(`👋 [${timestamp}] Keep-alive sent`);
-                        } catch (e) {
-                            console.error(`⚠️ Keep-alive failed: ${e.message}`);
-                            // Don't clear interval - will retry next time
-                        }
-                    }, 45 * 60 * 1000); // Every 45 minutes
-                    
-                    console.log('✅ Keep-alive enabled (prevents idle disconnects)\n');
-                    // ===============================================================
-                    
-                    // ========== NUCLEAR OPTION: PERIODIC RESTART ==========
-                    // After 6 hours, do clean restart to prevent stale connections
-                    console.log('🔄 Scheduled restart enabled (every 6 hours)...');
-                    setTimeout(async () => {
-                        console.log('\n⏰ ════════════════════════════════');
-                        console.log('   SCHEDULED RESTART (6 HOURS)');
-                        console.log('   Preventing stale connections');
-                        console.log('════════════════════════════════\n');
-                        
-                        // Save to MongoDB before restart
-                        if (USE_MONGODB) {
-                            try {
-                                await saveCreds();
-                                console.log('💾 Session saved before restart');
-                            } catch (e) {}
-                        }
-                        
-                        // Clean exit - Clever Cloud will restart
-                        process.exit(0);
-                    }, 6 * 60 * 60 * 1000); // 6 hours
-                    console.log('✅ Periodic restart enabled\n');
-                    // ====================================================
                 }
                 // ============================================
                 
             } else if (connection === 'connecting') {
-                console.log('🔄 جاري الاتصال...');
+                console.log('ðŸ”„ Ø¬Ø§Ø±ÙŠ Ø§Ù„Ø§ØªØµØ§Ù„...');
             }
         });
 
-        console.log('✅ البوت جاهز ✨\n');
+        console.log('âœ… Ø§Ù„Ø¨ÙˆØª Ø¬Ø§Ù‡Ø² âœ¨\n');
         
     } catch (error) {
-        console.error('❌ Error in startBot:', error.message);
+        console.error('âŒ Error in startBot:', error.message);
         
         // Reset session flag on error
         isSessionActive = false;
         
-        console.log('⏳ Retrying in 30 seconds...\n');
+        console.log('â³ Retrying in 30 seconds...\n');
         await delay(30000);
         return startBot();
     }
 }
 
 process.on('SIGINT', async () => {
-    console.log('\n👋 Shutting down gracefully...\n');
+    console.log('\nðŸ‘‹ Shutting down gracefully...\n');
     
     // Close MongoDB connection
     if (USE_MONGODB) {
@@ -1405,7 +1255,7 @@ process.on('SIGINT', async () => {
                 dbName: 'whatsapp_bot'
             });
             await mongoAuth.close();
-            console.log('✅ MongoDB connection closed');
+            console.log('âœ… MongoDB connection closed');
         } catch (e) {
             console.log('MongoDB already closed');
         }
@@ -1416,7 +1266,7 @@ process.on('SIGINT', async () => {
 });
 
 process.on('SIGTERM', async () => {
-    console.log('\n👋 Shutting down gracefully...\n');
+    console.log('\nðŸ‘‹ Shutting down gracefully...\n');
     
     // Close MongoDB connection
     if (USE_MONGODB) {
@@ -1427,7 +1277,7 @@ process.on('SIGTERM', async () => {
                 dbName: 'whatsapp_bot'
             });
             await mongoAuth.close();
-            console.log('✅ MongoDB connection closed');
+            console.log('âœ… MongoDB connection closed');
         } catch (e) {
             console.log('MongoDB already closed');
         }
