@@ -1348,6 +1348,29 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                     
                     console.log('✅ Keep-alive enabled (prevents idle disconnects)\n');
                     // ===============================================================
+                    
+                    // ========== NUCLEAR OPTION: PERIODIC RESTART ==========
+                    // After 6 hours, do clean restart to prevent stale connections
+                    console.log('🔄 Scheduled restart enabled (every 6 hours)...');
+                    setTimeout(async () => {
+                        console.log('\n⏰ ════════════════════════════════');
+                        console.log('   SCHEDULED RESTART (6 HOURS)');
+                        console.log('   Preventing stale connections');
+                        console.log('════════════════════════════════\n');
+                        
+                        // Save to MongoDB before restart
+                        if (USE_MONGODB) {
+                            try {
+                                await saveCreds();
+                                console.log('💾 Session saved before restart');
+                            } catch (e) {}
+                        }
+                        
+                        // Clean exit - Clever Cloud will restart
+                        process.exit(0);
+                    }, 6 * 60 * 60 * 1000); // 6 hours
+                    console.log('✅ Periodic restart enabled\n');
+                    // ====================================================
                 }
                 // ============================================
                 
