@@ -1,29 +1,25 @@
 {
-  "name": "whatsapp-bot",
-  "version": "1.0.0",
-  "description": "WhatsApp Bot with Islamic content",
-  "main": "index.js",
+  "name": "whatsapp-bot-venom",
+  "version": "2.0.0",
+  "description": "WhatsApp Bot with Venom-Bot - More Stable!",
+  "main": "index_VENOM.js",
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js"
+    "start": "node index_VENOM.js",
+    "dev": "nodemon index_VENOM.js"
   },
+  "keywords": ["whatsapp", "bot", "venom", "stable"],
+  "author": "Your Name",
+  "license": "MIT",
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.8",
-    "axios": "^1.7.9",
-    "cheerio": "^1.0.0",
-    "dotenv": "^16.4.7",
-    "googleapis": "^144.0.0",
-    "groq-sdk": "^0.8.0",
+    "venom-bot": "^5.0.18",
+    "dotenv": "^16.3.1",
     "node-cache": "^5.1.2",
-    "node-cron": "^3.0.3",
-    "pino": "^9.5.0",
-    "mongodb": "^6.0.0"
+    "googleapis": "^128.0.0",
+    "node-cron": "^3.0.2",
+    "mongodb": "^6.3.0"
   },
   "devDependencies": {
-    "nodemon": "^3.1.9"
-  },
-  "overrides": {
-    "sharp": "npm:noop2@latest"
+    "nodemon": "^3.0.1"
   },
   "engines": {
     "node": ">=18.0.0"
