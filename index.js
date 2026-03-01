@@ -245,10 +245,26 @@ async function startVenomBot() {
         // MESSAGE HANDLER
         // ============================================
         
+        // Track if handler is attached
+        const handlerId = Date.now();
+        console.log(`📡 Attaching message handler [ID: ${handlerId}]\n`);
+        
         client.onMessage(async (message) => {
+            // Log every message event
+            console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+            console.log(`📨 MESSAGE RECEIVED [Handler: ${handlerId}]`);
+            console.log(`   From: ${message.from}`);
+            console.log(`   Body: ${message.body?.substring(0, 50) || 'N/A'}`);
+            console.log(`   Type: ${message.type}`);
+            console.log(`   Time: ${new Date().toLocaleString('ar-EG', {timeZone: 'Africa/Cairo'})}`);
+            console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+            
             try {
                 // Skip if no message body
-                if (!message.body) return;
+                if (!message.body) {
+                    console.log('⏭️ No message body - skipping\n');
+                    return;
+                }
                 
                 // Deduplication
                 if (processedMessages.has(message.id)) return;
@@ -410,11 +426,20 @@ async function startVenomBot() {
         // ============================================
         
         client.onStateChange((state) => {
-            console.log(`📊 State changed: ${state}`);
+            console.log(`\n📊 ═══════════════════════════════`);
+            console.log(`   State changed: ${state}`);
+            console.log(`   Time: ${new Date().toLocaleString('ar-EG', {timeZone: 'Africa/Cairo'})}`);
+            console.log(`═══════════════════════════════\n`);
             
             if (state === 'CONFLICT' || state === 'UNPAIRED') {
-                console.log('⚠️ Session conflict detected - restarting...');
-                process.exit(1); // Clever Cloud will restart
+                console.log('⚠️ Session conflict detected');
+                console.log('🔄 Full restart required');
+                console.log('⏳ Restarting in 5 seconds...\n');
+                setTimeout(() => {
+                    process.exit(1); // Clever Cloud will restart
+                }, 5000);
+            } else if (state === 'DISCONNECTED') {
+                console.log('⚠️ Disconnected - Venom will auto-reconnect');
             }
         });
         
@@ -423,7 +448,15 @@ async function startVenomBot() {
         // ============================================
         
         client.onStreamChange((state) => {
-            console.log(`📡 Stream state: ${state}`);
+            console.log(`\n📡 ═══════════════════════════════`);
+            console.log(`   Stream state: ${state}`);
+            console.log(`   Time: ${new Date().toLocaleString('ar-EG', {timeZone: 'Africa/Cairo'})}`);
+            console.log(`═══════════════════════════════\n`);
+            
+            if (state === 'DISCONNECTED') {
+                console.log('⚠️ Stream disconnected');
+                console.log('💡 Venom-Bot will attempt auto-reconnect');
+            }
         });
         
         console.log('✅ البوت جاهز ومتصل!\n');
@@ -547,6 +580,47 @@ const server = http.createServer((req, res) => {
             aiEnabled: AI_ENABLED,
             islamicEnabled: islamicIsEnabled()
         }));
+    } else if (req.url === '/debug') {
+        // Debug endpoint
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            connected: !!globalClient,
+            botStartTime: new Date(botStartTime).toISOString(),
+            uptime: Math.floor((Date.now() - botStartTime) / 1000),
+            processedMessagesCount: processedMessages.size,
+            aiEnabled: AI_ENABLED,
+            islamicEnabled: islamicIsEnabled(),
+            library: 'venom-bot'
+        }, null, 2));
+    } else if (req.url.startsWith('/test-message')) {
+        // Test message endpoint
+        if (!globalClient) {
+            res.writeHead(503, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: 'Bot not connected' }));
+            return;
+        }
+        
+        (async () => {
+            try {
+                const hostDevice = await globalClient.getHostDevice();
+                const target = hostDevice.id.user + '@c.us';
+                
+                await globalClient.sendText(target, `🧪 Test message from Venom-Bot\nTime: ${new Date().toLocaleString()}\nBot CAN send! ✅`);
+                
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ 
+                    success: true, 
+                    message: 'Test message sent to yourself',
+                    to: target
+                }));
+            } catch (e) {
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ 
+                    success: false, 
+                    error: e.message 
+                }));
+            }
+        })();
     } else {
         res.writeHead(404);
         res.end('Not Found');
