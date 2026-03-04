@@ -1,5 +1,6 @@
 // ============================================
 // VENOM-BOT VERSION - More Stable!
+// With Auto-Reconnection Handler
 // ============================================
 
 // Load .env
@@ -154,6 +155,7 @@ function cleanProcessedMessages() {
 
 let globalClient = null;
 let botStartTime = Date.now();
+let reconnectionTimer = null;
 
 async function startVenomBot() {
     console.log('\n╔════════════════════════════════════════════════╗');
@@ -440,11 +442,19 @@ async function startVenomBot() {
                 }, 5000);
             } else if (state === 'DISCONNECTED') {
                 console.log('⚠️ Disconnected - Venom will auto-reconnect');
+            } else if (state === 'CONNECTED') {
+                console.log('✅ Reconnected successfully!');
+                // Clear any pending restart timer
+                if (reconnectionTimer) {
+                    clearTimeout(reconnectionTimer);
+                    reconnectionTimer = null;
+                    console.log('✅ Restart timer cleared');
+                }
             }
         });
         
         // ============================================
-        // DISCONNECT HANDLER
+        // DISCONNECT HANDLER WITH SAFETY NET
         // ============================================
         
         client.onStreamChange((state) => {
@@ -456,6 +466,56 @@ async function startVenomBot() {
             if (state === 'DISCONNECTED') {
                 console.log('⚠️ Stream disconnected');
                 console.log('💡 Venom-Bot will attempt auto-reconnect');
+                console.log('⚠️ Safety net: If still disconnected after 90s, will force restart...\n');
+                
+                // Clear any existing timer
+                if (reconnectionTimer) {
+                    clearTimeout(reconnectionTimer);
+                }
+                
+                // Safety net: if still disconnected after 90s, force restart
+                reconnectionTimer = setTimeout(async () => {
+                    console.log('\n⏰ ════════════════════════════════');
+                    console.log('   90 seconds passed since disconnect');
+                    console.log('════════════════════════════════\n');
+                    
+                    try {
+                        const status = await client.getConnectionState();
+                        console.log(`Current status: ${status}`);
+                        
+                        if (status !== 'CONNECTED') {
+                            console.log('❌ Still disconnected after 90s');
+                            console.log('🔄 Forcing full restart for clean state...\n');
+                            
+                            console.log('╔════════════════════════════════════════╗');
+                            console.log('║  🔄 AUTO-RESTART TRIGGERED             ║');
+                            console.log('║                                        ║');
+                            console.log('║  Reason: Reconnection timeout          ║');
+                            console.log('║  ✅ Session preserved in ./tokens      ║');
+                            console.log('║  ✅ Clever Cloud will restart bot      ║');
+                            console.log('╚════════════════════════════════════════╝\n');
+                            
+                            await delay(3000);
+                            process.exit(0);
+                        } else {
+                            console.log('✅ Connection recovered - no restart needed');
+                        }
+                    } catch (e) {
+                        console.log('❌ Cannot check connection state:', e.message);
+                        console.log('🔄 Forcing full restart to be safe...\n');
+                        await delay(3000);
+                        process.exit(0);
+                    }
+                }, 90000); // 90 seconds
+                
+            } else if (state === 'CONNECTED') {
+                console.log('✅ Stream connected!');
+                // Clear restart timer if connection recovered
+                if (reconnectionTimer) {
+                    clearTimeout(reconnectionTimer);
+                    reconnectionTimer = null;
+                    console.log('✅ Restart timer cleared - connection recovered\n');
+                }
             }
         });
         
@@ -473,7 +533,7 @@ async function startVenomBot() {
 // HTTP SERVER (for pairing)
 // ============================================
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
     if (req.url === '/') {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(`
@@ -565,7 +625,7 @@ const server = http.createServer((req, res) => {
         </div>
         
         <p style="color: #6b7280; font-size: 14px; margin-top: 30px;">
-            Venom-Bot يوفر اتصال أكثر استقراراً من Baileys المباشر
+            Venom-Bot يوفر اتصال أكثر استقراراً مع auto-reconnection
         </p>
     </div>
 </body>
@@ -590,7 +650,8 @@ const server = http.createServer((req, res) => {
             processedMessagesCount: processedMessages.size,
             aiEnabled: AI_ENABLED,
             islamicEnabled: islamicIsEnabled(),
-            library: 'venom-bot'
+            library: 'venom-bot',
+            hasReconnectionTimer: !!reconnectionTimer
         }, null, 2));
     } else if (req.url.startsWith('/test-message')) {
         // Test message endpoint
@@ -600,27 +661,25 @@ const server = http.createServer((req, res) => {
             return;
         }
         
-        (async () => {
-            try {
-                const hostDevice = await globalClient.getHostDevice();
-                const target = hostDevice.id.user + '@c.us';
-                
-                await globalClient.sendText(target, `🧪 Test message from Venom-Bot\nTime: ${new Date().toLocaleString()}\nBot CAN send! ✅`);
-                
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ 
-                    success: true, 
-                    message: 'Test message sent to yourself',
-                    to: target
-                }));
-            } catch (e) {
-                res.writeHead(500, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ 
-                    success: false, 
-                    error: e.message 
-                }));
-            }
-        })();
+        try {
+            const hostDevice = await globalClient.getHostDevice();
+            const target = hostDevice.id.user + '@c.us';
+            
+            await globalClient.sendText(target, `🧪 Test message from Venom-Bot\nTime: ${new Date().toLocaleString()}\nBot CAN send! ✅`);
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ 
+                success: true, 
+                message: 'Test message sent to yourself',
+                to: target
+            }));
+        } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ 
+                success: false, 
+                error: e.message 
+            }));
+        }
     } else {
         res.writeHead(404);
         res.end('Not Found');
@@ -655,6 +714,9 @@ startVenomBot().catch(error => {
 // Graceful shutdown
 process.on('SIGINT', async () => {
     console.log('\n🛑 إيقاف البوت...');
+    if (reconnectionTimer) {
+        clearTimeout(reconnectionTimer);
+    }
     if (globalClient) {
         await globalClient.close();
     }
@@ -663,6 +725,9 @@ process.on('SIGINT', async () => {
 
 process.on('SIGTERM', async () => {
     console.log('\n🛑 إيقاف البوت...');
+    if (reconnectionTimer) {
+        clearTimeout(reconnectionTimer);
+    }
     if (globalClient) {
         await globalClient.close();
     }
