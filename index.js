@@ -26,8 +26,22 @@ const fs = require('fs');
 const path = require('path');
 const NodeCache = require('node-cache');
 const { getAIResponse } = require('./modules/ai/ai');
-const { handleIslamicCommand, initializeIslamicModule, islamicIsEnabled } = require('./modules/islamic/islamicModule');
+const { handleIslamicCommand, initializeIslamicModule, islamicIsEnabled, resetIslamicModule } = require('./modules/islamic/islamicModule');
 const adminPanel = require('./modules/admin/adminPanel');
+
+// ========== MONGODB IMPORTS ==========
+const { useMongoDBAuthState } = require('./database/mongoAuthState');
+const { ReconnectionManager } = require('./utils/reconnectionManager');
+
+const MONGO_URL = process.env.MONGO_URL;
+const USE_MONGODB = !!MONGO_URL;
+
+const reconnectionManager = new ReconnectionManager({
+    maxAttempts: Infinity,
+    baseDelay: 1000,
+    maxDelay: 60000
+});
+// ====================================
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -142,304 +156,19 @@ let pairingStatus = 'waiting';
 let pairingError = null;
 let phoneNumber = null;
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
     requestCount++;
     
     if (req.url === '/' || req.url === '/index.html') {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(`
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🤖 ربط البوت - ${CONFIG.botName}</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+        try {
+            let html = fs.readFileSync(path.join(__dirname, 'pairing.html'), 'utf-8');
+            html = html.replace(/{{BOT_NAME}}/g, CONFIG.botName);
+            html = html.replace(/{{BOT_OWNER}}/g, CONFIG.botOwner);
+            res.end(html);
+        } catch (e) {
+            res.end('<h1>Pairing page not found</h1>');
         }
-        
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 20px;
-        }
-        
-        .container {
-            background: white;
-            border-radius: 20px;
-            padding: 40px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            max-width: 500px;
-            width: 100%;
-            text-align: center;
-        }
-        
-        .logo {
-            font-size: 64px;
-            margin-bottom: 20px;
-        }
-        
-        h1 {
-            color: #333;
-            margin-bottom: 10px;
-            font-size: 28px;
-        }
-        
-        .subtitle {
-            color: #666;
-            margin-bottom: 30px;
-            font-size: 16px;
-        }
-        
-        .status {
-            padding: 15px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-            font-weight: bold;
-        }
-        
-        .status.waiting {
-            background: #fff3cd;
-            color: #856404;
-        }
-        
-        .status.generating {
-            background: #d1ecf1;
-            color: #0c5460;
-        }
-        
-        .status.ready {
-            background: #d4edda;
-            color: #155724;
-        }
-        
-        .status.connected {
-            background: #d4edda;
-            color: #155724;
-        }
-        
-        .status.error {
-            background: #f8d7da;
-            color: #721c24;
-        }
-        
-        .input-group {
-            margin-bottom: 20px;
-        }
-        
-        input {
-            width: 100%;
-            padding: 15px;
-            border: 2px solid #ddd;
-            border-radius: 10px;
-            font-size: 18px;
-            text-align: center;
-            direction: ltr;
-        }
-        
-        input:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-        
-        button {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            padding: 15px 40px;
-            border-radius: 10px;
-            font-size: 18px;
-            font-weight: bold;
-            cursor: pointer;
-            width: 100%;
-            transition: transform 0.2s;
-        }
-        
-        button:hover {
-            transform: scale(1.05);
-        }
-        
-        button:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
-        
-        .code-display {
-            background: #f8f9fa;
-            border: 3px dashed #667eea;
-            border-radius: 15px;
-            padding: 30px;
-            margin: 20px 0;
-        }
-        
-        .code {
-            font-size: 48px;
-            font-weight: bold;
-            color: #667eea;
-            letter-spacing: 8px;
-            font-family: 'Courier New', monospace;
-        }
-        
-        .instructions {
-            background: #f8f9fa;
-            padding: 20px;
-            border-radius: 10px;
-            margin-top: 20px;
-            text-align: right;
-        }
-        
-        .instructions ol {
-            margin: 10px 0;
-            padding-right: 20px;
-        }
-        
-        .instructions li {
-            margin: 10px 0;
-            line-height: 1.6;
-        }
-        
-        .footer {
-            margin-top: 30px;
-            color: #999;
-            font-size: 14px;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="logo">🤖</div>
-        <h1>${CONFIG.botName}</h1>
-        <p class="subtitle">ربط WhatsApp Bot</p>
-        
-        <div id="statusBox" class="status waiting">
-            ⏳ في انتظار رقم الهاتف
-        </div>
-        
-        <div id="inputSection">
-            <div class="input-group">
-                <input 
-                    type="tel" 
-                    id="phoneInput" 
-                    placeholder="249962204268"
-                    maxlength="15"
-                    autocomplete="off"
-                >
-                <small style="color: #666; display: block; margin-top: 5px;">
-                    أدخل رقم الهاتف بدون + أو 00
-                </small>
-            </div>
-            <button onclick="getPairingCode()" id="submitBtn">
-                🔗 الحصول على كود الربط
-            </button>
-        </div>
-        
-        <div id="codeSection" style="display: none;">
-            <div class="code-display">
-                <div class="code" id="pairingCode">---</div>
-            </div>
-            
-            <div class="instructions">
-                <strong>📱 خطوات الربط:</strong>
-                <ol>
-                    <li>افتح WhatsApp على هاتفك</li>
-                    <li>اذهب إلى الإعدادات > الأجهزة المرتبطة</li>
-                    <li>اضغط "ربط جهاز"</li>
-                    <li>اضغط "ربط برقم الهاتف بدلاً من ذلك"</li>
-                    <li>أدخل الكود الظاهر أعلاه</li>
-                </ol>
-            </div>
-            
-            <button onclick="location.reload()" style="margin-top: 20px; background: #6c757d;">
-                🔄 رقم آخر
-            </button>
-        </div>
-        
-        <div class="footer">
-            Made with ❤️ by ${CONFIG.botOwner}
-        </div>
-    </div>
-    
-    <script>
-        async function getPairingCode() {
-            const phone = document.getElementById('phoneInput').value.trim();
-            const submitBtn = document.getElementById('submitBtn');
-            const statusBox = document.getElementById('statusBox');
-            
-            if (!phone) {
-                alert('⚠️ الرجاء إدخال رقم الهاتف');
-                return;
-            }
-            
-            if (!/^[0-9]{10,15}$/.test(phone)) {
-                alert('⚠️ رقم الهاتف غير صحيح\\nيجب أن يكون من 10-15 رقم بدون + أو مسافات');
-                return;
-            }
-            
-            submitBtn.disabled = true;
-            submitBtn.innerHTML = '⏳ جاري التحميل...';
-            statusBox.className = 'status generating';
-            statusBox.innerHTML = '🔄 جاري توليد كود الربط...';
-            
-            try {
-                const response = await fetch('/get-code?phone=' + phone);
-                const data = await response.json();
-                
-                if (data.success) {
-                    document.getElementById('inputSection').style.display = 'none';
-                    document.getElementById('codeSection').style.display = 'block';
-                    document.getElementById('pairingCode').textContent = data.code;
-                    statusBox.className = 'status ready';
-                    statusBox.innerHTML = '✅ كود الربط جاهز!';
-                    
-                    checkStatus();
-                } else {
-                    throw new Error(data.error || 'فشل الحصول على الكود');
-                }
-            } catch (error) {
-                statusBox.className = 'status error';
-                statusBox.innerHTML = '❌ ' + error.message;
-                submitBtn.disabled = false;
-                submitBtn.innerHTML = '🔗 الحصول على كود الربط';
-            }
-        }
-        
-        async function checkStatus() {
-            const interval = setInterval(async () => {
-                try {
-                    const response = await fetch('/status');
-                    const data = await response.json();
-                    
-                    if (data.status === 'connected') {
-                        document.getElementById('statusBox').className = 'status connected';
-                        document.getElementById('statusBox').innerHTML = '🎉 تم الربط بنجاح!';
-                        clearInterval(interval);
-                        
-                        setTimeout(() => {
-                            location.reload();
-                        }, 3000);
-                    }
-                } catch (error) {
-                    console.error('Error checking status:', error);
-                }
-            }, 2000);
-        }
-        
-        document.getElementById('phoneInput').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                getPairingCode();
-            }
-        });
-    </script>
-</body>
-</html>
-        `);
         return;
     }
     
@@ -492,10 +221,64 @@ const server = http.createServer((req, res) => {
             code: pairingCode,
             phone: phoneNumber,
             botName: CONFIG.botName,
-            connected: globalSock && globalSock.user ? true : false
+            connected: globalSock && globalSock.user ? true : false,
+            phoneNumber: globalSock?.user?.id?.split(':')[0] || null
         }));
         return;
     }
+    
+    // ===== NEW: DEBUG ENDPOINT =====
+    if (req.url === '/debug') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        const debugInfo = {
+            connected: !!globalSock,
+            hasUser: !!globalSock?.user,
+            phoneNumber: globalSock?.user?.id?.split(':')[0] || null,
+            botStartTime: new Date(botStartTime).toISOString(),
+            processedMessagesCount: processedMessages.size,
+            aiEnabled: AI_ENABLED,
+            islamicEnabled: islamicIsEnabled(),
+            // Check listeners
+            hasMessageListener: globalSock?.ev?.listenerCount('messages.upsert') || 0,
+            hasConnectionListener: globalSock?.ev?.listenerCount('connection.update') || 0,
+            hasCredsListener: globalSock?.ev?.listenerCount('creds.update') || 0
+        };
+        res.end(JSON.stringify(debugInfo, null, 2));
+        return;
+    }
+    
+    // ===== NEW: TEST MESSAGE ENDPOINT =====
+    if (req.url.startsWith('/test-message')) {
+        if (!globalSock || !globalSock.user) {
+            res.writeHead(503, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: 'Bot not connected' }));
+            return;
+        }
+        
+        const url = new URL(req.url, `http://${req.headers.host}`);
+        const target = url.searchParams.get('to') || globalSock.user.id.replace(':0', '@s.whatsapp.net');
+        
+        try {
+            await globalSock.sendMessage(target, {
+                text: `🧪 Test message from bot\nTime: ${new Date().toLocaleString()}\nThis proves bot CAN send messages!`
+            });
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ 
+                success: true, 
+                message: 'Test message sent',
+                to: target
+            }));
+        } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ 
+                success: false, 
+                error: e.message 
+            }));
+        }
+        return;
+    }
+    // ==============================
     
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
@@ -515,12 +298,7 @@ server.listen(CONFIG.port, () => {
     console.log('╚════════════════════════════════════════════════╝\n');
 });
 
-setInterval(() => {
-    const url = `http://localhost:${CONFIG.port}`;
-    http.get(url, (res) => {
-        console.log(`💓 Keep-alive: ${res.statusCode}`);
-    }).on('error', () => {});
-}, 5 * 60 * 1000);
+// Keep-alive removed - server stays alive natively
 
 async function generateNewSession(attemptNumber = 1) {
     const MAX_SESSION_ATTEMPTS = 3;
@@ -623,10 +401,11 @@ async function generateNewSession(attemptNumber = 1) {
                     
                     clearInterval(checkPhoneInterval);
                     const statusCode = lastDisconnect?.error?.output?.statusCode;
-                    console.log(`\n⚠️ الاتصال مغلق - كود: ${statusCode}`);
+                    console.log(`\n⚠️ Pairing connection closed - code: ${statusCode}`);
                     
+                    // These are normal pairing errors - retry
                     if (statusCode === 515 || statusCode === 503 || statusCode === 408 || !statusCode) {
-                        console.log('🔄 سيتم إعادة المحاولة...\n');
+                        console.log('🔄 Pairing failed - will retry...\n');
                         connectionResolved = true;
                         clearTimeout(timeoutId);
                         sock.end();
@@ -634,7 +413,8 @@ async function generateNewSession(attemptNumber = 1) {
                         return;
                     }
                     
-                    console.log(`❌ خطأ غير قابل للإصلاح: ${statusCode}\n`);
+                    // Fatal errors
+                    console.log(`❌ Fatal pairing error: ${statusCode}\n`);
                     connectionResolved = true;
                     clearTimeout(timeoutId);
                     sock.end();
@@ -648,16 +428,53 @@ async function generateNewSession(attemptNumber = 1) {
                     pairingStatus = 'connected';
                     
                     console.log('\n✅ ════════════════════════════════════');
-                    console.log('   🎉 تم الاتصال بنجاح!');
+                    console.log('   🎉 Pairing successful!');
                     console.log(`   📱 ${sock.user.id.split(':')[0]}`);
                     console.log('════════════════════════════════════\n');
                     
-                    console.log('⏳ انتظار 45 ثانية للمزامنة الكاملة...');
-                    console.log('💡 نصيحة: أرسل رسالة في أي مجموعة الآن!\n');
+                    console.log('⏳ Waiting 45s for full sync...');
+                    console.log('💡 Tip: Send a message in any group now!\n');
                     await delay(45000);
                     
-                    console.log('✅ تم حفظ الجلسة محلياً في auth_info/');
-                    console.log('💡 الجلسة ستبقى على السيرفر\n');
+                    console.log('✅ Session saved locally in auth_info/');
+                    
+                    // ========== COPY TO MONGODB NOW ==========
+                    if (USE_MONGODB) {
+                        console.log('💾 Copying session to MongoDB...');
+                        try {
+                            const authPath = path.join(__dirname, 'auth_info');
+                            const { useMongoDBAuthState } = require('./database/mongoAuthState');
+                            
+                            // Initialize MongoDB auth
+                            const mongoAuth = await useMongoDBAuthState(MONGO_URL, {
+                                sessionId: 'main_session',
+                                dbName: 'whatsapp_bot'
+                            });
+                            
+                            // Read all files from auth_info
+                            const files = fs.readdirSync(authPath);
+                            
+                            for (const file of files) {
+                                const filePath = path.join(authPath, file);
+                                if (fs.statSync(filePath).isFile()) {
+                                    const content = fs.readFileSync(filePath, 'utf-8');
+                                    const key = file.replace('.json', '');
+                                    const data = JSON.parse(content);
+                                    
+                                    // Write to MongoDB
+                                    await mongoAuth.writeData(key, data);
+                                }
+                            }
+                            
+                            console.log(`✅ Copied ${files.length} files to MongoDB!`);
+                        } catch (e) {
+                            console.error('⚠️ MongoDB copy failed:', e.message);
+                            console.log('⚠️ Session only in filesystem - may need pairing after restart');
+                        }
+                    }
+                    // =========================================
+                    
+                    console.log('💡 Ready to use!\n');
                     
                     sock.end();
                     resolve();
@@ -682,6 +499,13 @@ async function generateNewSession(attemptNumber = 1) {
 const MAX_PROCESSED_CACHE = 1000;
 let globalSock = null;
 let botStartTime = Date.now();
+
+// Session management
+let isSessionActive = false;
+let currentSessionId = null;
+
+// Backup interval management
+let backupInterval = null;
 
 let badMacErrorCount = 0;
 const MAX_BAD_MAC_ERRORS = 10;
@@ -717,61 +541,200 @@ function cleanProcessedMessages() {
     }
 }
 
+// Cleanup old session before starting new one
+async function cleanupOldSession() {
+    if (globalSock) {
+        console.log('🧹 Cleaning up old socket...');
+        try {
+            globalSock.end();
+            globalSock = null;
+        } catch (e) {
+            console.log('Socket already closed');
+        }
+    }
+    
+    // Clear backup interval
+    if (backupInterval) {
+        clearInterval(backupInterval);
+        backupInterval = null;
+        console.log('🧹 Backup interval cleared');
+    }
+    
+    // Reset session state
+    isSessionActive = false;
+    processedMessages.clear();
+    badMacErrorCount = 0;
+    
+    // Give it a moment
+    await delay(1000);
+}
+
 async function startBot() {
+    // Prevent multiple sessions running simultaneously
+    const sessionId = Date.now();
+    
+    if (isSessionActive) {
+        console.log('⚠️ Session already active - waiting for cleanup...');
+        await delay(5000);
+        
+        if (isSessionActive && currentSessionId !== sessionId) {
+            console.log('⚠️ Another session still active - aborting this attempt');
+            return;
+        }
+    }
+    
+    // Cleanup any old socket
+    await cleanupOldSession();
+    
+    // Mark this session as active
+    isSessionActive = true;
+    currentSessionId = sessionId;
+    console.log(`🆔 Session ID: ${sessionId}\n`);
+    
     try {
         const authPath = path.join(__dirname, 'auth_info');
         const credsPath = path.join(authPath, 'creds.json');
         
-        if (!fs.existsSync(authPath) || !fs.existsSync(credsPath)) {
-            console.log('⚠️ لا توجد جلسة - سيتم إنشاء جلسة جديدة\n');
-            
+        // ========== STEP 1: Try MongoDB First ==========
+        if (USE_MONGODB) {
+            console.log('🔍 Checking MongoDB for existing session...');
             try {
-                await generateNewSession();
-            } catch (error) {
-                console.error('❌ فشل إنشاء الجلسة:', error.message);
-                console.log('⏳ سيتم المحاولة مرة أخرى بعد 3 ثانية...\n');
-                await delay(3000);
-                return startBot();
+                const mongoAuth = await useMongoDBAuthState(MONGO_URL, {
+                    sessionId: 'main_session',
+                    dbName: 'whatsapp_bot'
+                });
+                
+                // Check if MongoDB has complete session
+                if (mongoAuth.state.creds.me && mongoAuth.state.creds.me.id) {
+                    console.log('✅ Found valid session in MongoDB!');
+                    console.log(`📱 Phone: ${mongoAuth.state.creds.me.id.split(':')[0]}\n`);
+                    // Use MongoDB session directly
+                    return await startBotWithSession(mongoAuth.state, mongoAuth.saveCreds);
+                }
+                
+                console.log('⚠️ MongoDB session incomplete or missing\n');
+            } catch (e) {
+                console.log(`⚠️ MongoDB check failed: ${e.message}\n`);
             }
-            
-            console.log('🔄 إعادة التشغيل للاتصال بالجلسة الجديدة...\n');
-            await delay(3000);
-            process.exit(0);
         }
         
-        try {
-            const creds = JSON.parse(fs.readFileSync(credsPath, 'utf-8'));
-            if (!creds.noiseKey) {
-                throw new Error('creds.json غير مكتمل');
+        // ========== STEP 2: Check Filesystem ==========
+        console.log('🔍 Checking filesystem for session...');
+        
+        if (fs.existsSync(authPath) && fs.existsSync(credsPath)) {
+            try {
+                const creds = JSON.parse(fs.readFileSync(credsPath, 'utf-8'));
+                if (creds.noiseKey && creds.me && creds.me.id) {
+                    console.log('✅ Found valid session in filesystem!');
+                    console.log(`📱 Phone: ${creds.me.id.split(':')[0]}\n`);
+                    // Use filesystem session
+                    return await startBotWithSession(null, null);
+                }
+            } catch (e) {
+                console.log('⚠️ Filesystem session invalid\n');
             }
-            console.log('✅ تم العثور على جلسة صالحة\n');
-        } catch (e) {
-            console.error('❌ الجلسة تالفة:', e.message);
-            console.log('🗑️ حذف الجلسة التالفة وإنشاء جديدة...\n');
+        } else {
+            console.log('⚠️ No filesystem session found\n');
+        }
+        
+        // ========== STEP 3: Generate New Session ==========
+        console.log('🔐 No valid session found - generating new...\n');
+        
+        // Clear any incomplete sessions first
+        if (USE_MONGODB) {
+            try {
+                console.log('🧹 Clearing incomplete MongoDB session...');
+                const { MongoDBAuthState } = require('./database/mongoAuthState');
+                const mongoAuth = new MongoDBAuthState(MONGO_URL, {
+                    sessionId: 'main_session',
+                    dbName: 'whatsapp_bot'
+                });
+                await mongoAuth.connect();
+                await mongoAuth.clearSession();
+                await mongoAuth.close();
+                console.log('✅ MongoDB cleared');
+            } catch (e) {
+                console.log('⚠️ MongoDB clear skipped:', e.message);
+            }
+        }
+        
+        if (fs.existsSync(authPath)) {
             fs.rmSync(authPath, { recursive: true, force: true });
-            
-            try {
-                await generateNewSession();
-            } catch (error) {
-                console.error('❌ فشل إنشاء الجلسة:', error.message);
-                console.log('⏳ سيتم المحاولة مرة أخرى بعد 3 ثواني...\n');
-                await delay(3000);
-                return startBot();
-            }
-            
-            await delay(3000);
-            process.exit(0);
+            console.log('✅ Filesystem cleared');
         }
         
-        console.log('🚀 بدء البوت...\n');
+        console.log('✅ Clean slate - ready for pairing\n');
+        
+        // Generate new session
+        try {
+            await generateNewSession();
+        } catch (error) {
+            console.error('❌ Session generation failed:', error.message);
+            console.log('⏳ Retrying in 3 seconds...\n');
+            isSessionActive = false;
+            await delay(3000);
+            return startBot();
+        }
+        
+        console.log('🔄 Restarting to load new session...\n');
+        await delay(3000);
+        process.exit(0);
+        
+    } catch (error) {
+        console.error('❌ Fatal error in startBot:', error);
+        console.log('⏳ Retrying in 30 seconds...\n');
+        await delay(30000);
+        return startBot();
+    }
+}
+
+// ========== Extracted Bot Initialization ==========
+async function startBotWithSession(stateOverride = null, saveCredsOverride = null) {
+    try {
+        console.log('🚀 Starting bot with session...\n');
+        
+        // ===== CRITICAL FIX: CLEANUP OLD SOCKET =====
+        if (globalSock) {
+            console.log('🧹 Cleaning up old socket and listeners...');
+            try {
+                // Remove ALL old event listeners
+                globalSock.ev.removeAllListeners('messages.upsert');
+                globalSock.ev.removeAllListeners('connection.update');
+                globalSock.ev.removeAllListeners('creds.update');
+                
+                // Close old socket
+                globalSock.end();
+                
+                console.log('✅ Old socket cleaned up');
+            } catch (e) {
+                console.log('⚠️ Cleanup warning:', e.message);
+            }
+            
+            // Small delay to ensure cleanup
+            await delay(1000);
+        }
+        // ===========================================
         
         const { version, isLatest } = await fetchLatestBaileysVersion();
-        console.log(`📦 Baileys v${version.join('.')}, أحدث: ${isLatest ? '✅' : '⚠️'}\n`);
+        console.log(`📦 Baileys v${version.join('.')}, Latest: ${isLatest ? '✅' : '⚠️'}\n`);
         
-        const { state, saveCreds } = await useMultiFileAuthState('auth_info');
+        // Load session (MongoDB or filesystem)
+        let state, saveCreds;
+        
+        if (stateOverride && saveCredsOverride) {
+            // Using MongoDB session
+            console.log('📊 Using provided MongoDB session\n');
+            state = stateOverride;
+            saveCreds = saveCredsOverride;
+        } else {
+            // Using filesystem session
+            console.log('📁 Loading from filesystem...\n');
+            const fsAuth = await useMultiFileAuthState('auth_info');
+            state = fsAuth.state;
+            saveCreds = fsAuth.saveCreds;
+        }
         
         const msgRetryCounterCache = new NodeCache();
-        
         const sock = makeWASocket({
             version,
             logger: P({ level: 'fatal' }),
@@ -799,21 +762,28 @@ async function startBot() {
         });
 
         globalSock = sock;
-
+        
+        console.log('📡 Attaching NEW event listeners...');
+        
+        // Track listener attachment
+        const listenerId = Date.now();
+        console.log(`🆔 Listener ID: ${listenerId}`);
+        
         sock.ev.on('creds.update', saveCreds);
         
+        // ===== ADVANCED MESSAGE HANDLER WITH DEBUGGING =====
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
-        console.log(`\n🔔 ===== MESSAGE RECEIVED =====`);
-            console.log(`   ⏰ ${new Date().toLocaleString('ar-EG', {timeZone: 'Africa/Cairo'})}`);
-            console.log(`   📦 Type: ${type}`);
-            console.log(`   📊 Count: ${messages.length}`);
-            if (messages[0]) {
-                console.log(`   📱 From: ${messages[0].key.remoteJid}`);
-                console.log(`   🆔 ID: ${messages[0].key.id.substring(0,10)}...`);
-            }
-            console.log(`==============================\n`);
-            // ============ END PATCH 1 ============
-        
+            const timestamp = new Date().toLocaleString('ar-EG', {timeZone: 'Africa/Cairo'});
+            console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+            console.log(`📨 MESSAGE EVENT FIRED! [Listener: ${listenerId}]`);
+            console.log(`   Time: ${timestamp}`);
+            console.log(`   Type: ${type}`);
+            console.log(`   Count: ${messages.length}`);
+            console.log(`   Socket: ${sock.user?.id?.split(':')[0] || 'unknown'}`);
+            console.log(`   Global Socket: ${globalSock?.user?.id?.split(':')[0] || 'unknown'}`);
+            console.log(`   Match: ${sock === globalSock ? '✅ SAME' : '❌ DIFFERENT'}`);
+            console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+            
             try {
                 if (msgRetryCounterCache) {
                     try {
@@ -823,33 +793,53 @@ async function startBot() {
                     }
                 }
                 
-                if (type !== 'notify') return;
+                if (type !== 'notify') {
+                    console.log(`⏭️ Ignoring message type: ${type}`);
+                    return;
+                }
                 
                 const msg = messages[0];
-                if (!msg || !msg.message) return;
+                if (!msg || !msg.message) {
+                    console.log(`⏭️ No message object found`);
+                    return;
+                }
                 
                 const sender = msg.key.remoteJid;
                 const messageId = msg.key.id;
                 const isGroup = sender.endsWith('@g.us');
+                
+                console.log(`📩 Processing message from: ${sender}`);
                 
                 // تجاهل poll updates/creation تماماً
                 if (msg.message?.pollUpdateMessage || 
                     msg.message?.pollCreationMessage ||
                     msg.message?.pollCreationMessageV2 ||
                     msg.message?.pollCreationMessageV3) {
+                    console.log(`⏭️ Ignoring poll message`);
                     return;
                 }
                 
                 // Message Deduplication
                 const msgKey = `${sender}_${messageId}`;
                 if (processedMessages.has(msgKey)) {
+                    console.log(`⏭️ Duplicate message - already processed`);
                     return;
                 }
                 processedMessages.add(msgKey);
                 setTimeout(() => processedMessages.delete(msgKey), 60000);
                 
                 const messageTime = msg.messageTimestamp * 1000;
+                const timeDiff = Date.now() - messageTime;
+                const botRuntime = Date.now() - botStartTime;
+                
+                console.log(`⏰ Message time check:`);
+                console.log(`   Message timestamp: ${new Date(messageTime).toLocaleString()}`);
+                console.log(`   Bot start time: ${new Date(botStartTime).toLocaleString()}`);
+                console.log(`   Message age: ${Math.floor(timeDiff / 1000)}s`);
+                console.log(`   Bot runtime: ${Math.floor(botRuntime / 1000)}s`);
+                
                 if (messageTime < botStartTime - 60000) {
+                    console.log(`⏭️ Old message - ignoring (before bot start)`);
                     return;
                 }
 
@@ -1105,6 +1095,20 @@ async function startBot() {
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect, qr } = update;
             
+            // Track which socket this is
+            const sockId = sock.user?.id?.split(':')[0] || 'unknown';
+            
+            console.log(`\n🔍 ===== CONNECTION UPDATE [Sock: ${sockId}] =====`);
+            console.log(`   connection: ${connection || 'N/A'}`);
+            console.log(`   qr: ${qr ? 'موجود' : 'لا'}`);
+            console.log(`   lastDisconnect: ${lastDisconnect ? 'موجود' : 'لا'}`);
+            if (lastDisconnect) {
+                console.log(`   - statusCode: ${lastDisconnect?.error?.output?.statusCode || 'N/A'}`);
+                console.log(`   - error: ${lastDisconnect?.error?.message || 'N/A'}`);
+                console.log(`   - payload: ${JSON.stringify(lastDisconnect?.error?.output?.payload || {})}`);
+            }
+            console.log(`==============================\n`);
+            
             if (qr) {
                 console.error('\n❌ خطأ: تم طلب QR بعد تحميل الجلسة!\n');
                 console.error('⚠️ الجلسة تالفة - حذفها وإعادة المحاولة...\n');
@@ -1121,30 +1125,97 @@ async function startBot() {
             
             if (connection === 'close') {
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
+                const reason = lastDisconnect?.error?.output?.payload?.error;
+                const error = lastDisconnect?.error;
                 
-                console.log(`\n⚠️ الاتصال مغلق - كود: ${statusCode}\n`);
+                console.log(`\n⚠️ ════════════════════════════════`);
+                console.log(`   Connection Closed`);
+                console.log(`   Status: ${statusCode || 'N/A'}`);
+                console.log(`   Reason: ${reason || 'Unknown'}`);
+                console.log(`   Error: ${error?.message || 'Unknown'}`);
+                console.log(`   Time: ${new Date().toLocaleString('ar-EG', {timeZone: 'Africa/Cairo'})}`);
+                console.log(`════════════════════════════════\n`);
                 
-                if (statusCode === DisconnectReason.loggedOut ||
-                    statusCode === 401 || statusCode === 403) {
-                    console.error('❌ الجلسة غير صالحة - حذفها...\n');
-                    
-                    fs.rmSync(authPath, { recursive: true, force: true });
-                    
-                    console.log('⏳ إعادة المحاولة بعد 10 ثواني...\n');
-                    await delay(10000);
-                    
+                // Cleanup socket
+                try {
                     sock.end();
-                    await startBot();
-                    return;
+                } catch (e) {
+                    console.log('Socket already closed');
                 }
                 
-                console.log(`🔄 إعادة الاتصال بعد 5 ثواني...\n`);
-                await delay(5000);
+                // ========== SESSION INVALID - MUST EXIT ==========
+                if (statusCode === DisconnectReason.loggedOut ||
+                    statusCode === 401 || statusCode === 403 || statusCode === 428) {
+                    console.error('❌ Session invalid - cleaning up...\n');
+                    
+                    // Clear MongoDB session
+                    if (USE_MONGODB) {
+                        try {
+                            const { MongoDBAuthState } = require('./database/mongoAuthState');
+                            const mongoAuth = new MongoDBAuthState(MONGO_URL, {
+                                sessionId: 'main_session',
+                                dbName: 'whatsapp_bot'
+                            });
+                            await mongoAuth.connect();
+                            await mongoAuth.clearSession();
+                            await mongoAuth.close();
+                            console.log('🗑️ MongoDB session cleared');
+                        } catch (e) {
+                            console.error('Error clearing MongoDB:', e.message);
+                        }
+                    }
+                    
+                    // Clear filesystem
+                    const authPath = path.join(__dirname, 'auth_info');
+                    if (fs.existsSync(authPath)) {
+                        fs.rmSync(authPath, { recursive: true, force: true });
+                        console.log('🗑️ Filesystem session cleared');
+                    }
+                    
+                    console.log('\n╔════════════════════════════════════════════════╗');
+                    console.log('║  ⚠️  SESSION INVALID - RETURNING TO PAIRING   ║');
+                    console.log('║                                                ║');
+                    console.log('║  📱 Go to: http://localhost:8080              ║');
+                    console.log('║  🔐 Enter your phone to get new pairing code  ║');
+                    console.log('╚════════════════════════════════════════════════╝\n');
+                    
+                    // Mark session as inactive
+                    isSessionActive = false;
+                    
+                    // Restart bot process to go back to pairing mode
+                    // This will check MongoDB → not found → generate new session
+                    console.log('🔄 Restarting to pairing mode in 5 seconds...\n');
+                    await delay(5000);
+                    return startBot();
+                }
                 
-                sock.end();
-                await startBot();
-                } else if (connection === 'open') {
+                // ========== TEMPORARY ERROR (500, 408, etc) - RECONNECT ==========
+                console.log('🔄 Temporary error - reconnecting in same process...');
+                
+                // Mark current session as inactive before reconnecting
+                isSessionActive = false;
+                
+                // Use smart reconnection
+                try {
+                    await reconnectionManager.reconnect(async () => {
+                        console.log('🚀 Executing reconnection...\n');
+                        await startBot();
+                    });
+                } catch (e) {
+                    console.error('Reconnection failed:', e.message);
+                    console.log('⏳ Retrying in 10s...');
+                    isSessionActive = false; // Ensure flag is reset
+                    await delay(10000);
+                    await startBot();
+                }
+                // ================================================
+                
+            } else if (connection === 'open') {
                 const now = new Date().toLocaleString('ar-EG', {timeZone: 'Africa/Cairo'});
+                
+                // Verify this is the current global socket
+                const isCurrentSocket = (globalSock === sock);
+                
                 console.log('\n✅ ════════════════════════════════════');
                 console.log(`   متصل بواتساب بنجاح! 🎉`);
                 console.log(`   البوت: ${CONFIG.botName}`);
@@ -1152,50 +1223,75 @@ async function startBot() {
                 console.log(`   الوقت: ${now}`);
                 console.log(`   AI: ${AI_ENABLED ? '✅' : '❌'}`);
                 console.log(`   القسم الإسلامي: ${islamicIsEnabled() ? '✅' : '❌'}`);
+                console.log(`   🔌 Socket Status: ${isCurrentSocket ? '✅ ACTIVE' : '⚠️ OLD'}`);
                 console.log('════════════════════════════════════\n');
                 
-                console.log('🔍 ===== POST-CONNECTION DIAGNOSTICS =====');
-                console.log(`   📊 processedMessages: ${processedMessages.size}`);
-                console.log(`   🕐 botStartTime: ${new Date(botStartTime).toLocaleString('ar-EG')}`);
-                console.log(`   📡 globalSock: ${globalSock ? 'SET' : 'NULL'}`);
+                // Only proceed if this is the current socket
+                if (!isCurrentSocket) {
+                    console.log('⚠️ This is an old socket - ignoring connection.open');
+                    return;
+                }
                 
-                console.log('\n   🧹 Step 1: Clearing processedMessages...');
                 processedMessages.clear();
-                console.log(`   ✅ Cleared → ${processedMessages.size}`);
-                
-                console.log('\n   🕐 Step 2: Updating botStartTime...');
                 botStartTime = Date.now();
-                console.log(`   ✅ Updated → ${new Date(botStartTime).toLocaleString('ar-EG')}`);
+                console.log(`📝 Message processing enabled from: ${new Date(botStartTime).toLocaleString()}\n`);
                 
-                console.log('\n   🔄 Step 3: Resetting Bad MAC...');
                 badMacErrorCount = 0;
                 lastBadMacReset = Date.now();
-                console.log(`   ✅ Reset → ${badMacErrorCount}`);
                 
-                console.log('\n   🎧 Step 4: Event listeners...');
-                const msgListeners = sock.ev.listenerCount('messages.upsert');
-                const connListeners = sock.ev.listenerCount('connection.update');
-                console.log(`   📨 messages.upsert: ${msgListeners}`);
-                console.log(`   🔌 connection.update: ${connListeners}`);
+                // Reset reconnection counter on success
+                reconnectionManager.reset();
+                console.log('✅ Reconnection counter reset');
                 
-                if (msgListeners === 0) {
-                    console.error('\n   ❌❌❌ CRITICAL: NO MESSAGE LISTENERS! ❌❌❌');
-                }
-                
-                console.log('\n   📿 Step 5: Islamic Module...');
                 if (islamicIsEnabled()) {
-                    try {
-                        await initializeIslamicModule(sock);
-                        console.log('   ✅ Initialized');
-                    } catch (e) {
-                        console.error(`   ❌ Failed: ${e.message}`);
-                    }
+                    console.log('🔄 تهيئة القسم الإسلامي...');
+                    await initializeIslamicModule(sock);
+                    console.log('✅ القسم الإسلامي جاهز للعمل\n');
                 }
                 
-                console.log('\n===== DIAGNOSTICS COMPLETE =====');
-                console.log('⚡ Ready - send a test message\n');
-   
-                // الرسالة التلقائية محذوفة حسب الطلب
+                // ========== SYNC SESSION TO MONGODB ==========
+                if (USE_MONGODB && sock.user?.id) {
+                    console.log('💾 Syncing session to MongoDB...');
+                    try {
+                        await saveCreds();
+                        console.log('✅ Session synced to MongoDB\n');
+                    } catch (e) {
+                        console.error('⚠️ MongoDB sync failed:', e.message, '\n');
+                    }
+                    
+                    // ========== AUTO BACKUP EVERY 5 MINUTES ==========
+                    // Clear any existing backup interval first!
+                    if (backupInterval) {
+                        clearInterval(backupInterval);
+                        console.log('🧹 Cleared old backup interval');
+                    }
+                    
+                    console.log('🔄 Starting automatic session backup (every 5 minutes)...');
+                    backupInterval = setInterval(async () => {
+                        if (!sock?.user?.id) {
+                            console.log('⚠️ No active session - stopping backup');
+                            clearInterval(backupInterval);
+                            backupInterval = null;
+                            return;
+                        }
+                        
+                        try {
+                            await saveCreds();
+                            const timestamp = new Date().toLocaleTimeString('ar-EG', {
+                                timeZone: 'Africa/Cairo',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                            });
+                            console.log(`💾 [${timestamp}] Session backup completed`);
+                        } catch (e) {
+                            console.error(`❌ [${new Date().toLocaleTimeString()}] Backup failed:`, e.message);
+                        }
+                    }, 5 * 60 * 1000); // 5 minutes
+                    
+                    console.log('✅ Auto-backup enabled\n');
+                    // ================================================
+                }
+                // ============================================
                 
             } else if (connection === 'connecting') {
                 console.log('🔄 جاري الاتصال...');
@@ -1205,21 +1301,57 @@ async function startBot() {
         console.log('✅ البوت جاهز ✨\n');
         
     } catch (error) {
-        console.error('❌ خطأ في بدء البوت:', error);
-        console.log('⏳ إعادة المحاولة بعد 30 ثانية...\n');
+        console.error('❌ Error in startBot:', error.message);
+        
+        // Reset session flag on error
+        isSessionActive = false;
+        
+        console.log('⏳ Retrying in 30 seconds...\n');
         await delay(30000);
         return startBot();
     }
 }
 
-process.on('SIGINT', () => {
-    console.log('\n👋 إيقاف...\n');
+process.on('SIGINT', async () => {
+    console.log('\n👋 Shutting down gracefully...\n');
+    
+    // Close MongoDB connection
+    if (USE_MONGODB) {
+        try {
+            const { MongoDBAuthState } = require('./database/mongoAuthState');
+            const mongoAuth = new MongoDBAuthState(MONGO_URL, {
+                sessionId: 'main_session',
+                dbName: 'whatsapp_bot'
+            });
+            await mongoAuth.close();
+            console.log('✅ MongoDB connection closed');
+        } catch (e) {
+            console.log('MongoDB already closed');
+        }
+    }
+    
     server.close();
     process.exit(0);
 });
 
-process.on('SIGTERM', () => {
-    console.log('\n👋 إيقاف...\n');
+process.on('SIGTERM', async () => {
+    console.log('\n👋 Shutting down gracefully...\n');
+    
+    // Close MongoDB connection
+    if (USE_MONGODB) {
+        try {
+            const { MongoDBAuthState } = require('./database/mongoAuthState');
+            const mongoAuth = new MongoDBAuthState(MONGO_URL, {
+                sessionId: 'main_session',
+                dbName: 'whatsapp_bot'
+            });
+            await mongoAuth.close();
+            console.log('✅ MongoDB connection closed');
+        } catch (e) {
+            console.log('MongoDB already closed');
+        }
+    }
+    
     server.close();
     process.exit(0);
 });
