@@ -156,7 +156,7 @@ let pairingStatus = 'waiting';
 let pairingError = null;
 let phoneNumber = null;
 
-const server = http.createServer(async (req, res) => {
+const server = http.createServer((req, res) => {
     requestCount++;
     
     if (req.url === '/' || req.url === '/index.html') {
@@ -221,64 +221,10 @@ const server = http.createServer(async (req, res) => {
             code: pairingCode,
             phone: phoneNumber,
             botName: CONFIG.botName,
-            connected: globalSock && globalSock.user ? true : false,
-            phoneNumber: globalSock?.user?.id?.split(':')[0] || null
+            connected: globalSock && globalSock.user ? true : false
         }));
         return;
     }
-    
-    // ===== NEW: DEBUG ENDPOINT =====
-    if (req.url === '/debug') {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        const debugInfo = {
-            connected: !!globalSock,
-            hasUser: !!globalSock?.user,
-            phoneNumber: globalSock?.user?.id?.split(':')[0] || null,
-            botStartTime: new Date(botStartTime).toISOString(),
-            processedMessagesCount: processedMessages.size,
-            aiEnabled: AI_ENABLED,
-            islamicEnabled: islamicIsEnabled(),
-            // Check listeners
-            hasMessageListener: globalSock?.ev?.listenerCount('messages.upsert') || 0,
-            hasConnectionListener: globalSock?.ev?.listenerCount('connection.update') || 0,
-            hasCredsListener: globalSock?.ev?.listenerCount('creds.update') || 0
-        };
-        res.end(JSON.stringify(debugInfo, null, 2));
-        return;
-    }
-    
-    // ===== NEW: TEST MESSAGE ENDPOINT =====
-    if (req.url.startsWith('/test-message')) {
-        if (!globalSock || !globalSock.user) {
-            res.writeHead(503, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ success: false, error: 'Bot not connected' }));
-            return;
-        }
-        
-        const url = new URL(req.url, `http://${req.headers.host}`);
-        const target = url.searchParams.get('to') || globalSock.user.id.replace(':0', '@s.whatsapp.net');
-        
-        try {
-            await globalSock.sendMessage(target, {
-                text: `🧪 Test message from bot\nTime: ${new Date().toLocaleString()}\nThis proves bot CAN send messages!`
-            });
-            
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ 
-                success: true, 
-                message: 'Test message sent',
-                to: target
-            }));
-        } catch (e) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ 
-                success: false, 
-                error: e.message 
-            }));
-        }
-        return;
-    }
-    // ==============================
     
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
@@ -693,28 +639,6 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
     try {
         console.log('🚀 Starting bot with session...\n');
         
-        // ===== CRITICAL FIX: CLEANUP OLD SOCKET =====
-        if (globalSock) {
-            console.log('🧹 Cleaning up old socket and listeners...');
-            try {
-                // Remove ALL old event listeners
-                globalSock.ev.removeAllListeners('messages.upsert');
-                globalSock.ev.removeAllListeners('connection.update');
-                globalSock.ev.removeAllListeners('creds.update');
-                
-                // Close old socket
-                globalSock.end();
-                
-                console.log('✅ Old socket cleaned up');
-            } catch (e) {
-                console.log('⚠️ Cleanup warning:', e.message);
-            }
-            
-            // Small delay to ensure cleanup
-            await delay(1000);
-        }
-        // ===========================================
-        
         const { version, isLatest } = await fetchLatestBaileysVersion();
         console.log(`📦 Baileys v${version.join('.')}, Latest: ${isLatest ? '✅' : '⚠️'}\n`);
         
@@ -763,26 +687,12 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
 
         globalSock = sock;
         
-        console.log('📡 Attaching NEW event listeners...');
-        
-        // Track listener attachment
-        const listenerId = Date.now();
-        console.log(`🆔 Listener ID: ${listenerId}`);
+        console.log('📡 Attaching event listeners...');
         
         sock.ev.on('creds.update', saveCreds);
         
-        // ===== ADVANCED MESSAGE HANDLER WITH DEBUGGING =====
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
-            const timestamp = new Date().toLocaleString('ar-EG', {timeZone: 'Africa/Cairo'});
-            console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-            console.log(`📨 MESSAGE EVENT FIRED! [Listener: ${listenerId}]`);
-            console.log(`   Time: ${timestamp}`);
-            console.log(`   Type: ${type}`);
-            console.log(`   Count: ${messages.length}`);
-            console.log(`   Socket: ${sock.user?.id?.split(':')[0] || 'unknown'}`);
-            console.log(`   Global Socket: ${globalSock?.user?.id?.split(':')[0] || 'unknown'}`);
-            console.log(`   Match: ${sock === globalSock ? '✅ SAME' : '❌ DIFFERENT'}`);
-            console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+            console.log(`📨 Message event received: type=${type}, count=${messages.length}`);
             
             try {
                 if (msgRetryCounterCache) {
@@ -793,53 +703,33 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                     }
                 }
                 
-                if (type !== 'notify') {
-                    console.log(`⏭️ Ignoring message type: ${type}`);
-                    return;
-                }
+                if (type !== 'notify') return;
                 
                 const msg = messages[0];
-                if (!msg || !msg.message) {
-                    console.log(`⏭️ No message object found`);
-                    return;
-                }
+                if (!msg || !msg.message) return;
                 
                 const sender = msg.key.remoteJid;
                 const messageId = msg.key.id;
                 const isGroup = sender.endsWith('@g.us');
-                
-                console.log(`📩 Processing message from: ${sender}`);
                 
                 // تجاهل poll updates/creation تماماً
                 if (msg.message?.pollUpdateMessage || 
                     msg.message?.pollCreationMessage ||
                     msg.message?.pollCreationMessageV2 ||
                     msg.message?.pollCreationMessageV3) {
-                    console.log(`⏭️ Ignoring poll message`);
                     return;
                 }
                 
                 // Message Deduplication
                 const msgKey = `${sender}_${messageId}`;
                 if (processedMessages.has(msgKey)) {
-                    console.log(`⏭️ Duplicate message - already processed`);
                     return;
                 }
                 processedMessages.add(msgKey);
                 setTimeout(() => processedMessages.delete(msgKey), 60000);
                 
                 const messageTime = msg.messageTimestamp * 1000;
-                const timeDiff = Date.now() - messageTime;
-                const botRuntime = Date.now() - botStartTime;
-                
-                console.log(`⏰ Message time check:`);
-                console.log(`   Message timestamp: ${new Date(messageTime).toLocaleString()}`);
-                console.log(`   Bot start time: ${new Date(botStartTime).toLocaleString()}`);
-                console.log(`   Message age: ${Math.floor(timeDiff / 1000)}s`);
-                console.log(`   Bot runtime: ${Math.floor(botRuntime / 1000)}s`);
-                
                 if (messageTime < botStartTime - 60000) {
-                    console.log(`⏭️ Old message - ignoring (before bot start)`);
                     return;
                 }
 
@@ -1095,10 +985,7 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect, qr } = update;
             
-            // Track which socket this is
-            const sockId = sock.user?.id?.split(':')[0] || 'unknown';
-            
-            console.log(`\n🔍 ===== CONNECTION UPDATE [Sock: ${sockId}] =====`);
+            console.log(`\n🔍 ===== CONNECTION UPDATE =====`);
             console.log(`   connection: ${connection || 'N/A'}`);
             console.log(`   qr: ${qr ? 'موجود' : 'لا'}`);
             console.log(`   lastDisconnect: ${lastDisconnect ? 'موجود' : 'لا'}`);
@@ -1189,33 +1076,62 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                     return startBot();
                 }
                 
-                // ========== TEMPORARY ERROR (500, 408, etc) - RECONNECT ==========
-                console.log('🔄 Temporary error - reconnecting in same process...');
+                // ========== TEMPORARY ERROR (500, 408, etc) - CLEAN RESTART ==========
+                console.log('⚠️ Temporary error detected - forcing clean restart');
+                console.log('💡 This ensures fresh state and working message handlers\n');
                 
-                // Mark current session as inactive before reconnecting
+                // Mark session as inactive
                 isSessionActive = false;
                 
-                // Use smart reconnection
+                // Save session before restart
+                console.log('💾 Saving session before restart...');
                 try {
-                    await reconnectionManager.reconnect(async () => {
-                        console.log('🚀 Executing reconnection...\n');
-                        await startBot();
-                    });
+                    await saveCreds();
+                    console.log('✅ Session saved to filesystem');
                 } catch (e) {
-                    console.error('Reconnection failed:', e.message);
-                    console.log('⏳ Retrying in 10s...');
-                    isSessionActive = false; // Ensure flag is reset
-                    await delay(10000);
-                    await startBot();
+                    console.error('⚠️ Filesystem save failed:', e.message);
                 }
-                // ================================================
+                
+                // Also try MongoDB save
+                if (USE_MONGODB) {
+                    try {
+                        const authPath = path.join(__dirname, 'auth_info');
+                        if (fs.existsSync(authPath)) {
+                            const files = fs.readdirSync(authPath);
+                            for (const file of files) {
+                                const filePath = path.join(authPath, file);
+                                if (fs.statSync(filePath).isFile() && file.endsWith('.json')) {
+                                    const content = fs.readFileSync(filePath, 'utf-8');
+                                    const key = file.replace('.json', '');
+                                    const { useMongoDBAuthState } = require('./database/mongoAuthState');
+                                    const mongoAuth = await useMongoDBAuthState(MONGO_URL, {
+                                        sessionId: 'main_session',
+                                        dbName: 'whatsapp_bot'
+                                    });
+                                    await mongoAuth.writeData(key, JSON.parse(content));
+                                }
+                            }
+                            console.log('✅ Session saved to MongoDB');
+                        }
+                    } catch (e) {
+                        console.error('⚠️ MongoDB save failed:', e.message);
+                    }
+                }
+                
+                console.log('\n╔════════════════════════════════════════╗');
+                console.log('║  🔄 CLEAN RESTART IN 5 SECONDS        ║');
+                console.log('║                                        ║');
+                console.log('║  ✅ Session saved (filesystem + DB)    ║');
+                console.log('║  ✅ Clever Cloud will restart          ║');
+                console.log('║  ✅ Fresh start = Working messages!    ║');
+                console.log('╚════════════════════════════════════════╝\n');
+                
+                await delay(5000);
+                process.exit(0); // Clever Cloud restarts automatically
+                // ================================================================
                 
             } else if (connection === 'open') {
                 const now = new Date().toLocaleString('ar-EG', {timeZone: 'Africa/Cairo'});
-                
-                // Verify this is the current global socket
-                const isCurrentSocket = (globalSock === sock);
-                
                 console.log('\n✅ ════════════════════════════════════');
                 console.log(`   متصل بواتساب بنجاح! 🎉`);
                 console.log(`   البوت: ${CONFIG.botName}`);
@@ -1223,18 +1139,10 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                 console.log(`   الوقت: ${now}`);
                 console.log(`   AI: ${AI_ENABLED ? '✅' : '❌'}`);
                 console.log(`   القسم الإسلامي: ${islamicIsEnabled() ? '✅' : '❌'}`);
-                console.log(`   🔌 Socket Status: ${isCurrentSocket ? '✅ ACTIVE' : '⚠️ OLD'}`);
                 console.log('════════════════════════════════════\n');
-                
-                // Only proceed if this is the current socket
-                if (!isCurrentSocket) {
-                    console.log('⚠️ This is an old socket - ignoring connection.open');
-                    return;
-                }
                 
                 processedMessages.clear();
                 botStartTime = Date.now();
-                console.log(`📝 Message processing enabled from: ${new Date(botStartTime).toLocaleString()}\n`);
                 
                 badMacErrorCount = 0;
                 lastBadMacReset = Date.now();
@@ -1289,6 +1197,50 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                     }, 5 * 60 * 1000); // 5 minutes
                     
                     console.log('✅ Auto-backup enabled\n');
+                    
+                    // ========== MONGODB CONTINUOUS SYNC ==========
+                    // Also sync to MongoDB every 5 minutes as redundancy
+                    const mongoSyncInterval = setInterval(async () => {
+                        if (!sock?.user?.id) {
+                            clearInterval(mongoSyncInterval);
+                            return;
+                        }
+                        
+                        try {
+                            const authPath = path.join(__dirname, 'auth_info');
+                            if (!fs.existsSync(authPath)) return;
+                            
+                            const { useMongoDBAuthState } = require('./database/mongoAuthState');
+                            const mongoAuth = await useMongoDBAuthState(MONGO_URL, {
+                                sessionId: 'main_session',
+                                dbName: 'whatsapp_bot'
+                            });
+                            
+                            const files = fs.readdirSync(authPath);
+                            let synced = 0;
+                            
+                            for (const file of files) {
+                                const filePath = path.join(authPath, file);
+                                if (fs.statSync(filePath).isFile() && file.endsWith('.json')) {
+                                    const content = fs.readFileSync(filePath, 'utf-8');
+                                    const key = file.replace('.json', '');
+                                    await mongoAuth.writeData(key, JSON.parse(content));
+                                    synced++;
+                                }
+                            }
+                            
+                            const timestamp = new Date().toLocaleTimeString('ar-EG', {
+                                timeZone: 'Africa/Cairo',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                            });
+                            console.log(`🔄 [${timestamp}] MongoDB sync: ${synced} files ✅`);
+                        } catch (e) {
+                            console.error(`❌ MongoDB sync failed: ${e.message}`);
+                        }
+                    }, 5 * 60 * 1000); // 5 minutes
+                    console.log('🔄 MongoDB continuous sync enabled\n');
+                    // ============================================
                     // ================================================
                 }
                 // ============================================
