@@ -1076,59 +1076,26 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                     return startBot();
                 }
                 
-                // ========== TEMPORARY ERROR (500, 408, etc) - CLEAN RESTART ==========
-                console.log('⚠️ Temporary error detected - forcing clean restart');
-                console.log('💡 This ensures fresh state and working message handlers\n');
+                // ========== TEMPORARY ERROR (500, 408, etc) - RECONNECT ==========
+                console.log('🔄 Temporary error - reconnecting in same process...');
                 
-                // Mark session as inactive
+                // Mark current session as inactive before reconnecting
                 isSessionActive = false;
                 
-                // Save session before restart
-                console.log('💾 Saving session before restart...');
+                // Use smart reconnection
                 try {
-                    await saveCreds();
-                    console.log('✅ Session saved to filesystem');
+                    await reconnectionManager.reconnect(async () => {
+                        console.log('🚀 Executing reconnection...\n');
+                        await startBot();
+                    });
                 } catch (e) {
-                    console.error('⚠️ Filesystem save failed:', e.message);
+                    console.error('Reconnection failed:', e.message);
+                    console.log('⏳ Retrying in 10s...');
+                    isSessionActive = false; // Ensure flag is reset
+                    await delay(10000);
+                    await startBot();
                 }
-                
-                // Also try MongoDB save
-                if (USE_MONGODB) {
-                    try {
-                        const authPath = path.join(__dirname, 'auth_info');
-                        if (fs.existsSync(authPath)) {
-                            const files = fs.readdirSync(authPath);
-                            for (const file of files) {
-                                const filePath = path.join(authPath, file);
-                                if (fs.statSync(filePath).isFile() && file.endsWith('.json')) {
-                                    const content = fs.readFileSync(filePath, 'utf-8');
-                                    const key = file.replace('.json', '');
-                                    const { useMongoDBAuthState } = require('./database/mongoAuthState');
-                                    const mongoAuth = await useMongoDBAuthState(MONGO_URL, {
-                                        sessionId: 'main_session',
-                                        dbName: 'whatsapp_bot'
-                                    });
-                                    await mongoAuth.writeData(key, JSON.parse(content));
-                                }
-                            }
-                            console.log('✅ Session saved to MongoDB');
-                        }
-                    } catch (e) {
-                        console.error('⚠️ MongoDB save failed:', e.message);
-                    }
-                }
-                
-                console.log('\n╔════════════════════════════════════════╗');
-                console.log('║  🔄 CLEAN RESTART IN 5 SECONDS        ║');
-                console.log('║                                        ║');
-                console.log('║  ✅ Session saved (filesystem + DB)    ║');
-                console.log('║  ✅ Clever Cloud will restart          ║');
-                console.log('║  ✅ Fresh start = Working messages!    ║');
-                console.log('╚════════════════════════════════════════╝\n');
-                
-                await delay(5000);
-                process.exit(0); // Clever Cloud restarts automatically
-                // ================================================================
+                // ================================================
                 
             } else if (connection === 'open') {
                 const now = new Date().toLocaleString('ar-EG', {timeZone: 'Africa/Cairo'});
@@ -1197,50 +1164,6 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                     }, 5 * 60 * 1000); // 5 minutes
                     
                     console.log('✅ Auto-backup enabled\n');
-                    
-                    // ========== MONGODB CONTINUOUS SYNC ==========
-                    // Also sync to MongoDB every 5 minutes as redundancy
-                    const mongoSyncInterval = setInterval(async () => {
-                        if (!sock?.user?.id) {
-                            clearInterval(mongoSyncInterval);
-                            return;
-                        }
-                        
-                        try {
-                            const authPath = path.join(__dirname, 'auth_info');
-                            if (!fs.existsSync(authPath)) return;
-                            
-                            const { useMongoDBAuthState } = require('./database/mongoAuthState');
-                            const mongoAuth = await useMongoDBAuthState(MONGO_URL, {
-                                sessionId: 'main_session',
-                                dbName: 'whatsapp_bot'
-                            });
-                            
-                            const files = fs.readdirSync(authPath);
-                            let synced = 0;
-                            
-                            for (const file of files) {
-                                const filePath = path.join(authPath, file);
-                                if (fs.statSync(filePath).isFile() && file.endsWith('.json')) {
-                                    const content = fs.readFileSync(filePath, 'utf-8');
-                                    const key = file.replace('.json', '');
-                                    await mongoAuth.writeData(key, JSON.parse(content));
-                                    synced++;
-                                }
-                            }
-                            
-                            const timestamp = new Date().toLocaleTimeString('ar-EG', {
-                                timeZone: 'Africa/Cairo',
-                                hour: '2-digit',
-                                minute: '2-digit'
-                            });
-                            console.log(`🔄 [${timestamp}] MongoDB sync: ${synced} files ✅`);
-                        } catch (e) {
-                            console.error(`❌ MongoDB sync failed: ${e.message}`);
-                        }
-                    }, 5 * 60 * 1000); // 5 minutes
-                    console.log('🔄 MongoDB continuous sync enabled\n');
-                    // ============================================
                     // ================================================
                 }
                 // ============================================
