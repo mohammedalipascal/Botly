@@ -1163,7 +1163,6 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                 let healthCheckInterval = null;
                 
                 // Update last message time on every message
-                const originalMessageHandler = sock.ev.listenerCount('messages.upsert');
                 sock.ev.on('messages.upsert', () => {
                     lastMessageTime = Date.now();
                 });
