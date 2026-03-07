@@ -1076,26 +1076,59 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                     return startBot();
                 }
                 
-                // ========== TEMPORARY ERROR (500, 408, etc) - RECONNECT ==========
-                console.log('🔄 Temporary error - reconnecting in same process...');
+                // ========== TEMPORARY ERROR (500, 408, etc) - CLEAN RESTART ==========
+                console.log('⚠️ Temporary error detected - forcing clean restart');
+                console.log('💡 This ensures fresh state and working message handlers\n');
                 
-                // Mark current session as inactive before reconnecting
+                // Mark session as inactive
                 isSessionActive = false;
                 
-                // Use smart reconnection
+                // Save session before restart
+                console.log('💾 Saving session before restart...');
                 try {
-                    await reconnectionManager.reconnect(async () => {
-                        console.log('🚀 Executing reconnection...\n');
-                        await startBot();
-                    });
+                    await saveCreds();
+                    console.log('✅ Session saved to filesystem');
                 } catch (e) {
-                    console.error('Reconnection failed:', e.message);
-                    console.log('⏳ Retrying in 10s...');
-                    isSessionActive = false; // Ensure flag is reset
-                    await delay(10000);
-                    await startBot();
+                    console.error('⚠️ Filesystem save failed:', e.message);
                 }
-                // ================================================
+                
+                // Also try MongoDB save
+                if (USE_MONGODB) {
+                    try {
+                        const authPath = path.join(__dirname, 'auth_info');
+                        if (fs.existsSync(authPath)) {
+                            const files = fs.readdirSync(authPath);
+                            for (const file of files) {
+                                const filePath = path.join(authPath, file);
+                                if (fs.statSync(filePath).isFile() && file.endsWith('.json')) {
+                                    const content = fs.readFileSync(filePath, 'utf-8');
+                                    const key = file.replace('.json', '');
+                                    const { useMongoDBAuthState } = require('./database/mongoAuthState');
+                                    const mongoAuth = await useMongoDBAuthState(MONGO_URL, {
+                                        sessionId: 'main_session',
+                                        dbName: 'whatsapp_bot'
+                                    });
+                                    await mongoAuth.writeData(key, JSON.parse(content));
+                                }
+                            }
+                            console.log('✅ Session saved to MongoDB');
+                        }
+                    } catch (e) {
+                        console.error('⚠️ MongoDB save failed:', e.message);
+                    }
+                }
+                
+                console.log('\n╔════════════════════════════════════════╗');
+                console.log('║  🔄 CLEAN RESTART IN 5 SECONDS        ║');
+                console.log('║                                        ║');
+                console.log('║  ✅ Session saved (filesystem + DB)    ║');
+                console.log('║  ✅ Clever Cloud will restart          ║');
+                console.log('║  ✅ Fresh start = Working messages!    ║');
+                console.log('╚════════════════════════════════════════╝\n');
+                
+                await delay(5000);
+                process.exit(0); // Clever Cloud restarts automatically
+                // ================================================================
                 
             } else if (connection === 'open') {
                 const now = new Date().toLocaleString('ar-EG', {timeZone: 'Africa/Cairo'});
@@ -1123,6 +1156,113 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                     await initializeIslamicModule(sock);
                     console.log('✅ القسم الإسلامي جاهز للعمل\n');
                 }
+                
+                // ========== HEALTH MONITORING & AUTO-RECOVERY ==========
+                // Monitor connection health and force restart if needed
+                let lastMessageTime = Date.now();
+                let healthCheckInterval = null;
+                
+                // Update last message time on every message
+                const originalMessageHandler = sock.ev.listenerCount('messages.upsert');
+                sock.ev.on('messages.upsert', () => {
+                    lastMessageTime = Date.now();
+                });
+                
+                // Health check every 2 minutes
+                healthCheckInterval = setInterval(async () => {
+                    const timeSinceLastMessage = Date.now() - lastMessageTime;
+                    const timeSinceStart = Date.now() - botStartTime;
+                    
+                    // If no messages for 10 minutes AND running > 45 minutes
+                    // Likely WhatsApp detected bot - force restart
+                    if (timeSinceLastMessage > 10 * 60 * 1000 && timeSinceStart > 45 * 60 * 1000) {
+                        console.log('\n⚠️ ════════════════════════════════');
+                        console.log('   HEALTH CHECK FAILED');
+                        console.log(`   No activity for ${Math.floor(timeSinceLastMessage / 1000 / 60)} minutes`);
+                        console.log(`   Bot running for ${Math.floor(timeSinceStart / 1000 / 60)} minutes`);
+                        console.log('   Likely WhatsApp detected bot');
+                        console.log('════════════════════════════════\n');
+                        
+                        console.log('🔄 Forcing proactive restart...');
+                        
+                        // Save session
+                        try {
+                            await saveCreds();
+                            console.log('💾 Session saved');
+                        } catch (e) {}
+                        
+                        console.log('🔄 Restarting in 3s for fresh connection...\n');
+                        clearInterval(healthCheckInterval);
+                        await delay(3000);
+                        process.exit(0);
+                    }
+                    
+                    // Also check if running > 90 minutes - preventive restart
+                    if (timeSinceStart > 90 * 60 * 1000) {
+                        console.log('\n⏰ ════════════════════════════════');
+                        console.log('   PREVENTIVE RESTART');
+                        console.log(`   Bot running for ${Math.floor(timeSinceStart / 1000 / 60)} minutes`);
+                        console.log('   Proactive restart to avoid WhatsApp detection');
+                        console.log('════════════════════════════════\n');
+                        
+                        // Notify admin (optional - if owner number exists)
+                        if (CONFIG.ownerNumber && sock.user?.id) {
+                            try {
+                                await sock.sendMessage(CONFIG.ownerNumber, {
+                                    text: `🔄 *إعادة تشغيل وقائية*\n\n` +
+                                          `البوت شغال ${Math.floor(timeSinceStart / 1000 / 60)} دقيقة\n` +
+                                          `إعادة تشغيل وقائية لتجنب الانقطاع\n\n` +
+                                          `⏱️ سأعود خلال 15 ثانية\n` +
+                                          `✅ الجلسة محفوظة`
+                                });
+                                console.log('📨 Admin notified');
+                                await delay(2000); // Give time for message to send
+                            } catch (e) {
+                                console.log('⚠️ Could not notify admin');
+                            }
+                        }
+                        
+                        try {
+                            await saveCreds();
+                            console.log('💾 Session saved');
+                        } catch (e) {}
+                        
+                        console.log('🔄 Restarting for fresh session...\n');
+                        clearInterval(healthCheckInterval);
+                        await delay(3000);
+                        process.exit(0);
+                    }
+                }, 2 * 60 * 1000); // Check every 2 minutes
+                
+                console.log('🛡️ Health monitoring enabled:');
+                console.log('   📊 Check every 2 minutes');
+                console.log('   ⏰ Auto-restart after 90 minutes');
+                console.log('   🔍 Detect inactivity > 10 minutes\n');
+                // ====================================================
+                
+                // ========== NOTIFY ADMIN ON STARTUP ==========
+                if (CONFIG.ownerNumber && sock.user?.id) {
+                    try {
+                        const uptimeMinutes = Math.floor((Date.now() - botStartTime) / 1000 / 60);
+                        const isRestart = uptimeMinutes < 1;
+                        
+                        if (isRestart) {
+                            await sock.sendMessage(CONFIG.ownerNumber, {
+                                text: `✅ *البوت متصل!*\n\n` +
+                                      `📱 ${CONFIG.botName}\n` +
+                                      `🕐 ${new Date().toLocaleString('ar-EG', {timeZone: 'Africa/Cairo'})}\n\n` +
+                                      `🛡️ Auto-restart: كل 90 دقيقة\n` +
+                                      `💾 Backup: كل 5 دقائق\n` +
+                                      `🔄 MongoDB sync: كل 5 دقائق\n\n` +
+                                      `ℹ️ سأعيد تشغيل نفسي تلقائياً كل ساعة ونصف للحفاظ على الاستقرار`
+                            });
+                            console.log('📨 Startup notification sent to admin\n');
+                        }
+                    } catch (e) {
+                        console.log('⚠️ Could not send startup notification\n');
+                    }
+                }
+                // ============================================
                 
                 // ========== SYNC SESSION TO MONGODB ==========
                 if (USE_MONGODB && sock.user?.id) {
@@ -1164,6 +1304,50 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                     }, 5 * 60 * 1000); // 5 minutes
                     
                     console.log('✅ Auto-backup enabled\n');
+                    
+                    // ========== MONGODB CONTINUOUS SYNC ==========
+                    // Also sync to MongoDB every 5 minutes as redundancy
+                    const mongoSyncInterval = setInterval(async () => {
+                        if (!sock?.user?.id) {
+                            clearInterval(mongoSyncInterval);
+                            return;
+                        }
+                        
+                        try {
+                            const authPath = path.join(__dirname, 'auth_info');
+                            if (!fs.existsSync(authPath)) return;
+                            
+                            const { useMongoDBAuthState } = require('./database/mongoAuthState');
+                            const mongoAuth = await useMongoDBAuthState(MONGO_URL, {
+                                sessionId: 'main_session',
+                                dbName: 'whatsapp_bot'
+                            });
+                            
+                            const files = fs.readdirSync(authPath);
+                            let synced = 0;
+                            
+                            for (const file of files) {
+                                const filePath = path.join(authPath, file);
+                                if (fs.statSync(filePath).isFile() && file.endsWith('.json')) {
+                                    const content = fs.readFileSync(filePath, 'utf-8');
+                                    const key = file.replace('.json', '');
+                                    await mongoAuth.writeData(key, JSON.parse(content));
+                                    synced++;
+                                }
+                            }
+                            
+                            const timestamp = new Date().toLocaleTimeString('ar-EG', {
+                                timeZone: 'Africa/Cairo',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                            });
+                            console.log(`🔄 [${timestamp}] MongoDB sync: ${synced} files ✅`);
+                        } catch (e) {
+                            console.error(`❌ MongoDB sync failed: ${e.message}`);
+                        }
+                    }, 5 * 60 * 1000); // 5 minutes
+                    console.log('🔄 MongoDB continuous sync enabled\n');
+                    // ============================================
                     // ================================================
                 }
                 // ============================================
