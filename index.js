@@ -126,14 +126,31 @@ function sendMessage(to, text) {
 // Create sock wrapper for Islamic module
 const sockWrapper = {
     sendMessage: async (jid, content) => {
-        // Convert WhatsApp format to phone number
-        const phone = jid.replace('@s.whatsapp.net', '').replace('@g.us', '');
+        // Convert WhatsApp JID format to UltraMsg phone number
+        // Examples:
+        // 249962204268@s.whatsapp.net → 249962204268@c.us
+        // 120363XXX@g.us → 120363XXX@g.us (group)
+        
+        let phone = jid;
+        
+        // Convert individual chat format
+        if (jid.includes('@s.whatsapp.net')) {
+            phone = jid.replace('@s.whatsapp.net', '@c.us');
+        }
+        
+        console.log(`📤 Sending to: ${phone}`);
+        
         if (content.text) {
-            await sendMessage(phone, content.text);
+            try {
+                await sendMessage(phone, content.text);
+                console.log('✅ Message sent');
+            } catch (e) {
+                console.error('❌ Send failed:', e.message);
+            }
         }
     },
     user: {
-        id: CONFIG.ownerNumber
+        id: CONFIG.ownerNumber + '@s.whatsapp.net'
     }
 };
 
@@ -196,6 +213,7 @@ const server = http.createServer(async (req, res) => {
                 
                 console.log(`📩 Message from: ${from}`);
                 console.log(`📝 Text: ${body_text}`);
+                console.log(`👤 From me: ${data.fromMe}`);
                 
                 // Check if banned
                 if (BANNED_USERS.includes(from)) {
@@ -205,7 +223,9 @@ const server = http.createServer(async (req, res) => {
                     return;
                 }
                 
-                const isOwner = from === CONFIG.ownerNumber || from === CONFIG.adminNumber;
+                // Extract phone number without @c.us
+                const phoneNumber = from.replace('@c.us', '');
+                const isOwner = phoneNumber === CONFIG.ownerNumber || phoneNumber === CONFIG.adminNumber;
                 
                 // Admin commands
                 if (isOwner && body_text.trim() === '/تشغيل') {
@@ -250,14 +270,19 @@ const server = http.createServer(async (req, res) => {
                 if (islamicIsEnabled() && isOwner) {
                     const islamicCommands = ['/اسلام', '/islam', '/ادارة', '/admin'];
                     if (islamicCommands.includes(body_text.trim()) || /^\d+$/.test(body_text.trim())) {
+                        console.log('📿 Islamic command detected');
+                        
                         const msgWrapper = {
                             key: {
-                                remoteJid: from + '@s.whatsapp.net',
-                                fromMe: false
+                                remoteJid: phoneNumber + '@s.whatsapp.net',
+                                fromMe: data.fromMe || false
                             }
                         };
                         
-                        const handled = await handleIslamicCommand(sockWrapper, msgWrapper, body_text, from + '@s.whatsapp.net');
+                        const handled = await handleIslamicCommand(sockWrapper, msgWrapper, body_text, phoneNumber + '@s.whatsapp.net');
+                        
+                        console.log(`📿 Islamic command handled: ${handled}`);
+                        
                         if (handled) {
                             res.writeHead(200);
                             res.end('OK');
