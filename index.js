@@ -445,6 +445,7 @@ async function generateNewSession(attemptNumber = 1) {
 const MAX_PROCESSED_CACHE = 1000;
 let globalSock = null;
 let botStartTime = Date.now();
+let lastMessageTime = Date.now(); // Track last message for health check
 
 // Session management
 let isSessionActive = false;
@@ -693,6 +694,9 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
         
         sock.ev.on('messages.upsert', async ({ messages, type }) => {
             console.log(`📨 Message event received: type=${type}, count=${messages.length}`);
+            
+            // Update last message time for health check
+            lastMessageTime = Date.now();
             
             try {
                 if (msgRetryCounterCache) {
@@ -1159,13 +1163,8 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                 
                 // ========== HEALTH MONITORING & AUTO-RECOVERY ==========
                 // Monitor connection health and force restart if needed
-                let lastMessageTime = Date.now();
+                // (lastMessageTime is global and updated in message handler)
                 let healthCheckInterval = null;
-                
-                // Update last message time on every message
-                sock.ev.on('messages.upsert', () => {
-                    lastMessageTime = Date.now();
-                });
                 
                 // Health check every 2 minutes
                 healthCheckInterval = setInterval(async () => {
@@ -1316,31 +1315,15 @@ async function startBotWithSession(stateOverride = null, saveCredsOverride = nul
                             const authPath = path.join(__dirname, 'auth_info');
                             if (!fs.existsSync(authPath)) return;
                             
-                            const { useMongoDBAuthState } = require('./database/mongoAuthState');
-                            const mongoAuth = await useMongoDBAuthState(MONGO_URL, {
-                                sessionId: 'main_session',
-                                dbName: 'whatsapp_bot'
-                            });
-                            
-                            const files = fs.readdirSync(authPath);
-                            let synced = 0;
-                            
-                            for (const file of files) {
-                                const filePath = path.join(authPath, file);
-                                if (fs.statSync(filePath).isFile() && file.endsWith('.json')) {
-                                    const content = fs.readFileSync(filePath, 'utf-8');
-                                    const key = file.replace('.json', '');
-                                    await mongoAuth.writeData(key, JSON.parse(content));
-                                    synced++;
-                                }
-                            }
+                            // Just use saveCreds - it already saves to MongoDB!
+                            await saveCreds();
                             
                             const timestamp = new Date().toLocaleTimeString('ar-EG', {
                                 timeZone: 'Africa/Cairo',
                                 hour: '2-digit',
                                 minute: '2-digit'
                             });
-                            console.log(`🔄 [${timestamp}] MongoDB sync: ${synced} files ✅`);
+                            console.log(`🔄 [${timestamp}] MongoDB sync completed ✅`);
                         } catch (e) {
                             console.error(`❌ MongoDB sync failed: ${e.message}`);
                         }
